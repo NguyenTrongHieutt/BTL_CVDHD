@@ -1,0 +1,34 @@
+# Bí mật
+.env
+deploy/.env
+*.local
+
+# Java / Maven
+backend/target/
+backend/.mvn/wrapper/maven-wrapper.jar
+
+# Node
+node_modules/
+frontend/dist/
+frontend/playwright-report/
+frontend/test-results/
+*.tsbuildinfo
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+ai-service/models/
+
+# IDE / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.iml
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/

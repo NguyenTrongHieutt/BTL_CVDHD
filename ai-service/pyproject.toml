@@ -1,0 +1,32 @@
+[project]
+name = "ai-service"
+version = "0.1.0"
+description = "Dich vu AI: tim kiem ngu nghia va hoi dap du lieu"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi==0.162.0",
+    "google-genai==2.34.0",
+    "httpx==0.28.1",
+    "pgvector==0.5.1",
+    "psycopg[binary]==3.3.8",
+    "pydantic==2.14.3",
+    "pydantic-settings>=2.16.2",
+    "pyjwt==2.15.1",
+    "sentence-transformers==6.2.0",
+    "torch==2.15.0",
+    "uvicorn[standard]>=0.54.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[dependency-groups]
+dev = [
+    "pytest==9.2.0",
+]

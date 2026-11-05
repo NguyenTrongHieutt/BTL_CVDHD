@@ -1,0 +1,27 @@
+# Người duyệt bắt buộc theo thư mục (AD-4). GitHub đọc file này ở thư mục gốc.
+# TODO: thay <github-cua-anh> và <github-cua-lan> bằng tên tài khoản GitHub thật của Anh và Lân, rồi bỏ dấu # ở đầu dòng.
+
+*                                   @NguyenTrongHieutt
+
+# Hiếu (B): platform, catalog, hạ tầng
+/backend/src/main/java/vn/nhom17/banhang/platform/   @NguyenTrongHieutt
+/backend/src/main/java/vn/nhom17/banhang/catalog/    @NguyenTrongHieutt
+/deploy/                                              @NguyenTrongHieutt
+/backend/src/main/resources/db/migration/             @NguyenTrongHieutt
+
+# Anh (A): inventory, sales, frontend/shared
+# /backend/src/main/java/vn/nhom17/banhang/inventory/  @<github-cua-anh>
+# /backend/src/main/java/vn/nhom17/banhang/sales/      @<github-cua-anh>
+# /frontend/src/shared/                                @<github-cua-anh>
+# /frontend/src/features/sales/                        @<github-cua-anh>
+# /frontend/src/features/inventory/                    @<github-cua-anh>
+
+# Lân (C): reporting, ai-service, eval, seed
+# /backend/src/main/java/vn/nhom17/banhang/reporting/  @<github-cua-lan>
+# /backend/src/main/java/vn/nhom17/banhang/devtools/   @<github-cua-lan>
+# /ai-service/                                         @<github-cua-lan>
+# /eval/                                               @<github-cua-lan>
+# /deploy/seed/                                        @<github-cua-lan>
+# /frontend/src/shared/api/aiSearch.ts                 @<github-cua-lan>
+# Migration chạm cột mà Q1–Q9 đọc cũng cần Lân duyệt:
+# /backend/src/main/resources/db/migration/            @NguyenTrongHieutt @<github-cua-lan>

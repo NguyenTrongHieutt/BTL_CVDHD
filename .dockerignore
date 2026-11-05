@@ -1,0 +1,13 @@
+# Ngữ cảnh build của image web là thư mục gốc repo (deploy/web.Dockerfile)
+**/node_modules
+frontend/dist
+frontend/playwright-report
+frontend/test-results
+backend/target
+ai-service/.venv
+**/__pycache__
+**/.pytest_cache
+.git
+deploy/.env
+BTL_CVDHD
+eval

@@ -1,0 +1,117 @@
+/* Kiểu chung của khung ứng dụng. Người giữ: Anh. Phần lớn giao diện dùng Ant Design 6. */
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: #f5f5f5;
+}
+
+.full-page-center {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.app-brand {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  font-size: 16px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 16px;
+}
+
+.app-sider-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.app-header-store {
+  min-width: 0;
+  flex: 1;
+  font-size: 16px;
+}
+
+.app-header-user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-content {
+  padding: 16px;
+  min-width: 0;
+}
+
+@media (min-width: 768px) {
+  .app-content {
+    padding: 24px;
+  }
+}
+
+/* Số tiền không xuống dòng giữa số và "₫", chữ số đều nhau để cột tiền thẳng hàng. */
+.money-text {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * In hóa đơn (FR-13): hộp thoại in của trình duyệt, khổ giấy in nhiệt 80mm.
+ * Màn in đặt nội dung hóa đơn trong `.print-receipt`; khung ứng dụng (`.app-chrome`) và
+ * phần có `.no-print` bị ẩn khi in.
+ */
+@media print {
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  body {
+    background: #fff;
+  }
+
+  .app-chrome,
+  .no-print {
+    display: none !important;
+  }
+
+  .app-content {
+    padding: 0 !important;
+  }
+
+  .print-receipt {
+    width: 80mm;
+    padding: 4mm;
+    box-sizing: border-box;
+    font-size: 12px;
+  }
+}

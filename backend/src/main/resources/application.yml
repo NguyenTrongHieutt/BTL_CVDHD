@@ -1,0 +1,87 @@
+spring:
+  application:
+    name: banhang-backend
+  profiles:
+    default: dev
+  config:
+    # Khi chạy trên máy: đọc mật khẩu và khóa từ deploy/.env (file này không commit).
+    import: "optional:file:../deploy/.env[.properties]"
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:${DB_HOST_PORT:5432}/banhang}
+    username: app_backend            # không có BYPASSRLS (AD-5)
+    password: ${DB_BACKEND_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+  flyway:
+    user: app_owner                  # chỉ Flyway được chạy DDL (AD-4)
+    password: ${DB_OWNER_PASSWORD:}
+    schemas: app,ai
+    default-schema: app
+    create-schemas: false
+    locations: classpath:db/migration
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate.default_schema: app
+      hibernate.jdbc.time_zone: UTC
+  mvc:
+    problemdetails:
+      enabled: true                  # AD-19
+
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,modulith
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+app:
+  security:
+    jwt-secret: ${JWT_SECRET:}
+    token-ttl: 8h                    # AD-9: exp = lúc cấp + 8 giờ
+    renew-after: 15m                 # AD-9: cấp token mới khi cũ hơn 15 phút
+    account-status-cache: 60s        # AD-9: kiểm tra trạng thái tài khoản, cache tối đa 60 giây
+    cookie-secure: false             # demo chạy http://localhost
+    internal-service-key: ${INTERNAL_SERVICE_KEY:}
+  dev:
+    password: demo1234               # mật khẩu tài khoản dev.* (chỉ profile dev)
+  seed:
+    dir: ${SEED_DIR:../deploy/seed}
+    anchor-date: ${SEED_ANCHOR_DATE:}
+
+logging:
+  level:
+    vn.nhom17: INFO
+
+---
+spring:
+  config:
+    activate:
+      on-profile: seed
+  main:
+    web-application-type: none       # job seed chạy xong thì thoát
+
+---
+spring:
+  config:
+    activate:
+      on-profile: demo
+logging:
+  structured:
+    format:
+      console: ecs                   # log JSON ra stdout khi chạy bằng Docker

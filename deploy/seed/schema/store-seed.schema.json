@@ -1,0 +1,405 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nhom17.local/deploy/seed/schema/store-seed.schema.json",
+  "title": "Dữ liệu mẫu của một Cửa hàng (deploy/seed/store-*.json)",
+  "description": "Đầu vào mức nghiệp vụ cho devtools.seed (AD-18). Tham chiếu bằng khóa nghiệp vụ (mã, SKU, số điện thoại, tên đăng nhập); thời gian tương đối theo SEED_ANCHOR_DATE. Ý nghĩa từng trường: deploy/seed/README.md.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "formatVersion", "generator", "defaultPassword", "store", "users", "categories", "suppliers",
+    "customers", "products", "purchaseReceipts", "stocktakes", "orders", "cancellations", "returns", "deactivations"
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "formatVersion": { "const": 1 },
+    "generator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["script", "randomSeed", "canonicalAnchorDate"],
+      "properties": {
+        "script": { "type": "string" },
+        "randomSeed": { "type": "integer" },
+        "canonicalAnchorDate": { "$ref": "#/$defs/isoDate" }
+      }
+    },
+    "defaultPassword": {
+      "description": "Mật khẩu demo dùng chung cho mọi tài khoản trong file. Giá trị giả, chỉ cho bản demo.",
+      "type": "string",
+      "minLength": 8
+    },
+    "store": { "$ref": "#/$defs/store" },
+    "users": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/user" }
+    },
+    "categories": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/category" }
+    },
+    "suppliers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/supplier" }
+    },
+    "customers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/customer" }
+    },
+    "products": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/product" }
+    },
+    "purchaseReceipts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/purchaseReceipt" }
+    },
+    "stocktakes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/stocktake" }
+    },
+    "orders": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/order" }
+    },
+    "cancellations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cancellation" }
+    },
+    "returns": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/return" }
+    },
+    "deactivations": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/deactivation" }
+    }
+  },
+  "$defs": {
+    "isoDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+    "dayOffset": {
+      "description": "Số ngày so với SEED_ANCHOR_DATE; 0 là ngày neo, -1 là hôm trước.",
+      "type": "integer",
+      "minimum": -366,
+      "maximum": 0
+    },
+    "time": {
+      "description": "Giờ địa phương Asia/Ho_Chi_Minh, dạng HH:mm.",
+      "type": "string",
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+    },
+    "code": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9-]{0,39}$" },
+    "ref": {
+      "description": "Mã tham chiếu nội bộ của file seed, không phải mã do hệ thống cấp.",
+      "type": "string",
+      "pattern": "^[A-Z]-(ORD|REC|STK|RET)-\\d{2,6}$"
+    },
+    "login": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._@-]{2,63}$" },
+    "phone": { "type": "string", "pattern": "^0\\d{9,10}$" },
+    "money": { "description": "Số nguyên đồng (VND).", "type": "integer", "minimum": 0 },
+    "positiveQty": { "type": "integer", "minimum": 1 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "discount": {
+      "description": "PERCENT: value là số phần trăm nguyên 1..100. AMOUNT: value là số đồng trừ trên cả dòng (hoặc cả đơn).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": { "enum": ["PERCENT", "AMOUNT"] },
+        "value": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "store": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code", "name", "kind", "address", "phone", "invoiceFooter", "bankAccount", "loyalty",
+        "expiryWarningDays", "setupDayOffset", "setupTime"
+      ],
+      "properties": {
+        "code": { "type": "string", "pattern": "^store-[a-z0-9-]+$" },
+        "name": { "$ref": "#/$defs/name" },
+        "kind": { "enum": ["GROCERY", "FASHION"] },
+        "address": { "$ref": "#/$defs/name" },
+        "phone": { "$ref": "#/$defs/phone" },
+        "invoiceFooter": { "type": "string", "maxLength": 300 },
+        "bankAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bankBin", "accountNumber", "accountName"],
+          "properties": {
+            "bankBin": { "type": "string", "pattern": "^\\d{6}$" },
+            "accountNumber": { "type": "string", "pattern": "^\\d{6,19}$" },
+            "accountName": { "type": "string", "pattern": "^[A-Z ]{2,50}$" }
+          }
+        },
+        "loyalty": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["earnAmountPerPoint", "pointValue"],
+          "properties": {
+            "earnAmountPerPoint": { "description": "Cứ mỗi bấy nhiêu đồng của Đơn hàng thì được 1 điểm.", "type": "integer", "minimum": 1 },
+            "pointValue": { "description": "Giá trị quy đổi của 1 điểm khi dùng để giảm giá (đồng).", "type": "integer", "minimum": 1 }
+          }
+        },
+        "expiryWarningDays": { "type": "integer", "minimum": 1, "maximum": 365 },
+        "setupDayOffset": { "$ref": "#/$defs/dayOffset" },
+        "setupTime": { "$ref": "#/$defs/time" }
+      }
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["login", "displayName", "role"],
+      "properties": {
+        "login": { "$ref": "#/$defs/login" },
+        "displayName": { "$ref": "#/$defs/name" },
+        "role": { "enum": ["OWNER", "STAFF"] }
+      }
+    },
+    "category": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "name"],
+      "properties": {
+        "code": { "$ref": "#/$defs/code" },
+        "name": { "$ref": "#/$defs/name" }
+      }
+    },
+    "supplier": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "name", "phone", "address"],
+      "properties": {
+        "code": { "$ref": "#/$defs/code" },
+        "name": { "$ref": "#/$defs/name" },
+        "phone": { "$ref": "#/$defs/phone" },
+        "address": { "$ref": "#/$defs/name" }
+      }
+    },
+    "customer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["phone", "name"],
+      "properties": {
+        "phone": { "$ref": "#/$defs/phone" },
+        "name": { "$ref": "#/$defs/name" },
+        "note": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "product": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "name", "categoryCode", "unit", "status", "variants"],
+      "properties": {
+        "code": { "$ref": "#/$defs/code" },
+        "name": { "$ref": "#/$defs/name" },
+        "categoryCode": { "$ref": "#/$defs/code" },
+        "unit": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "description": { "type": "string", "maxLength": 500 },
+        "status": { "description": "Trạng thái sau khi nạp xong (kết quả của deactivations).", "enum": ["ACTIVE", "INACTIVE"] },
+        "variants": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/variant" }
+        }
+      }
+    },
+    "variant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sku", "barcode", "isDefault", "attributes", "salePrice", "openingQuantity", "openingUnitCost",
+        "minQuantity", "trackLots", "status"
+      ],
+      "properties": {
+        "sku": { "$ref": "#/$defs/code" },
+        "barcode": { "type": "string", "pattern": "^\\d{8,14}$" },
+        "isDefault": { "type": "boolean" },
+        "attributes": {
+          "description": "Thuộc tính của Biến thể, ví dụ {\"Màu\": \"Đen\", \"Size\": \"M\"}. Biến thể mặc định có {}.",
+          "type": "object",
+          "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 50 }
+        },
+        "salePrice": { "$ref": "#/$defs/money" },
+        "openingQuantity": { "type": "integer", "minimum": 0 },
+        "openingUnitCost": { "$ref": "#/$defs/money" },
+        "minQuantity": { "type": "integer", "minimum": 0 },
+        "trackLots": { "type": "boolean" },
+        "openingLot": { "$ref": "#/$defs/lot" },
+        "status": { "description": "Trạng thái hiệu lực sau khi nạp xong (ngừng theo Sản phẩm hoặc theo Biến thể).", "enum": ["ACTIVE", "INACTIVE"] }
+      }
+    },
+    "lot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["lotCode", "expiryDayOffset"],
+      "properties": {
+        "lotCode": { "$ref": "#/$defs/code" },
+        "expiryDayOffset": { "description": "Hạn sử dụng = SEED_ANCHOR_DATE + expiryDayOffset (có thể dương).", "type": "integer", "minimum": -366, "maximum": 3650 }
+      }
+    },
+    "purchaseReceipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "supplierCode", "dayOffset", "time", "createdBy", "lines"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/ref" },
+        "supplierCode": { "$ref": "#/$defs/code" },
+        "dayOffset": { "$ref": "#/$defs/dayOffset" },
+        "time": { "$ref": "#/$defs/time" },
+        "createdBy": { "$ref": "#/$defs/login" },
+        "note": { "type": "string", "maxLength": 200 },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sku", "quantity", "unitCost"],
+            "properties": {
+              "sku": { "$ref": "#/$defs/code" },
+              "quantity": { "$ref": "#/$defs/positiveQty" },
+              "unitCost": { "$ref": "#/$defs/money" },
+              "lotCode": { "$ref": "#/$defs/code" },
+              "expiryDayOffset": { "type": "integer", "minimum": -366, "maximum": 3650 }
+            }
+          }
+        }
+      }
+    },
+    "stocktake": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "dayOffset", "time", "createdBy", "lines"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/ref" },
+        "dayOffset": { "$ref": "#/$defs/dayOffset" },
+        "time": { "$ref": "#/$defs/time" },
+        "createdBy": { "$ref": "#/$defs/login" },
+        "note": { "type": "string", "maxLength": 200 },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sku", "countedQuantity", "expectedSystemQuantity"],
+            "properties": {
+              "sku": { "$ref": "#/$defs/code" },
+              "countedQuantity": { "type": "integer", "minimum": 0 },
+              "expectedSystemQuantity": { "description": "Tồn kho hệ thống ngay trước khi kiểm (để loader đối chiếu, không gửi lên API).", "type": "integer", "minimum": 0 },
+              "reason": { "type": "string", "maxLength": 200 }
+            }
+          }
+        }
+      }
+    },
+    "order": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "expectedOrderCode", "dayOffset", "time", "sellerLogin", "lines", "payment", "quotedTotal"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/ref" },
+        "expectedOrderCode": { "type": "string", "pattern": "^DH-\\d{6}$" },
+        "dayOffset": { "$ref": "#/$defs/dayOffset" },
+        "time": { "$ref": "#/$defs/time" },
+        "sellerLogin": { "$ref": "#/$defs/login" },
+        "customerPhone": { "$ref": "#/$defs/phone" },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sku", "quantity"],
+            "properties": {
+              "sku": { "$ref": "#/$defs/code" },
+              "quantity": { "$ref": "#/$defs/positiveQty" },
+              "discount": { "$ref": "#/$defs/discount" }
+            }
+          }
+        },
+        "orderDiscount": { "$ref": "#/$defs/discount" },
+        "pointsRedeemed": { "type": "integer", "minimum": 1 },
+        "payment": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["method", "cashReceived"],
+              "properties": {
+                "method": { "const": "CASH" },
+                "cashReceived": { "$ref": "#/$defs/money" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["method"],
+              "properties": {
+                "method": { "const": "BANK_TRANSFER" }
+              }
+            }
+          ]
+        },
+        "quotedTotal": { "$ref": "#/$defs/money" }
+      }
+    },
+    "cancellation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["orderRef", "dayOffset", "time", "byLogin", "reason"],
+      "properties": {
+        "orderRef": { "$ref": "#/$defs/ref" },
+        "dayOffset": { "$ref": "#/$defs/dayOffset" },
+        "time": { "$ref": "#/$defs/time" },
+        "byLogin": { "$ref": "#/$defs/login" },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 200 }
+      }
+    },
+    "return": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "orderRef", "dayOffset", "time", "byLogin", "refundMethod", "lines", "expectedRefundTotal"],
+      "properties": {
+        "ref": { "$ref": "#/$defs/ref" },
+        "orderRef": { "$ref": "#/$defs/ref" },
+        "dayOffset": { "$ref": "#/$defs/dayOffset" },
+        "time": { "$ref": "#/$defs/time" },
+        "byLogin": { "$ref": "#/$defs/login" },
+        "refundMethod": { "enum": ["CASH", "BANK_TRANSFER"] },
+        "reason": { "type": "string", "maxLength": 200 },
+        "lines": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["lineNo", "sku", "quantity"],
+            "properties": {
+              "lineNo": { "description": "Số thứ tự dòng trong orders[].lines, bắt đầu từ 1.", "type": "integer", "minimum": 1 },
+              "sku": { "$ref": "#/$defs/code" },
+              "quantity": { "$ref": "#/$defs/positiveQty" }
+            }
+          }
+        },
+        "expectedRefundTotal": { "$ref": "#/$defs/money" }
+      }
+    },
+    "deactivation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dayOffset", "time", "byLogin", "target", "productCode"],
+      "properties": {
+        "dayOffset": { "$ref": "#/$defs/dayOffset" },
+        "time": { "$ref": "#/$defs/time" },
+        "byLogin": { "$ref": "#/$defs/login" },
+        "target": { "enum": ["PRODUCT", "VARIANT"] },
+        "productCode": { "$ref": "#/$defs/code" },
+        "sku": { "$ref": "#/$defs/code" }
+      }
+    }
+  }
+}

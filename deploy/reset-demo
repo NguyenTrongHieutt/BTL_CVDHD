@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Khôi phục dữ liệu demo (AD-18). Chạy từ thư mục gốc repo:  bash deploy/reset-demo [--no-build]
+# Thứ tự: xóa volume → db healthy → backend (Flyway) healthy → job seed → ai-service (đánh chỉ mục lại) → web.
+set -euo pipefail
+cd "$(dirname "$0")"
+COMPOSE=(docker compose -f docker-compose.yml --env-file .env)
+
+if [ ! -f .env ]; then
+  echo "Thiếu deploy/.env — sao chép từ deploy/.env.example rồi đổi giá trị." >&2
+  exit 1
+fi
+
+wait_healthy() {
+  local service=$1
+  local id
+  id=$("${COMPOSE[@]}" ps -q "$service")
+  for _ in $(seq 1 90); do
+    if [ "$(docker inspect -f '{{.State.Health.Status}}' "$id" 2>/dev/null)" = "healthy" ]; then
+      echo "  $service: healthy"
+      return 0
+    fi
+    sleep 2
+  done
+  echo "  $service không lên được, xem: docker compose logs $service" >&2
+  exit 1
+}
+
+# --no-build: dùng image đã build (nếu "docker compose build" treo sau dòng DONE cuối, image đã có sẵn)
+if [ "${1:-}" != "--no-build" ]; then
+  echo "0/6 Build image (một lần)"
+  "${COMPOSE[@]}" build
+fi
+echo "1/6 Xóa container và volume cũ"
+"${COMPOSE[@]}" down -v --remove-orphans
+echo "2/6 Bật db"
+"${COMPOSE[@]}" up -d --no-build db
+wait_healthy db
+echo "3/6 Bật backend (chạy Flyway)"
+"${COMPOSE[@]}" up -d --no-build backend
+wait_healthy backend
+echo "4/6 Nạp dữ liệu mẫu"
+"${COMPOSE[@]}" --profile tools run --rm seed
+echo "5/6 Bật ai-service (đánh chỉ mục lại toàn bộ khi khởi động)"
+"${COMPOSE[@]}" up -d --no-build ai-service
+echo "6/6 Bật web"
+"${COMPOSE[@]}" up -d --no-build web
+WEB_PORT=$(grep -E "^WEB_PORT=" .env | cut -d= -f2); echo "Xong. Mở http://localhost:${WEB_PORT:-80}"

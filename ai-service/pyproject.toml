@@ -11,11 +11,11 @@ dependencies = [
     "pgvector==0.5.1",
     "psycopg[binary]==3.3.8",
     "pydantic==2.14.3",
-    "pydantic-settings>=2.16.2",
+    "pydantic-settings==2.16.2",
     "pyjwt==2.15.1",
     "sentence-transformers==6.2.0",
     "torch==2.15.0",
-    "uvicorn[standard]>=0.54.0",
+    "uvicorn[standard]==0.54.0",
 ]
 
 [[tool.uv.index]]
@@ -30,3 +30,8 @@ torch = { index = "pytorch-cpu" }
 dev = [
     "pytest==9.2.0",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"

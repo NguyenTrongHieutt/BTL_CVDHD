@@ -1,0 +1,8 @@
+{
+  "_note" : "Token mẫu do backend Java ký (JwtContractTest). Chỉ dùng cho test hợp đồng, không phải bí mật thật.",
+  "secret" : "contract-secret-0123456789-0123456789-abcdef",
+  "token" : "eyJhbGciOiJIUzI1NiJ9.eyJzdG9yZV9pZCI6ImEwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDBhYSIsInN1YiI6ImEwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInJvbGUiOiJPV05FUiIsImV4cCI6Mzk3NDc0NTYwMCwiaWF0IjoxNzY3MjI1NjAwLCJqdGkiOiI2ZTI5N2ExOC0wNTllLTRlMTctOTI1Yi1mOTQzNzg5MzdkMDEifQ.MmiiRX585_k22LLPbzsr3tGYI35Aw-mQ-54GICqSUg4",
+  "sub" : "a0000000-0000-4000-8000-000000000001",
+  "store_id" : "a0000000-0000-4000-8000-0000000000aa",
+  "role" : "OWNER"
+}

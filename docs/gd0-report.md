@@ -7,7 +7,7 @@ Người làm: Hiếu (làm toàn bộ GĐ0 thay cho cả nhóm). Ngày xong: 06
 | Mã | Việc | Kết quả | Ở đâu |
 |---|---|---|---|
 | CB-01 | Thống nhất kiến trúc, cài môi trường | Xong. Script kiểm tra môi trường; README ghi phiên bản cần cài | `scripts/check-env.sh`, `README.md` |
-| CB-07 | Repo, Docker Compose, README | Xong. 4 container `web`, `backend`, `ai-service`, `db` + job `seed`; nginx; `.env.example`; khôi phục demo; CODEOWNERS; quy ước nhánh | `deploy/`, `CONTRIBUTING.md`, `CODEOWNERS` |
+| CB-07 | Repo, Docker Compose, README | Xong. 4 container `web`, `backend`, `ai-service`, `db` + job `seed`; nginx; `.env.example`; khôi phục demo; CODEOWNERS | `deploy/`, `CODEOWNERS` |
 | CB-02 | Thiết kế CSDL, migration đầu tiên | Xong. 5 migration cho toàn bộ bảng của 5 module + schema `ai`; RLS trên mọi bảng nghiệp vụ; 4 role; tồn kho theo Biến thể; bảng lô, điểm tích lũy có sẵn | `deploy/db/init.sql`, `backend/src/main/resources/db/migration/`, `docs/database.md` |
 | CB-05 | Khung giao diện chung | Xong. Bố cục, menu theo vai trò, đăng nhập, client API duy nhất, các thành phần dùng chung, trang giữ chỗ cho mọi màn hình; lint chặn import chéo feature | `frontend/` |
 | CB-08 | Khung dịch vụ AI, chạy thử torch và Gemini | Xong khung + spike torch. Spike Gemini chờ khóa | `ai-service/`, `ai-service/SPIKES.md` |

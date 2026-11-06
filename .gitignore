@@ -32,3 +32,10 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Ghi chú cho trợ lý AI và quy ước nội bộ: chỉ giữ trên máy, không đưa lên repo
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
+.claude/
+CONTRIBUTING.md

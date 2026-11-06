@@ -75,4 +75,4 @@ Bộ test bắt buộc của backend ở GĐ0: ranh giới module (Modulith), ch
 
 ## Quy ước
 
-Xem [CONTRIBUTING.md](CONTRIBUTING.md) (nhánh, commit, PR), [docs/api/contracts.md](docs/api/contracts.md) (API giữa các thành viên), [docs/errors.md](docs/errors.md), [docs/database.md](docs/database.md), [CLAUDE.md](CLAUDE.md).
+Xem [docs/api/contracts.md](docs/api/contracts.md) (API giữa các thành viên), [docs/errors.md](docs/errors.md), [docs/database.md](docs/database.md).

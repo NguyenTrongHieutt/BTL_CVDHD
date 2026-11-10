@@ -75,6 +75,14 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Danh mục này còn Sản phẩm nên không xóa được.',
     hint: 'Mọi Sản phẩm thuộc Danh mục đều tính, kể cả Sản phẩm đã ngừng kinh doanh. Chuyển các Sản phẩm sang Danh mục khác rồi xóa lại.',
   },
+  '/errors/catalog/barcode-taken': {
+    message: 'Cửa hàng đã có Sản phẩm dùng mã vạch này.',
+    hint: 'Kiểm tra lại mã vạch, hoặc tìm Sản phẩm đã có mã vạch này thay vì thêm mới.',
+  },
+  '/errors/catalog/sku-taken': {
+    message: 'Cửa hàng đã có Sản phẩm dùng SKU này.',
+    hint: 'Nhập SKU khác, hoặc để trống để hệ thống tự sinh.',
+  },
 
   // sales
   '/errors/sales/invalid-state': {

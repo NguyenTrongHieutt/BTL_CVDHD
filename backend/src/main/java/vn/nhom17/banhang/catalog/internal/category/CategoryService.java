@@ -1,19 +1,19 @@
 package vn.nhom17.banhang.catalog.internal.category;
 
-import java.text.Normalizer;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import vn.nhom17.banhang.catalog.internal.Constraints;
+import vn.nhom17.banhang.catalog.internal.FieldErrors;
+import vn.nhom17.banhang.catalog.internal.TextFields;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.PageResponse;
 import vn.nhom17.banhang.platform.ProblemException;
@@ -37,6 +37,7 @@ class CategoryService {
 
     static final int NAME_MAX = 100;
     static final String NAME_UNIQUE = "category_name_uq";
+    private static final TextFields.Rule NAME_RULE = TextFields.Rule.required("Tên Danh mục", NAME_MAX);
 
     private final CategoryRepository categories;
     private final JdbcTemplate jdbc;
@@ -128,59 +129,20 @@ class CategoryService {
     }
 
     /**
-     * Bỏ ký tự định dạng vô hình (loại Cf như U+200B, U+FEFF, U+2060, để không lách được {@code category_name_uq}
-     * bằng tên trông giống hệt), chuẩn NFC, cắt khoảng trắng hai đầu (kể cả U+00A0), từ chối ký tự điều
-     * khiển (NUL, tab, xuống dòng… còn lại sau khi cắt), rồi kiểm bắt buộc và tối đa {@value #NAME_MAX} ký tự. Sai thì
-     * {@code 400 /errors/common/validation} trên trường {@code name}.
+     * Chuẩn hóa bằng {@link TextFields} (bỏ ký tự định dạng vô hình để không lách được {@code category_name_uq} bằng
+     * tên trông giống hệt, NFC, cắt khoảng trắng Unicode, từ chối ký tự điều khiển), rồi kiểm bắt buộc và tối đa
+     * {@value #NAME_MAX} ký tự. Sai thì {@code 400 /errors/common/validation} trên trường {@code name}.
      */
     static String normalizeName(String raw) {
-        String name = raw == null ? "" : strip(Normalizer.normalize(withoutFormatChars(raw), Normalizer.Form.NFC));
-        if (name.codePoints().anyMatch(Character::isISOControl)) {
-            throw invalidName("Tên Danh mục có ký tự không hợp lệ");
-        }
-        if (name.isEmpty()) {
-            throw invalidName("Nhập tên Danh mục");
-        }
-        if (name.codePointCount(0, name.length()) > NAME_MAX) {
-            throw invalidName("Tên Danh mục tối đa " + NAME_MAX + " ký tự");
-        }
+        FieldErrors errors = new FieldErrors();
+        String name = TextFields.check(raw, "name", NAME_RULE, errors);
+        errors.throwIfAny();
         return name;
     }
 
-    private static String withoutFormatChars(String text) {
-        StringBuilder kept = new StringBuilder(text.length());
-        text.codePoints().filter(c -> Character.getType(c) != Character.FORMAT).forEach(kept::appendCodePoint);
-        return kept.toString();
-    }
-
-    private static String strip(String text) {
-        int start = 0;
-        int end = text.length();
-        while (start < end && isSpace(text.codePointAt(start))) {
-            start += Character.charCount(text.codePointAt(start));
-        }
-        while (end > start && isSpace(text.codePointBefore(end))) {
-            end -= Character.charCount(text.codePointBefore(end));
-        }
-        return text.substring(start, end);
-    }
-
-    private static boolean isSpace(int codePoint) {
-        return Character.isWhitespace(codePoint) || Character.isSpaceChar(codePoint);
-    }
-
-    /** Lỗi unique đúng là {@code category_name_uq} (Hibernate báo tên constraint, PostgreSQL ghi trong câu lỗi). */
+    /** Lỗi unique đúng là {@code category_name_uq} (xem {@link Constraints}). */
     private static boolean isNameTaken(Throwable error) {
-        for (Throwable t = error; t != null; t = t.getCause() == t ? null : t.getCause()) {
-            if (t instanceof org.hibernate.exception.ConstraintViolationException violation
-                    && NAME_UNIQUE.equalsIgnoreCase(violation.getConstraintName())) {
-                return true;
-            }
-            if (t.getMessage() != null && t.getMessage().contains(NAME_UNIQUE)) {
-                return true;
-            }
-        }
-        return false;
+        return Constraints.violated(error, NAME_UNIQUE);
     }
 
     private static ProblemException nameTaken() {
@@ -193,9 +155,4 @@ class CategoryService {
                 "Không tìm thấy Danh mục này. Có thể Danh mục đã bị xóa.");
     }
 
-    private static ProblemException invalidName(String message) {
-        return new ProblemException(HttpStatus.BAD_REQUEST, "/errors/common/validation", "Dữ liệu không hợp lệ",
-                "Vui lòng kiểm tra lại các trường được đánh dấu.",
-                Map.of("errors", List.of(Map.of("field", "name", "message", message))));
-    }
 }

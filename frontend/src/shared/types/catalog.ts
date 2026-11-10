@@ -2,7 +2,7 @@
  * Kiểu dữ liệu của module `catalog`: Sản phẩm, Biến thể, Danh mục, Khách hàng, Nhà cung cấp.
  * Người giữ: Hiếu (B). Chỉ giữ những kiểu mà feature khác cần; phần còn lại Hiếu bổ sung khi chốt API (CB-03).
  */
-import type { Uuid } from './common';
+import type { IsoDateTime, Money, Quantity, Uuid } from './common';
 
 /** Trạng thái kinh doanh. Ngừng kinh doanh là thao tác một chiều (FR-3, AD-14). */
 export type ProductStatus = 'ACTIVE' | 'INACTIVE';
@@ -31,5 +31,65 @@ export interface CategoryRequest {
   name: string;
 }
 
-// TODO(Hiếu, FR-1/FR-5, GĐ1): kiểu Product, ProductVariant và tham số Tìm kiếm thường.
+/**
+ * Biến thể của Sản phẩm (AD-6: Tồn kho tính theo Biến thể). Sản phẩm chưa có nhiều Biến thể (FR-7, GĐ3) thì chỉ có
+ * một Biến thể mặc định (`isDefault`, `name` là `null`). SKU và mã vạch duy nhất trong một Cửa hàng.
+ */
+export interface ProductVariant {
+  id: Uuid;
+  sku: string;
+  barcode: string | null;
+  /** Nhãn Biến thể, ví dụ "Đỏ / L"; `null` với Biến thể mặc định. */
+  name: string | null;
+  /** Giá bán, số nguyên đồng (AD-8). */
+  salePrice: Money;
+  isDefault: boolean;
+  status: ProductStatus;
+}
+
+/**
+ * Sản phẩm, từ `GET /api/v1/catalog/products`, `GET /api/v1/catalog/products/{id}` và `POST` (FR-1, SP-01).
+ * Cả hai vai trò đọc được nên không có Giá vốn (AD-15, AD-16). `variants`: Biến thể mặc định đứng đầu.
+ */
+export interface Product {
+  id: Uuid;
+  name: string;
+  categoryId: Uuid | null;
+  categoryName: string | null;
+  /** Đơn vị tính, mặc định "cái". */
+  unit: string;
+  description: string | null;
+  hasVariants: boolean;
+  status: ProductStatus;
+  createdAt: IsoDateTime;
+  updatedAt: IsoDateTime;
+  variants: ProductVariant[];
+}
+
+/**
+ * Body của `POST /api/v1/catalog/products` (Chủ cửa hàng), kèm header `Idempotency-Key` (AD-7). Tiền là số nguyên
+ * đồng, số lượng là số nguyên. Trường bỏ trống thì không gửi.
+ */
+export interface CreateProductRequest {
+  /** Bắt buộc, tối đa 200 ký tự. */
+  name: string;
+  /** Danh mục của Cửa hàng. */
+  categoryId?: Uuid;
+  /** Tối đa 30 ký tự; bỏ trống thì backend dùng "cái". */
+  unit?: string;
+  /** Tối đa 2000 ký tự, được xuống dòng. */
+  description?: string;
+  /** Bắt buộc, ≥ 0. */
+  salePrice: Money;
+  /** Tối đa 50 ký tự; bỏ trống thì backend sinh `SP-` + 8 ký tự. */
+  sku?: string;
+  /** Tối đa 50 ký tự, chỉ chữ cái không dấu và chữ số. */
+  barcode?: string;
+  /** Tồn kho đầu kỳ, ≥ 0, mặc định 0. */
+  openingQuantity?: Quantity;
+  /** Giá vốn ban đầu, ≥ 0, mặc định 0; phải lớn hơn 0 khi có Tồn kho đầu kỳ. Chỉ gửi đi, không bao giờ đọc về. */
+  openingUnitCost?: Money;
+}
+
+// TODO(Hiếu, FR-5/SP-05, GĐ1): tham số Tìm kiếm thường và lọc Sản phẩm.
 // TODO(Hiếu, FR-23, GĐ1): kiểu Supplier.

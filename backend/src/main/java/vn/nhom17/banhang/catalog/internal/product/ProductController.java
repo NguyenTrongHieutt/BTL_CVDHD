@@ -1,0 +1,95 @@
+package vn.nhom17.banhang.catalog.internal.product;
+
+import java.math.BigDecimal;
+import java.net.URI;
+import java.util.UUID;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import vn.nhom17.banhang.platform.PageResponse;
+
+/**
+ * Sản phẩm (FR-1, SP-01). Xem chi tiết và danh sách: cả hai vai trò; thêm: chỉ Chủ cửa hàng. Quyền khai báo ở
+ * {@code SecurityConfig} của platform (AD-16). Thêm có {@code Idempotency-Key} (AD-7): lần đầu {@code 201}, gửi lại
+ * cùng nội dung {@code 200} + {@code Idempotent-Replay: true}.
+ */
+@RestController
+@RequestMapping(ProductController.PATH)
+class ProductController {
+
+    static final String PATH = "/api/v1/catalog/products";
+    static final String IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
+    static final String IDEMPOTENT_REPLAY_HEADER = "Idempotent-Replay";
+
+    private final ProductService products;
+
+    ProductController(ProductService products) {
+        this.products = products;
+    }
+
+    /**
+     * Body thêm Sản phẩm; kiểm ở {@link ProductService#validate}, trả lỗi theo trường. Tiền là số nguyên đồng, số
+     * lượng là số nguyên; nhận {@link BigDecimal} để số lẻ bị báo lỗi thay vì bị cắt.
+     *
+     * @param name            bắt buộc, tối đa 200 ký tự
+     * @param categoryId      tùy chọn; phải là Danh mục của Cửa hàng
+     * @param unit            tối đa 30 ký tự; trống thì "cái"
+     * @param description     tối đa 2000 ký tự, được xuống dòng
+     * @param salePrice       bắt buộc, ≥ 0
+     * @param sku             tối đa 50 ký tự; trống thì sinh {@code SP-} + 8 ký tự đầu của id Biến thể
+     * @param barcode         tối đa 50 ký tự, chỉ chữ cái không dấu và chữ số
+     * @param openingQuantity Tồn kho đầu kỳ, ≥ 0, mặc định 0
+     * @param openingUnitCost Giá vốn ban đầu, ≥ 0, mặc định 0; phải lớn hơn 0 khi có Tồn kho đầu kỳ. Chỉ chuyển sang
+     *                        {@code inventory} qua sự kiện, không lưu ở catalog, không có trong phản hồi (AD-15)
+     */
+    record CreateProductRequest(String name, UUID categoryId, String unit, String description, BigDecimal salePrice,
+                                String sku, String barcode, BigDecimal openingQuantity, BigDecimal openingUnitCost) {
+    }
+
+    /** Danh sách đơn giản, mới nhất trước. Tìm kiếm và lọc là SP-05. */
+    @GetMapping
+    PageResponse<ProductView> list(@RequestParam(required = false) Integer page,
+                                   @RequestParam(required = false) Integer size) {
+        return products.list(page, size);
+    }
+
+    @GetMapping("/{id}")
+    ProductView get(@PathVariable UUID id) {
+        return products.get(id);
+    }
+
+    @PostMapping
+    ResponseEntity<ProductView> create(@RequestHeader(name = IDEMPOTENCY_KEY_HEADER, required = false)
+                                       String idempotencyKey,
+                                       @RequestBody CreateProductRequest request) {
+        ProductService.Created result = products.create(parseKey(idempotencyKey), request);
+        if (result.replayed()) {
+            return ResponseEntity.ok().header(IDEMPOTENT_REPLAY_HEADER, "true").body(result.product());
+        }
+        return ResponseEntity.created(URI.create(PATH + "/" + result.product().id())).body(result.product());
+    }
+
+    /**
+     * Thiếu hoặc không phải UUID đều coi là thiếu khóa: {@code 422 idempotency-key-missing}, báo sau lỗi dữ liệu
+     * ({@code 400}) như đăng ký Cửa hàng.
+     */
+    private static UUID parseKey(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String text = raw.trim();
+        try {
+            UUID key = UUID.fromString(text);
+            // UUID.fromString nhận cả dạng rút gọn như "1-1-1-1-1"
+            return key.toString().equalsIgnoreCase(text) ? key : null;
+        } catch (IllegalArgumentException notUuid) {
+            return null;
+        }
+    }
+}

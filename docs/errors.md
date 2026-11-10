@@ -17,6 +17,8 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/platform/login-taken` | 409 | Tên đăng nhập, số điện thoại hoặc email đã dùng (AD-9) | platform |
 | `/errors/catalog/category-name-taken` | 409 | Cửa hàng đã có Danh mục cùng tên, không phân biệt hoa thường (unique `category_name_uq`, FR-4) | catalog |
 | `/errors/catalog/category-in-use` | 409 | Xóa Danh mục còn Sản phẩm: mọi Sản phẩm thuộc Danh mục đều tính, kể cả Sản phẩm đã ngừng kinh doanh (khóa ngoại `RESTRICT`, FR-4) | catalog |
+| `/errors/catalog/barcode-taken` | 409 | Cửa hàng đã có Biến thể (chưa xóa mềm) dùng mã vạch này (unique `product_variant_barcode_uq`, FR-1). Mã vạch lưu chữ HOA nên khác hoa thường vẫn là trùng. Cửa hàng khác dùng cùng mã vạch thì được | catalog |
+| `/errors/catalog/sku-taken` | 409 | Cửa hàng đã có Biến thể (chưa xóa mềm) dùng SKU người dùng nhập (unique `product_variant_sku_uq`, FR-1). SKU lưu chữ HOA nên khác hoa thường vẫn là trùng. SKU tự sinh không gây lỗi này (sinh lại tới khi còn trống) | catalog |
 | `/errors/inventory/insufficient-stock` | 422 | Không đủ hàng; cả chứng từ rollback (AD-6) | inventory |
 | `/errors/inventory/variant-inactive` | 409 | Nhập hàng cho Biến thể đã ngừng kinh doanh (AD-14) | inventory |
 | `/errors/sales/invalid-state` | 409 | Chuyển trạng thái Đơn hàng không hợp lệ, ví dụ hủy đơn đã hủy hoặc đã có Phiếu trả (AD-17) | sales |

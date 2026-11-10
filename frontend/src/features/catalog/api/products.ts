@@ -1,10 +1,11 @@
 /**
- * API Sản phẩm (FR-1, SP-01). Người giữ: Hiếu — features/catalog (AD-20).
+ * API Sản phẩm (FR-1, SP-01; FR-3, SP-03). Người giữ: Hiếu — features/catalog (AD-20).
  *
  * Bảng dùng khóa `['catalog', 'products', params]`. Thêm thành công thì invalidate `['catalog', 'products']`,
  * `['inventory', 'stock']` (Sản phẩm mới có dòng Tồn kho, kèm Tồn kho đầu kỳ nếu có) và `['catalog', 'categories']`
  * (số Sản phẩm của Danh mục đổi). Thêm Sản phẩm là một chứng từ (Tồn kho đầu kỳ `OPENING`) nên có
- * `Idempotency-Key` (AD-7).
+ * `Idempotency-Key` (AD-7). Ngừng kinh doanh xong (thành công hay lỗi) thì invalidate `['catalog', 'products']`,
+ * `['inventory', 'stock']` và `['sales', 'sellable']` (Sản phẩm ẩn khỏi màn bán hàng).
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
@@ -12,12 +13,14 @@ import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '.
 import { pageRequestToQuery } from '../../../shared/api/pagination';
 import type { PageRequest, PageResponse } from '../../../shared/api/pagination';
 import type { CreateProductRequest, Product } from '../../../shared/types/catalog';
+import type { Uuid } from '../../../shared/types/common';
 import { categoriesQueryKey } from './categories';
 
 export const PRODUCTS_PATH = '/api/v1/catalog/products';
 
 export const productsQueryKey = ['catalog', 'products'] as const;
 const stockQueryKey = ['inventory', 'stock'] as const;
+const sellableQueryKey = ['sales', 'sellable'] as const;
 
 export const IDEMPOTENCY_KEY_REUSE = '/errors/common/idempotency-key-reuse';
 
@@ -95,5 +98,28 @@ export function useCreateProduct() {
       if (mayHaveBeenCreated(error)) void refreshAfterCreate();
       if (!shouldReuseIdempotencyKey(error)) idempotencyKey.current = null;
     },
+  });
+}
+
+function deactivateProductPath(id: Uuid): string {
+  return `${PRODUCTS_PATH}/${encodeURIComponent(id)}/deactivate`;
+}
+
+/**
+ * Ngừng kinh doanh (FR-3, SP-03), chỉ Chủ cửa hàng: `POST /api/v1/catalog/products/{id}/deactivate`, không có body,
+ * trả chi tiết Sản phẩm. Một chiều; gọi lại với Sản phẩm đã ngừng vẫn `200` nên không cần `Idempotency-Key`.
+ * Xong, kể cả khi lỗi, thì tải lại bảng Sản phẩm (dòng đổi trạng thái), Tồn kho và hàng bán được (Sản phẩm ẩn khỏi
+ * màn bán hàng, tìm kiếm): mất phản hồi có thể là máy chủ đã ngừng rồi, `404` cho thấy bảng đang cũ.
+ */
+export function useDeactivateProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: Uuid) => api.post<Product>(deactivateProductPath(id)),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: stockQueryKey }),
+        queryClient.invalidateQueries({ queryKey: sellableQueryKey }),
+      ]),
   });
 }

@@ -25,6 +25,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import vn.nhom17.banhang.catalog.VariantCreated;
 import vn.nhom17.banhang.catalog.internal.category.CategoryRepository;
 import vn.nhom17.banhang.catalog.internal.product.ProductController.CreateProductRequest;
+import vn.nhom17.banhang.platform.AuditLog;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.IdempotencyService;
 import vn.nhom17.banhang.platform.IdempotencyService.IdempotentResult;
@@ -52,7 +53,8 @@ class ProductServiceTest {
         ArrayDeque<UUID> ids = new ArrayDeque<>(List.of(PRODUCT, TAKEN, FREE));
         Supplier<UUID> next = ids::removeFirst;
         ProductService service = new ProductService(em, mock(CategoryRepository.class), jdbc, context,
-                Clock.fixed(Instant.parse("2026-11-10T03:00:00Z"), ZoneOffset.UTC), events, idempotency, next);
+                Clock.fixed(Instant.parse("2026-11-10T03:00:00Z"), ZoneOffset.UTC), events, idempotency,
+                mock(AuditLog.class), next);
         when(context.storeId()).thenReturn(STORE);
         when(jdbc.queryForObject(contains("sku = ?"), eq(Boolean.class), eq(STORE), eq("SP-AAAAAAAA")))
                 .thenReturn(true);

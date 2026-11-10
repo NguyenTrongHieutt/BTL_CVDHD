@@ -7,6 +7,7 @@ import java.math.BigInteger;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -23,11 +24,14 @@ import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.nhom17.banhang.catalog.VariantCreated;
+import vn.nhom17.banhang.catalog.VariantDeactivated;
 import vn.nhom17.banhang.catalog.internal.Constraints;
 import vn.nhom17.banhang.catalog.internal.FieldErrors;
 import vn.nhom17.banhang.catalog.internal.TextFields;
 import vn.nhom17.banhang.catalog.internal.category.CategoryRepository;
 import vn.nhom17.banhang.catalog.internal.product.ProductController.CreateProductRequest;
+import vn.nhom17.banhang.platform.AuditAction;
+import vn.nhom17.banhang.platform.AuditLog;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.IdempotencyService;
 import vn.nhom17.banhang.platform.IdempotencyService.IdempotentResult;
@@ -35,7 +39,7 @@ import vn.nhom17.banhang.platform.PageResponse;
 import vn.nhom17.banhang.platform.ProblemException;
 
 /**
- * Thêm và xem Sản phẩm (FR-1, SP-01).
+ * Thêm, xem (FR-1, SP-01) và ngừng kinh doanh (FR-3, SP-03) Sản phẩm.
  *
  * <ul>
  *   <li>Tạo Sản phẩm cùng một Biến thể mặc định ({@code is_default}, {@code has_variants = false}) và phát
@@ -50,6 +54,8 @@ import vn.nhom17.banhang.platform.ProblemException;
  *       dùng cùng mã thì được. SKU tự sinh thì kiểm trước và sinh lại cho tới khi còn trống.</li>
  *   <li>{@code categoryId} phải là Danh mục của Cửa hàng hiện tại (khóa ngoại không biết Cửa hàng, nên kiểm qua
  *       {@link CategoryRepository}); sai thì {@code 400} trên trường {@code categoryId}.</li>
+ *   <li>Ngừng kinh doanh là một chiều (AD-14), không xóa hẳn, không đặt {@code deleted_at}: Sản phẩm đã ngừng vẫn
+ *       đọc được qua chi tiết và danh sách (lịch sử Đơn hàng, báo cáo). Xem {@link #deactivate}.</li>
  * </ul>
  */
 @Service
@@ -104,18 +110,19 @@ class ProductService {
     private final Clock clock;
     private final ApplicationEventPublisher events;
     private final IdempotencyService idempotency;
+    private final AuditLog audit;
 
     /** Nguồn id của Sản phẩm, Biến thể; test thay bằng dãy cố định để dựng SKU tự sinh bị trùng. */
     private final Supplier<UUID> ids;
 
     @Autowired
     ProductService(EntityManager em, CategoryRepository categories, JdbcTemplate jdbc, CurrentContext context,
-                   Clock clock, ApplicationEventPublisher events, IdempotencyService idempotency) {
-        this(em, categories, jdbc, context, clock, events, idempotency, UUID::randomUUID);
+                   Clock clock, ApplicationEventPublisher events, IdempotencyService idempotency, AuditLog audit) {
+        this(em, categories, jdbc, context, clock, events, idempotency, audit, UUID::randomUUID);
     }
 
     ProductService(EntityManager em, CategoryRepository categories, JdbcTemplate jdbc, CurrentContext context,
-                   Clock clock, ApplicationEventPublisher events, IdempotencyService idempotency,
+                   Clock clock, ApplicationEventPublisher events, IdempotencyService idempotency, AuditLog audit,
                    Supplier<UUID> ids) {
         this.em = em;
         this.categories = categories;
@@ -124,6 +131,7 @@ class ProductService {
         this.clock = clock;
         this.events = events;
         this.idempotency = idempotency;
+        this.audit = audit;
         this.ids = ids;
     }
 
@@ -164,6 +172,45 @@ class ProductService {
                 Long.class, storeId);
         List<ProductView> items = views(PAGE_OF_PRODUCTS, storeId, pageSize, (long) pageNo * pageSize);
         return new PageResponse<>(items, total == null ? 0 : total, pageNo, pageSize);
+    }
+
+    /**
+     * Ngừng kinh doanh (FR-3, SP-03): Sản phẩm và mọi Biến thể đang kinh doanh (chưa xóa mềm) sang
+     * {@code INACTIVE}, trả chi tiết như {@link #get}. Trong CÙNG transaction:
+     *
+     * <ul>
+     *   <li>{@code updated_at}, {@code changed_at} lấy từ {@code Clock}: change-feed báo {@code INACTIVE} để dịch vụ AI
+     *       xóa embedding (AD-12).</li>
+     *   <li>Phát {@link VariantDeactivated} cho từng Biến thể vừa ngừng, sau khi đã ghi, để {@code inventory} đặt
+     *       {@code stock.is_active = false} (AD-14). catalog không đụng bảng {@code stock}.</li>
+     *   <li>Ghi Nhật ký {@link AuditAction#CATALOG_PRODUCT_DEACTIVATE}.</li>
+     * </ul>
+     *
+     * <p>Một chiều: Sản phẩm đã ngừng thì trả trạng thái hiện tại, không đổi gì, không phát sự kiện, không ghi nhật ký
+     * lần hai. UPDATE có điều kiện {@code status = 'ACTIVE'} nên hai yêu cầu cùng lúc cũng chỉ một yêu cầu đổi được
+     * (yêu cầu sau chờ khóa dòng rồi thấy Sản phẩm đã ngừng). Id không có hoặc của Cửa hàng khác: {@code 404}.
+     */
+    @Transactional
+    ProductView deactivate(UUID id) {
+        UUID storeId = context.storeId();
+        OffsetDateTime now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+        int stopped = jdbc.update("""
+                update app.product set status = ?, updated_at = ?, changed_at = ?
+                where store_id = ? and id = ? and deleted_at is null and status = ?
+                """, ProductEntity.INACTIVE, now, now, storeId, id, ProductEntity.ACTIVE);
+        if (stopped == 1) {
+            List<UUID> variantIds = jdbc.queryForList("""
+                    update app.product_variant set status = ?, updated_at = ?
+                    where store_id = ? and product_id = ? and deleted_at is null and status = ?
+                    returning id
+                    """, UUID.class, ProductEntity.INACTIVE, now, storeId, id, ProductEntity.ACTIVE);
+            for (UUID variantId : variantIds) {
+                events.publishEvent(new VariantDeactivated(storeId, variantId));
+            }
+            audit.record(AuditAction.CATALOG_PRODUCT_DEACTIVATE, id.toString(),
+                    Map.of("status", ProductEntity.ACTIVE), Map.of("status", ProductEntity.INACTIVE));
+        }
+        return loadView(id);
     }
 
     /** Chạy trong transaction của {@link IdempotencyService}; trả id Sản phẩm (định danh chứng từ). */

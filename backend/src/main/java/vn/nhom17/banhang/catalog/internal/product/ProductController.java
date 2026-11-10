@@ -15,9 +15,9 @@ import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.platform.PageResponse;
 
 /**
- * Sản phẩm (FR-1, SP-01). Xem chi tiết và danh sách: cả hai vai trò; thêm: chỉ Chủ cửa hàng. Quyền khai báo ở
- * {@code SecurityConfig} của platform (AD-16). Thêm có {@code Idempotency-Key} (AD-7): lần đầu {@code 201}, gửi lại
- * cùng nội dung {@code 200} + {@code Idempotent-Replay: true}.
+ * Sản phẩm (FR-1, SP-01; FR-3, SP-03). Xem chi tiết và danh sách: cả hai vai trò; thêm, ngừng kinh doanh: chỉ Chủ
+ * cửa hàng. Quyền khai báo ở {@code SecurityConfig} của platform (AD-16). Thêm có {@code Idempotency-Key} (AD-7): lần
+ * đầu {@code 201}, gửi lại cùng nội dung {@code 200} + {@code Idempotent-Replay: true}.
  */
 @RestController
 @RequestMapping(ProductController.PATH)
@@ -73,6 +73,15 @@ class ProductController {
             return ResponseEntity.ok().header(IDEMPOTENT_REPLAY_HEADER, "true").body(result.product());
         }
         return ResponseEntity.created(URI.create(PATH + "/" + result.product().id())).body(result.product());
+    }
+
+    /**
+     * Ngừng kinh doanh (FR-3): không có body, trả chi tiết như {@code GET /{id}}. Một chiều; gọi lại với Sản phẩm đã
+     * ngừng vẫn {@code 200} với trạng thái hiện tại, nên không cần {@code Idempotency-Key}.
+     */
+    @PostMapping("/{id}/deactivate")
+    ProductView deactivate(@PathVariable UUID id) {
+        return products.deactivate(id);
     }
 
     /**

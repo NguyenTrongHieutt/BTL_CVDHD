@@ -47,10 +47,17 @@ let nextId: number;
 let failNextPostWithNetworkError: boolean;
 /** Lần POST tới được backend ghi nhưng phản hồi bị mất (lỗi mạng sau khi đã tạo). */
 let loseNextPostResponse: boolean;
+/** Lần ngừng kinh doanh tới trả lỗi mạng (fetch ném lỗi), không đổi gì. */
+let failNextDeactivateWithNetworkError: boolean;
+/** Lần ngừng kinh doanh tới được backend ghi (`INACTIVE`) nhưng phản hồi bị mất (lỗi mạng sau khi đã ngừng). */
+let loseNextDeactivateResponse: boolean;
+
+const DEACTIVATE_PATH = /^\/api\/v1\/catalog\/products\/([^/]+)\/deactivate$/;
 
 /**
  * Backend giả: danh sách có phân trang, POST trả đúng mã lỗi của SP-01 và phát lại theo `Idempotency-Key` (cùng
- * nội dung thì trả lại Sản phẩm cũ, khác nội dung thì `409 idempotency-key-reuse`).
+ * nội dung thì trả lại Sản phẩm cũ, khác nội dung thì `409 idempotency-key-reuse`). Ngừng kinh doanh (SP-03) đổi
+ * Sản phẩm và Biến thể sang `INACTIVE`, gọi lại vẫn `200`.
  */
 function backend() {
   const byKey = new Map<string, { body: string; product: Product }>();
@@ -131,6 +138,28 @@ function backend() {
       }
       return json(created, 201);
     }
+    const deactivating = DEACTIVATE_PATH.exec(url.pathname);
+    if (deactivating && method === 'POST') {
+      if (failNextDeactivateWithNetworkError) {
+        failNextDeactivateWithNetworkError = false;
+        throw new TypeError('Failed to fetch');
+      }
+      const id = decodeURIComponent(deactivating[1]);
+      const existing = products.find((p) => p.id === id);
+      if (existing) {
+        const stopped: Product = {
+          ...existing,
+          status: 'INACTIVE',
+          variants: existing.variants.map((v) => ({ ...v, status: 'INACTIVE' })),
+        };
+        products = products.map((p) => (p.id === id ? stopped : p));
+        if (loseNextDeactivateResponse) {
+          loseNextDeactivateResponse = false;
+          throw new TypeError('Failed to fetch');
+        }
+        return json(stopped);
+      }
+    }
     return json({ type: '/errors/common/not-found', title: 'Không tìm thấy', status: 404 }, 404);
   });
 }
@@ -139,7 +168,7 @@ function me(role: Role): Me {
   return { userId: 'u-1', storeId: 's-1', storeName: 'Cửa hàng thử', role, displayName: 'Người thử' };
 }
 
-function renderPage(role: Role = 'OWNER') {
+function renderPage(role: Role = 'OWNER'): QueryClient {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
@@ -150,12 +179,19 @@ function renderPage(role: Role = 'OWNER') {
       </AntdApp>
     </QueryClientProvider>,
   );
+  return queryClient;
 }
 
 function posts() {
   return fetchMock.mock.calls.filter(
     ([input, init]) =>
       init?.method === 'POST' && new URL(String(input), 'http://localhost').pathname === PRODUCTS_PATH,
+  );
+}
+
+function deactivations() {
+  return fetchMock.mock.calls.filter(
+    ([input, init]) => init?.method === 'POST' && DEACTIVATE_PATH.test(new URL(String(input), 'http://localhost').pathname),
   );
 }
 
@@ -194,6 +230,26 @@ function submit() {
   fireEvent.click(within(dialog()).getByRole('button', { name: 'Thêm' }));
 }
 
+/** Dòng của bảng có tên Sản phẩm này. */
+function rowOf(name: string): HTMLElement {
+  const row = within(table())
+    .getAllByRole('row')
+    .find((r) => within(r).queryAllByRole('cell')[0]?.textContent === name);
+  if (!row) throw new Error(`không có dòng ${name}`);
+  return row;
+}
+
+/** Hộp xác nhận của `useConfirm`; antd ghi tiêu đề hai lần (một bản cho `aria-labelledby`). */
+async function findConfirm(title: string) {
+  await screen.findAllByText(title);
+}
+
+/** Bấm nút của hộp xác nhận mở sau cùng (hộp cũ còn trong DOM khi jsdom không chạy hiệu ứng đóng). */
+function clickConfirmButton(name: string) {
+  const buttons = screen.getAllByRole('button', { name });
+  fireEvent.click(buttons[buttons.length - 1]);
+}
+
 /** Tên Sản phẩm theo thứ tự các dòng của bảng. */
 function rowNames(): string[] {
   return within(table())
@@ -228,6 +284,8 @@ beforeEach(() => {
   nextId = 100;
   failNextPostWithNetworkError = false;
   loseNextPostResponse = false;
+  failNextDeactivateWithNetworkError = false;
+  loseNextDeactivateResponse = false;
   backend();
 });
 
@@ -240,7 +298,7 @@ describe('ProductsPage', () => {
     expect(within(table()).getByText('Đồ uống')).toBeTruthy();
     expect(within(table()).getByText('SP-00000002')).toBeTruthy();
     expect(within(table()).getByText(/2\.000/)).toBeTruthy();
-    expect(within(table()).getAllByText('Đang kinh doanh')).toHaveLength(2);
+    expect(within(table()).getAllByText('Đang bán')).toHaveLength(2);
     expect(screen.queryByText(/Giá vốn/)).toBeNull();
   });
 
@@ -248,6 +306,9 @@ describe('ProductsPage', () => {
     renderPage('STAFF');
     expect(await within(table()).findByText('Sản phẩm 01')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Thêm Sản phẩm/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Ngừng kinh doanh/ })).toBeNull();
+    expect(within(table()).queryByText('Thao tác')).toBeNull();
+    expect(within(table()).getAllByText('Đang bán')).toHaveLength(2);
   });
 
   it('Chủ cửa hàng thêm đủ thông tin: gửi đúng body và Idempotency-Key, đóng form thì Sản phẩm mới nằm đầu bảng', async () => {
@@ -484,5 +545,101 @@ describe('ProductsPage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(rowNames()[0]).toBe('Hàng mới nhất'));
     expect(rowNames()[1]).toBe('Sản phẩm 25');
+  });
+
+  it('Chủ cửa hàng ngừng kinh doanh có xác nhận: dòng đổi sang "Ngừng kinh doanh" ngay, nút biến mất', async () => {
+    const queryClient = renderPage();
+    await within(table()).findByText('Sản phẩm 01');
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.click(within(rowOf('Sản phẩm 01')).getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 01' }));
+    await findConfirm('Ngừng kinh doanh "Sản phẩm 01"?');
+    // Nói rõ hậu quả: ẩn khỏi màn bán hàng và tìm kiếm, lịch sử vẫn giữ
+    expect(screen.getByText(/ẩn khỏi màn bán hàng và kết quả tìm kiếm/)).toBeTruthy();
+    expect(screen.getByText(/Lịch sử Đơn hàng, Tồn kho và báo cáo vẫn được giữ/)).toBeTruthy();
+    clickConfirmButton('Ngừng kinh doanh');
+
+    expect(await screen.findByText('Đã ngừng kinh doanh "Sản phẩm 01"')).toBeTruthy();
+    await waitFor(() => expect(within(rowOf('Sản phẩm 01')).getByText('Ngừng kinh doanh')).toBeTruthy());
+    expect(within(rowOf('Sản phẩm 01')).queryByText('Đang bán')).toBeNull();
+    expect(within(rowOf('Sản phẩm 01')).queryByRole('button')).toBeNull();
+    // Dòng khác không đổi, vẫn ngừng được; bảng vẫn ở chỗ cũ
+    expect(within(rowOf('Sản phẩm 02')).getByText('Đang bán')).toBeTruthy();
+    expect(within(rowOf('Sản phẩm 02')).getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 02' })).toBeTruthy();
+    expect(rowNames()).toEqual(['Sản phẩm 02', 'Sản phẩm 01']);
+
+    expect(deactivations()).toHaveLength(1);
+    const [call] = deactivations();
+    expect(new URL(String(call[0]), 'http://localhost').pathname).toBe(`${PRODUCTS_PATH}/p-1/deactivate`);
+    expect(call[1]?.body).toBeUndefined();
+    expect(keyOf(call)).toBeNull();
+    // Tồn kho và hàng bán được cũng tải lại: Sản phẩm ẩn khỏi màn bán hàng
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'products'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory', 'stock'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sales', 'sellable'] });
+  });
+
+  it('bấm "Không" ở hộp xác nhận thì không gửi gì, dòng giữ nguyên', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 01');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 01' }));
+    await findConfirm('Ngừng kinh doanh "Sản phẩm 01"?');
+    clickConfirmButton('Không');
+
+    await waitFor(() => expect(within(rowOf('Sản phẩm 01')).getByText('Đang bán')).toBeTruthy());
+    expect(deactivations()).toHaveLength(0);
+    expect(within(rowOf('Sản phẩm 01')).getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 01' })).toBeTruthy();
+  });
+
+  it('Sản phẩm đã ngừng kinh doanh: hiện thẻ "Ngừng kinh doanh", không có nút', async () => {
+    products = [product(2), product(1, { status: 'INACTIVE' })];
+    renderPage();
+    await within(table()).findByText('Sản phẩm 01');
+
+    expect(within(rowOf('Sản phẩm 01')).getByText('Ngừng kinh doanh')).toBeTruthy();
+    expect(within(rowOf('Sản phẩm 01')).queryByRole('button')).toBeNull();
+    expect(within(rowOf('Sản phẩm 02')).getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 02' })).toBeTruthy();
+  });
+
+  it('mất mạng khi ngừng kinh doanh: báo ở khung lỗi, đóng được, dòng vẫn "Đang bán"', async () => {
+    failNextDeactivateWithNetworkError = true;
+    renderPage();
+    await within(table()).findByText('Sản phẩm 01');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 01' }));
+    await findConfirm('Ngừng kinh doanh "Sản phẩm 01"?');
+    clickConfirmButton('Ngừng kinh doanh');
+
+    expect(await screen.findByText('Không kết nối được máy chủ.')).toBeTruthy();
+    expect(within(rowOf('Sản phẩm 01')).getByText('Đang bán')).toBeTruthy();
+    expect(within(rowOf('Sản phẩm 01')).getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 01' })).toBeTruthy();
+    expect(products.find((p) => p.id === 'p-1')?.status).toBe('ACTIVE');
+
+    const alert = screen.getAllByRole('alert').find((el) => el.textContent?.includes('Không kết nối được máy chủ.'));
+    expect(alert).toBeTruthy();
+    fireEvent.click(within(alert as HTMLElement).getByRole('button'));
+    await waitFor(() => expect(screen.queryByText('Không kết nối được máy chủ.')).toBeNull());
+  });
+
+  it('mất phản hồi sau khi máy chủ đã ngừng: báo lỗi mạng, bảng tải lại và dòng thành "Ngừng kinh doanh"', async () => {
+    loseNextDeactivateResponse = true;
+    const queryClient = renderPage();
+    await within(table()).findByText('Sản phẩm 01');
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 01' }));
+    await findConfirm('Ngừng kinh doanh "Sản phẩm 01"?');
+    clickConfirmButton('Ngừng kinh doanh');
+
+    expect(await screen.findByText('Không kết nối được máy chủ.')).toBeTruthy();
+    await waitFor(() => expect(within(rowOf('Sản phẩm 01')).getByText('Ngừng kinh doanh')).toBeTruthy());
+    expect(within(rowOf('Sản phẩm 01')).queryByText('Đang bán')).toBeNull();
+    expect(within(rowOf('Sản phẩm 01')).queryByRole('button')).toBeNull();
+    expect(deactivations()).toHaveLength(1);
+    // Tồn kho và hàng bán được cũng tải lại, vì máy chủ có thể đã ngừng
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'products'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory', 'stock'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sales', 'sellable'] });
   });
 });

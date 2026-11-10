@@ -20,6 +20,8 @@ import org.hibernate.annotations.TenantId;
 public class ProductEntity {
 
     static final String ACTIVE = "ACTIVE";
+    /** Ngừng kinh doanh (FR-3): một chiều, không mở bán lại (AD-14). */
+    static final String INACTIVE = "INACTIVE";
 
     @Id
     private UUID id;

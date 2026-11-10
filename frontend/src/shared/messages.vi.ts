@@ -87,6 +87,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Cửa hàng đã có Khách hàng dùng số điện thoại này.',
     hint: 'Mở Khách hàng đã có để xem hoặc sửa, thay vì thêm mới.',
   },
+  '/errors/catalog/supplier-code-taken': {
+    message: 'Cửa hàng đã có Nhà cung cấp dùng mã này.',
+    hint: 'Mã không phân biệt chữ hoa, chữ thường. Nhập mã khác, hoặc để trống.',
+  },
 
   // sales
   '/errors/sales/invalid-state': {

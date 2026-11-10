@@ -133,4 +133,43 @@ export interface ProductSearchParams {
   maxPrice?: Money;
 }
 
-// TODO(Hiếu, FR-23, GĐ1): kiểu Supplier.
+/** Nhà cung cấp rút gọn, như `SupplierLookup.SupplierSummary` của backend (Phiếu nhập KHO-03). */
+export interface SupplierSummary {
+  supplierId: Uuid;
+  /** Mã chữ HOA, duy nhất trong một Cửa hàng; `null` khi Nhà cung cấp không có mã. */
+  code: string | null;
+  name: string;
+}
+
+/**
+ * Nhà cung cấp, từ `GET /api/v1/catalog/suppliers` (có tìm kiếm), `GET …/{id}`, `POST`, `PUT` (FR-23, KHO-02). Cả
+ * hai vai trò xem được; thêm, sửa chỉ Chủ cửa hàng. Không có xóa, công nợ, lịch sử nhập theo Nhà cung cấp.
+ */
+export interface Supplier extends SupplierSummary {
+  /** Như đã nhập (sau chuẩn hóa); `null` khi bỏ trống. */
+  phone: string | null;
+  /** `null` khi bỏ trống. */
+  address: string | null;
+  /** `null` khi bỏ trống. */
+  note: string | null;
+}
+
+/**
+ * Body của `POST /api/v1/catalog/suppliers` và `PUT /api/v1/catalog/suppliers/{id}` (PUT thay toàn bộ: trường tùy
+ * chọn thiếu thì xóa, kể cả mã). Không có `Idempotency-Key`.
+ */
+export interface SupplierRequest {
+  /** Bắt buộc, tối đa 200 ký tự. Trùng tên được phép. */
+  name: string;
+  /**
+   * Tối đa 30 ký tự: chữ cái không dấu, chữ số, `-`, `_`, bắt đầu bằng chữ cái hoặc chữ số; backend lưu chữ HOA. Trùng
+   * mã: `409 supplier-code-taken`.
+   */
+  code?: string;
+  /** Tối đa 20 ký tự: chữ số, khoảng trắng, `+ . - ( )`, phải có chữ số. */
+  phone?: string;
+  /** Tối đa 300 ký tự. */
+  address?: string;
+  /** Tối đa 500 ký tự, được xuống dòng. */
+  note?: string;
+}

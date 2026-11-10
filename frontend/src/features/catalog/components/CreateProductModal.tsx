@@ -16,14 +16,16 @@ import { PROBLEM_MESSAGES } from '../../../shared/messages.vi';
 import type { CreateProductRequest, Product } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { useCategoryOptions } from '../api/categories';
+import { IDEMPOTENCY_KEY_REUSE, useCreateProduct } from '../api/products';
 import {
-  IDEMPOTENCY_KEY_REUSE,
+  MONEY_MAX,
+  foldText,
+  groupThousands,
   hasInvalidChars,
-  normalizeProductText,
-  productTextLength,
-  useCreateProduct,
-} from '../api/products';
-import { MONEY_MAX, foldText, groupThousands, parseWholeNumber } from './textUtils';
+  normalizeText,
+  parseWholeNumber,
+  textLength,
+} from './textUtils';
 
 const NAME_MAX = 200;
 const UNIT_MAX = 30;
@@ -93,7 +95,7 @@ function isKeyReuse(error: unknown): boolean {
 
 /** Chuỗi tùy chọn: chuẩn hóa, bỏ trống thì không gửi. */
 function optionalText(value: string | undefined, multiline = false): string | undefined {
-  const text = value === undefined ? '' : normalizeProductText(value, multiline);
+  const text = value === undefined ? '' : normalizeText(value, multiline);
   return text === '' ? undefined : text;
 }
 
@@ -108,7 +110,7 @@ function textRules(label: string, max: number, multiline = false) {
     },
     {
       validator: (_: unknown, value?: string) =>
-        value === undefined || productTextLength(value, multiline) <= max
+        value === undefined || textLength(value, multiline) <= max
           ? Promise.resolve()
           : Promise.reject(new Error(`${label} tối đa ${max} ký tự`)),
     },
@@ -154,7 +156,7 @@ export function CreateProductModal({ onClose, onCreated }: CreateProductModalPro
 
   const onFinish = (values: ProductFormValues) => {
     const request: CreateProductRequest = {
-      name: normalizeProductText(values.name),
+      name: normalizeText(values.name),
       // `required` và `wholeNumber` đã chặn giá trống hoặc sai
       salePrice: parseWholeNumber(values.salePrice) ?? 0,
       categoryId: values.categoryId ?? undefined,
@@ -275,7 +277,7 @@ export function CreateProductModal({ onClose, onCreated }: CreateProductModalPro
               rules={[
                 ...textRules('Mã vạch', CODE_MAX),
                 {
-                  transform: (value?: string) => (value === undefined ? undefined : normalizeProductText(value)),
+                  transform: (value?: string) => (value === undefined ? undefined : normalizeText(value)),
                   pattern: BARCODE_CHARS,
                   message: 'Mã vạch chỉ gồm chữ cái không dấu và chữ số',
                 },

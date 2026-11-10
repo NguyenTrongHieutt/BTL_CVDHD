@@ -136,6 +136,7 @@ class RoleMatrixTest {
                 row("PUT", "/api/v1/catalog/suppliers/{id}", U, F, A),
                 // Khách hàng: cả hai vai trò thêm, sửa (FR-18). SecurityConfig mở mọi phương thức trên nhánh này.
                 row("GET", "/api/v1/catalog/customers", U, A, A),
+                row("GET", "/api/v1/catalog/customers/{id}", U, A, A),
                 row("POST", "/api/v1/catalog/customers", U, A, A),
                 row("PUT", "/api/v1/catalog/customers/{id}", U, A, A),
                 row("DELETE", "/api/v1/catalog/customers/{id}", U, A, A),

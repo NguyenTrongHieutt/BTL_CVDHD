@@ -10,9 +10,33 @@ export type ProductStatus = 'ACTIVE' | 'INACTIVE';
 /** Khách hàng rút gọn, dùng cho CustomerPicker ở màn bán hàng (FR-14, FR-19). */
 export interface CustomerSummary {
   customerId: Uuid;
-  name: string;
-  /** Số điện thoại, duy nhất trong một Cửa hàng (FR-18). */
+  /** `null` khi tạo nhanh chỉ bằng số điện thoại (FR-14). */
+  name: string | null;
+  /** Số điện thoại dạng `0…` (10 chữ số), duy nhất trong một Cửa hàng (FR-18). */
   phone: string;
+}
+
+/**
+ * Khách hàng, từ `GET /api/v1/catalog/customers` (có tìm kiếm), `GET …/{id}`, `POST`, `PUT` (FR-18 KH-01, FR-19 KH-02).
+ * Cả hai vai trò. Không có điểm tích lũy (KH-04 của sales).
+ */
+export interface Customer extends CustomerSummary {
+  /** `null` khi bỏ trống. */
+  note: string | null;
+  createdAt: IsoDateTime;
+}
+
+/**
+ * Body của `POST /api/v1/catalog/customers` và `PUT /api/v1/catalog/customers/{id}` (PUT thay toàn bộ: `name`, `note`
+ * thiếu thì xóa). Không có `Idempotency-Key`.
+ */
+export interface CustomerRequest {
+  /** Bắt buộc: `0` + 9 chữ số hoặc `+84` + 9 chữ số, được có dấu cách, dấu chấm, gạch ngang; backend lưu dạng `0…`. */
+  phone: string;
+  /** Tối đa 100 ký tự. */
+  name?: string;
+  /** Tối đa 500 ký tự, được xuống dòng. */
+  note?: string;
 }
 
 /**

@@ -24,9 +24,6 @@ const sellableQueryKey = ['sales', 'sellable'] as const;
 
 export const IDEMPOTENCY_KEY_REUSE = '/errors/common/idempotency-key-reuse';
 
-const ZWNJ = 0x200c;
-const ZWJ = 0x200d;
-
 /**
  * Danh sách Sản phẩm có Tìm kiếm thường và lọc (FR-5, SP-05). Bộ lọc trống không gửi; không có `sort` thì backend
  * sắp theo tên không dấu.
@@ -40,39 +37,6 @@ export function fetchProducts(
   return api.get<PageResponse<Product>>(PRODUCTS_PATH, {
     query: { ...pageRequestToQuery(request), q: q || undefined, categoryId, status, minPrice, maxPrice },
     signal,
-  });
-}
-
-/**
- * Chuẩn hóa chuỗi như backend (`TextFields`): bỏ ký tự định dạng vô hình (trường nhiều dòng giữ ZWNJ, ZWJ của emoji
- * ghép), đổi khoảng trắng Unicode loại Zs thành dấu cách thường, NFC, cắt khoảng trắng hai đầu; trường nhiều dòng
- * đổi `\r\n`, `\r` thành `\n`. Dùng trước khi kiểm độ dài và trước khi gửi.
- */
-export function normalizeProductText(value: string, multiline = false): string {
-  const text = value
-    .replace(/\p{Cf}/gu, (c) => {
-      const code = c.codePointAt(0);
-      return multiline && (code === ZWNJ || code === ZWJ) ? c : '';
-    })
-    .replace(/\p{Zs}/gu, ' ')
-    .normalize('NFC');
-  return (multiline ? text.replace(/\r\n?/g, '\n') : text).trim();
-}
-
-/** Số ký tự đếm như backend: theo code point (emoji là một ký tự), sau khi chuẩn hóa. */
-export function productTextLength(value: string, multiline = false): number {
-  return [...normalizeProductText(value, multiline)].length;
-}
-
-/**
- * Ký tự backend từ chối (sau khi chuẩn hóa): ký tự điều khiển (trường nhiều dòng cho phép xuống dòng, tab),
- * surrogate lẻ, và ở trường một dòng cả ngắt dòng, ngắt đoạn Unicode (U+2028, U+2029).
- */
-export function hasInvalidChars(value: string, multiline = false): boolean {
-  return [...normalizeProductText(value, multiline)].some((c) => {
-    if (/\p{Cs}/u.test(c)) return true;
-    if (/[\p{Zl}\p{Zp}]/u.test(c)) return !multiline;
-    return /\p{Cc}/u.test(c) && !(multiline && (c === '\n' || c === '\t'));
   });
 }
 

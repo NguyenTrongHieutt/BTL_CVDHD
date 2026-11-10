@@ -5,9 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
-import java.util.regex.Pattern;
 import vn.nhom17.banhang.catalog.internal.FieldErrors;
-import vn.nhom17.banhang.catalog.internal.TextFields;
+import vn.nhom17.banhang.catalog.internal.SearchText;
 
 /**
  * Tìm kiếm thường (FR-5, SP-05): MỘT truy vấn dùng chung cho {@code GET /api/v1/catalog/products} và
@@ -15,7 +14,7 @@ import vn.nhom17.banhang.catalog.internal.TextFields;
  * danh: {@code p} là Sản phẩm, {@code v} là Biến thể của dòng kết quả ({@link Scope}).
  *
  * <ul>
- *   <li>{@code q}: chuẩn hóa như trường văn bản ({@link TextFields#normalize}: NFC, cắt khoảng trắng…), tab, xuống
+ *   <li>{@code q}: chuẩn hóa như trường văn bản ({@link SearchText#query}: NFC, cắt khoảng trắng…), tab, xuống
  *       dòng thành dấu cách, gộp khoảng trắng liền nhau; rỗng thì bỏ qua. Khớp khi tên Sản phẩm CHỨA {@code q}, không
  *       phân biệt hoa thường, không cần dấu ({@code lower(app.f_unaccent(…))} cả hai phía, gộp khoảng trắng;
  *       {@code %} {@code _} {@code \} trong {@code q} được thoát sau khi bỏ dấu nên chỉ khớp đúng chữ đó), hoặc SKU, mã
@@ -41,18 +40,13 @@ final class ProductSearch {
      * Tên bỏ dấu rồi mới chữ thường ({@code unaccent} có thể sinh chữ hoa, ví dụ "Æ" → "AE"); thứ tự mặc định. Dùng
      * chung với {@link JdbcVariantLookup}.
      */
-    static final String FOLDED_NAME = "lower(app.f_unaccent(p.name))";
-
-    /** Chữ đem so khớp tên: bỏ dấu, chữ thường, gộp khoảng trắng liền nhau (cả chuỗi {@code unaccent} sinh ra). */
-    private static final String MATCH_FOLD = "regexp_replace(lower(app.f_unaccent(%s)), '\\s+', ' ', 'g')";
+    static final String FOLDED_NAME = SearchText.folded("p.name");
 
     /**
-     * Tên chứa {@code q} (tham số thứ nhất). Mẫu dựng trong SQL: bỏ dấu, chữ thường, gộp khoảng trắng, RỒI mới thoát
-     * {@code \ % _}, để ký tự mà {@code unaccent} sinh ra cũng được thoát.
+     * Tên chứa {@code q} (tham số thứ nhất), cùng cách với tìm Khách hàng theo tên ({@link SearchText#containsFolded}:
+     * bỏ dấu, chữ thường, gộp khoảng trắng, rồi mới thoát {@code \ % _}).
      */
-    private static final String NAME_MATCH = MATCH_FOLD.formatted("p.name")
-            + " like ('%' || replace(replace(replace(" + MATCH_FOLD.formatted("?")
-            + ", '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%') escape '\\'";
+    private static final String NAME_MATCH = SearchText.containsFolded("p.name");
 
     /**
      * SKU, mã vạch của Biến thể có bí danh {@code %1$s} bắt đầu bằng {@code q} (hai tham số: đã viết hoa, đã thoát,
@@ -68,8 +62,6 @@ final class ProductSearch {
 
     /** Hàng còn bán: mã của chính Biến thể {@code v} (quét mã vạch ra đúng Biến thể đó). */
     private static final String OWN_CODE_MATCH = CODE_MATCH.formatted("v");
-
-    private static final Pattern SPACE_RUNS = Pattern.compile(" {2,}");
 
     private ProductSearch() {
     }
@@ -151,20 +143,9 @@ final class ProductSearch {
         return new Criteria(query(q), categoryId, null, min, max);
     }
 
-    /**
-     * {@code q} sau khi chuẩn hóa như trường văn bản (bỏ ký tự định dạng vô hình, khoảng trắng Unicode thành dấu cách,
-     * NFC, cắt hai đầu). Tab, xuống dòng (chữ dán từ nơi khác: "Sữa\ttươi") thành dấu cách; ký tự điều khiển khác bị
-     * bỏ (tên, SKU, mã vạch đã lưu không có, PostgreSQL không nhận NUL); khoảng trắng liền nhau gộp làm một. Rỗng thì
-     * {@code null} (bỏ qua).
-     */
+    /** {@code q} đã chuẩn hóa ({@link SearchText#query}); rỗng thì {@code null} (bỏ qua). */
     static String query(String raw) {
-        StringBuilder kept = new StringBuilder();
-        TextFields.normalize(raw, false).codePoints()
-                .map(c -> Character.isWhitespace(c) || Character.isSpaceChar(c) ? ' ' : c)
-                .filter(c -> !Character.isISOControl(c))
-                .forEach(kept::appendCodePoint);
-        String text = SPACE_RUNS.matcher(kept).replaceAll(" ").strip();
-        return text.isEmpty() ? null : text;
+        return SearchText.query(raw);
     }
 
     /** {@code sort=<field>[,asc|desc]}; bỏ trống thì {@link Sort#DEFAULT}, giá trị khác thì lỗi trên {@code sort}. */
@@ -304,6 +285,6 @@ final class ProductSearch {
 
     /** Thoát ký tự đặc biệt của {@code LIKE} (thoát bằng {@code \}). */
     static String escapeLike(String text) {
-        return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return SearchText.escapeLike(text);
     }
 }

@@ -13,6 +13,7 @@ describe('messages.vi', () => {
     '/errors/catalog/category-in-use',
     '/errors/catalog/barcode-taken',
     '/errors/catalog/sku-taken',
+    '/errors/catalog/customer-phone-taken',
     '/errors/sales/invalid-state',
     '/errors/sales/cart-stale',
     '/errors/inventory/variant-inactive',

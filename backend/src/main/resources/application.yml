@@ -58,6 +58,11 @@ app:
     account-status-cache: 60s        # AD-9: kiểm tra trạng thái tài khoản, cache tối đa 60 giây
     cookie-secure: false             # demo chạy http://localhost
     internal-service-key: ${INTERNAL_SERVICE_KEY:}
+  catalog:
+    sync-datasource:                 # datasource thứ hai, chỉ change-feed dùng (AD-5 mục 6, AD-12); chỉ đọc, pool tối đa 2
+      url: ${spring.datasource.url}  # cùng database với datasource chính
+      username: sync_reader          # BYPASSRLS, chỉ SELECT product, product_variant, category, view catalog_product_changes
+      password: ${DB_SYNC_PASSWORD:}
   dev:
     password: demo1234               # mật khẩu tài khoản dev.* (chỉ profile dev)
   seed:

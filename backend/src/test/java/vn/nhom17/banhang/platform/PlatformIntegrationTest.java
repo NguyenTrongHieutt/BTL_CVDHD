@@ -186,9 +186,8 @@ class PlatformIntegrationTest {
     @Test
     void internalRoutesNeedTheServiceKey() throws Exception {
         mvc.perform(get("/internal/catalog/product-changes")).andExpect(status().isUnauthorized());
-        MvcResult withKey = mvc.perform(get("/internal/catalog/product-changes")
-                .header("X-Service-Key", TestcontainersConfiguration.SERVICE_KEY)).andReturn();
-        assertThat(withKey.getResponse().getStatus()).isNotIn(401, 403); // endpoint làm ở GĐ1 (Hiếu)
+        mvc.perform(get("/internal/catalog/product-changes")
+                .header("X-Service-Key", TestcontainersConfiguration.SERVICE_KEY)).andExpect(status().isOk());
     }
 
     // --- Tách dữ liệu hai lớp (AD-5) --------------------------------------------------------------------------

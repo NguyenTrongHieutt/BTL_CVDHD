@@ -254,9 +254,8 @@ class RoleMatrixTest {
 
     @Test
     void serviceKeyOpensOnlyInternalRoutes() throws Exception {
-        int withKey = mvc.perform(get("/internal/catalog/product-changes")
-                .header("X-Service-Key", TestcontainersConfiguration.SERVICE_KEY)).andReturn().getResponse().getStatus();
-        assertThat(withKey).isNotIn(401, 403).isLessThan(500);
+        mvc.perform(get("/internal/catalog/product-changes")
+                .header("X-Service-Key", TestcontainersConfiguration.SERVICE_KEY)).andExpect(status().isOk());
         mvc.perform(get("/internal/catalog/product-changes").header("X-Service-Key", "sai-khoa"))
                 .andExpect(status().isUnauthorized());
         mvc.perform(get("/api/v1/platform/me").header("X-Service-Key", TestcontainersConfiguration.SERVICE_KEY))

@@ -11,7 +11,8 @@ import org.testcontainers.utility.MountableFile;
 /**
  * PostgreSQL thật cho test (AD-21: không dùng H2): đúng image {@code pgvector/pgvector:pg18} và đúng
  * {@code deploy/db/init.sql}, nên test chạy cả 4 role và RLS như khi demo. Backend nối bằng {@code app_backend}
- * (không BYPASSRLS); Flyway chạy bằng {@code app_owner}. KHÔNG dùng superuser cho datasource, vì superuser bỏ qua RLS.
+ * (không BYPASSRLS); Flyway chạy bằng {@code app_owner}; riêng change-feed đọc bằng {@code sync_reader} (datasource thứ
+ * hai, AD-12). KHÔNG dùng superuser cho datasource, vì superuser bỏ qua RLS.
  */
 @TestConfiguration(proxyBeanMethods = false)
 public class TestcontainersConfiguration {
@@ -43,6 +44,10 @@ public class TestcontainersConfiguration {
             registry.add("spring.datasource.password", () -> BACKEND_PASSWORD);
             registry.add("spring.flyway.user", () -> "app_owner");
             registry.add("spring.flyway.password", () -> OWNER_PASSWORD);
+            // Datasource thứ hai của change-feed (AD-12): sync_reader, cùng database
+            registry.add("app.catalog.sync-datasource.url", postgres::getJdbcUrl);
+            registry.add("app.catalog.sync-datasource.username", () -> "sync_reader");
+            registry.add("app.catalog.sync-datasource.password", () -> SYNC_PASSWORD);
             registry.add("app.security.jwt-secret", () -> JWT_SECRET);
             registry.add("app.security.internal-service-key", () -> SERVICE_KEY);
         };

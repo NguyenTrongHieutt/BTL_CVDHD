@@ -4,12 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import jakarta.servlet.http.Cookie;
 import java.nio.charset.StandardCharsets;
+import java.text.Normalizer;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -256,6 +258,54 @@ class StoreRegistrationIntegrationTest {
         // Đúng 8 và đúng 72 ký tự thì được
         registerOk(newKey(), body("Tạp hóa Hoa", uniquePhone(), "12345678", "Hoa"));
         registerOk(newKey(), body("Tạp hóa Hoa", uniquePhone(), "a".repeat(72), "Hoa"));
+    }
+
+    /**
+     * Tên Cửa hàng và tên Chủ cửa hàng chuẩn hóa như Thông tin Cửa hàng (TK-05), để tên lưu lúc đăng ký luôn lưu lại
+     * được ở màn đó: ký tự điều khiển bị từ chối trên đúng trường; NFD, ký tự vô hình, khoảng trắng Unicode được
+     * chuẩn hóa trước khi lưu.
+     */
+    @Test
+    void namesAreNormalizedLikeStoreInfoAndControlCharactersAreRejected() throws Exception {
+        String key = newKey();
+        register(key, body("Tạp\thóa", uniquePhone(), PASSWORD, "Hoa\u0000"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.type").value("/errors/common/validation"))
+                .andExpect(jsonPath("$.errors[*].field", containsInAnyOrder("storeName", "displayName")));
+        register(key, body("Tạp\nhóa", uniquePhone(), PASSWORD, "Hoa"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", containsInAnyOrder("storeName")))
+                .andExpect(jsonPath("$.errors[0].message").value("Tên Cửa hàng có ký tự không hợp lệ"));
+        register(key, body("​﻿", uniquePhone(), PASSWORD, "Hoa"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[*].field", containsInAnyOrder("storeName")))
+                .andExpect(jsonPath("$.errors[0].message").value("Nhập tên Cửa hàng"));
+        assertNothingCreated(key);
+
+        String nfd = Normalizer.normalize("Tạp hóa Hoa", Normalizer.Form.NFD);
+        MvcResult result = register(newKey(), body(" " + nfd + "​ ", uniquePhone(), PASSWORD,
+                        "﻿Hoa　"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.storeName").value("Tạp hóa Hoa"))
+                .andExpect(jsonPath("$.displayName").value("Hoa"))
+                .andReturn();
+        UUID storeId = UUID.fromString(json.readTree(result.getResponse().getContentAsString())
+                .get("storeId").asString());
+        assertThat(asStore(storeId, () -> jdbc.queryForObject("select name from app.store", String.class)))
+                .isEqualTo("Tạp hóa Hoa");
+
+        // Lưu Thông tin Cửa hàng với đúng tên đã đăng ký và các giá trị mặc định: không đổi gì, không ghi Nhật ký
+        Map<String, Object> storeInfo = new LinkedHashMap<>();
+        storeInfo.put("name", "Tạp hóa Hoa");
+        storeInfo.put("loyaltyEarnAmount", 10000);
+        storeInfo.put("loyaltyPointValue", 1000);
+        storeInfo.put("expiryWarningDays", 30);
+        mvc.perform(put("/api/v1/platform/store").cookie(result.getResponse().getCookie("access_token"))
+                        .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(storeInfo)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.name").value("Tạp hóa Hoa"));
+        assertThat(asStore(storeId, () -> jdbc.queryForObject(
+                "select count(*) from app.audit_log where entity = 'store'", Long.class))).isZero();
     }
 
     @Test

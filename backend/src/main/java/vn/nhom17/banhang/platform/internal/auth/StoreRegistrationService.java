@@ -18,6 +18,7 @@ import vn.nhom17.banhang.platform.Role;
 import vn.nhom17.banhang.platform.TenantScope;
 import vn.nhom17.banhang.platform.internal.auth.AuthService.LoginResult;
 import vn.nhom17.banhang.platform.internal.auth.StoreRegistrationController.RegisterStoreRequest;
+import vn.nhom17.banhang.platform.internal.store.StoreText;
 
 /**
  * Đăng ký Cửa hàng (FR-43). Một transaction tạo {@code store}, {@code order_counter} và tài khoản Chủ cửa hàng
@@ -34,6 +35,8 @@ class StoreRegistrationService {
     private static final String STORE_ID_PREFIX = "store-registration:";
     /** Giới hạn của bcrypt tính theo byte; mật khẩu dài hơn sẽ bị bộ băm từ chối. */
     private static final int BCRYPT_MAX_BYTES = 72;
+    private static final int STORE_NAME_MAX = 200;
+    private static final int DISPLAY_NAME_MAX = 100;
 
     private final JdbcTemplate jdbc;
     private final IdempotencyService idempotency;
@@ -57,17 +60,15 @@ class StoreRegistrationService {
 
     /** Gọi từ controller, ngoài transaction ({@link IdempotencyService#execute}). */
     Registration register(UUID idempotencyKey, RegisterStoreRequest request) {
-        String storeName = request.storeName().strip();
-        String displayName = request.displayName().strip();
+        // Chuẩn hóa như Thông tin Cửa hàng (StoreText: bỏ ký tự vô hình, khoảng trắng Unicode, NFC, cắt hai đầu), để
+        // tên lưu lúc đăng ký luôn lưu lại được ở màn Thông tin Cửa hàng. @NotBlank bỏ qua khoảng trắng không ngắt dòng
+        // (U+00A0…) và ký tự vô hình: tên chỉ gồm chúng cũng là trống.
+        String storeName = StoreText.normalize(request.storeName());
+        String displayName = StoreText.normalize(request.displayName());
         String password = request.password();
-        // @NotBlank và strip() bỏ qua khoảng trắng không ngắt dòng (U+00A0, U+2007, U+202F): tên chỉ gồm chúng cũng là trống
         List<Map<String, String>> errors = new ArrayList<>();
-        if (isBlank(storeName)) {
-            errors.add(fieldError("storeName", "Nhập tên Cửa hàng"));
-        }
-        if (isBlank(displayName)) {
-            errors.add(fieldError("displayName", "Nhập tên của bạn"));
-        }
+        checkName(storeName, "storeName", "Tên Cửa hàng", "Nhập tên Cửa hàng", STORE_NAME_MAX, errors);
+        checkName(displayName, "displayName", "Tên", "Nhập tên của bạn", DISPLAY_NAME_MAX, errors);
         if (password.getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_BYTES) {
             errors.add(fieldError("password", "Mật khẩu quá dài, hãy dùng mật khẩu ngắn hơn"));
         }
@@ -147,8 +148,16 @@ class StoreRegistrationService {
                 "Yêu cầu phải có header Idempotency-Key là một UUID hợp lệ.");
     }
 
-    private static boolean isBlank(String text) {
-        return text.codePoints().allMatch(c -> Character.isWhitespace(c) || Character.isSpaceChar(c));
+    /** Tên đã chuẩn hóa: không có ký tự điều khiển, không trống, tối đa {@code max} ký tự (đếm theo code point). */
+    private static void checkName(String name, String field, String label, String missing, int max,
+                                  List<Map<String, String>> errors) {
+        if (StoreText.hasInvalidChars(name)) {
+            errors.add(fieldError(field, label + " có ký tự không hợp lệ"));
+        } else if (name.isEmpty()) {
+            errors.add(fieldError(field, missing));
+        } else if (StoreText.length(name) > max) {
+            errors.add(fieldError(field, label + " tối đa " + max + " ký tự"));
+        }
     }
 
     private static Map<String, String> fieldError(String field, String message) {

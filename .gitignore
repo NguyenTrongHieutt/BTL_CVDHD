@@ -39,3 +39,6 @@ CLAUDE.local.md
 **/CLAUDE.md
 .claude/
 CONTRIBUTING.md
+.mcp.json
+_bmad/
+_bmad-output/

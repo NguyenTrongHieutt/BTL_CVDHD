@@ -5,7 +5,13 @@ import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CurrentUserContext } from '../../../shared/api/session';
-import type { Category, CreateProductRequest, Product, ProductStatus } from '../../../shared/types/catalog';
+import type {
+  Category,
+  CreateProductRequest,
+  Product,
+  ProductStatus,
+  UpdateProductRequest,
+} from '../../../shared/types/catalog';
 import type { Me, Role } from '../../../shared/types/platform';
 import { foldText } from '../components/textUtils';
 import { ProductsPage } from './ProductsPage';
@@ -62,8 +68,11 @@ let failNextDeactivateWithNetworkError: boolean;
 let loseNextDeactivateResponse: boolean;
 /** Danh sách Danh mục trả `500`. */
 let failCategories: boolean;
+/** Lần sửa tới được backend lưu nhưng phản hồi bị mất (lỗi mạng sau khi đã lưu). */
+let loseNextPutResponse: boolean;
 
 const DEACTIVATE_PATH = /^\/api\/v1\/catalog\/products\/([^/]+)\/deactivate$/;
+const PRODUCT_PATH = /^\/api\/v1\/catalog\/products\/([^/]+)$/;
 
 /** Biến thể mặc định: giá, SKU, mã vạch của dòng trong bảng. */
 function defaultOf(p: Product) {
@@ -124,9 +133,47 @@ function listProducts(params: URLSearchParams): Response {
 }
 
 /**
+ * Sửa như `PUT /api/v1/catalog/products/{id}` của SP-02: thay toàn bộ (thiếu `categoryId`, `description`, `barcode` thì
+ * xóa, thiếu `unit` thì "cái", thiếu `sku` thì giữ); SKU, mã vạch chữ HOA; Sản phẩm đã ngừng `409 product-inactive`;
+ * trùng mã với Sản phẩm khác `409`; id không có `404`.
+ */
+function updateProduct(id: string, body: UpdateProductRequest): Response {
+  const existing = products.find((p) => p.id === id);
+  if (!existing) return json({ type: '/errors/common/not-found', title: 'Không tìm thấy', status: 404 }, 404);
+  const problem = (problemType: string, title: string) =>
+    json({ type: problemType, title, status: 409, detail: title, requestId: 'req-409' }, 409);
+  if (existing.status === 'INACTIVE') return problem('/errors/catalog/product-inactive', 'Sản phẩm đã ngừng kinh doanh');
+  const others = products.filter((p) => p.id !== id);
+  const barcode = body.barcode?.toUpperCase() ?? null;
+  const sku = body.sku?.toUpperCase() ?? defaultOf(existing).sku;
+  if (barcode && others.some((p) => p.variants.some((v) => v.barcode === barcode))) {
+    return problem('/errors/catalog/barcode-taken', 'Mã vạch đã có');
+  }
+  if (others.some((p) => p.variants.some((v) => v.sku === sku))) {
+    return problem('/errors/catalog/sku-taken', 'SKU đã có');
+  }
+  const category = categories.find((c) => c.id === body.categoryId);
+  const edited: Product = {
+    ...existing,
+    name: body.name,
+    categoryId: category?.id ?? null,
+    categoryName: category?.name ?? null,
+    unit: body.unit ?? 'cái',
+    description: body.description ?? null,
+    variants: existing.variants.map((v) => (v.isDefault ? { ...v, salePrice: body.salePrice, sku, barcode } : v)),
+  };
+  products = products.map((p) => (p.id === id ? edited : p));
+  if (loseNextPutResponse) {
+    loseNextPutResponse = false;
+    throw new TypeError('Failed to fetch');
+  }
+  return json(edited);
+}
+
+/**
  * Backend giả: danh sách có tìm kiếm, lọc, phân trang (SP-05); POST trả đúng mã lỗi của SP-01 và phát lại theo
- * `Idempotency-Key` (cùng nội dung thì trả lại Sản phẩm cũ, khác nội dung thì `409 idempotency-key-reuse`). Ngừng
- * kinh doanh (SP-03) đổi Sản phẩm và Biến thể sang `INACTIVE`, gọi lại vẫn `200`.
+ * `Idempotency-Key` (cùng nội dung thì trả lại Sản phẩm cũ, khác nội dung thì `409 idempotency-key-reuse`). Sửa
+ * (SP-02) như `updateProduct`. Ngừng kinh doanh (SP-03) đổi Sản phẩm và Biến thể sang `INACTIVE`, gọi lại vẫn `200`.
  */
 function backend() {
   const byKey = new Map<string, { body: string; product: Product }>();
@@ -209,6 +256,10 @@ function backend() {
         throw new TypeError('Failed to fetch');
       }
       return json(created, 201);
+    }
+    const editing = PRODUCT_PATH.exec(url.pathname);
+    if (editing && method === 'PUT') {
+      return updateProduct(decodeURIComponent(editing[1]), JSON.parse(String(init?.body)) as UpdateProductRequest);
     }
     const deactivating = DEACTIVATE_PATH.exec(url.pathname);
     if (deactivating && method === 'POST') {
@@ -297,6 +348,12 @@ function posts() {
   );
 }
 
+function productPuts() {
+  return fetchMock.mock.calls.filter(
+    ([input, init]) => init?.method === 'PUT' && PRODUCT_PATH.test(new URL(String(input), 'http://localhost').pathname),
+  );
+}
+
 function deactivations() {
   return fetchMock.mock.calls.filter(
     ([input, init]) => init?.method === 'POST' && DEACTIVATE_PATH.test(new URL(String(input), 'http://localhost').pathname),
@@ -336,6 +393,20 @@ function type(label: string, value: string) {
 
 function submit() {
   fireEvent.click(within(dialog()).getByRole('button', { name: 'Thêm' }));
+}
+
+function save() {
+  fireEvent.click(within(dialog()).getByRole('button', { name: 'Lưu' }));
+}
+
+function valueOf(label: string): string {
+  return (field(label) as HTMLInputElement | HTMLTextAreaElement).value;
+}
+
+async function openEditDialog(name: string) {
+  fireEvent.click(within(rowOf(name)).getByRole('button', { name: `Sửa ${name}` }));
+  await screen.findByRole('dialog');
+  expect(within(dialog()).getByText('Sửa Sản phẩm')).toBeTruthy();
 }
 
 /** Dòng của bảng có tên Sản phẩm này. */
@@ -395,6 +466,7 @@ beforeEach(() => {
   failNextDeactivateWithNetworkError = false;
   loseNextDeactivateResponse = false;
   failCategories = false;
+  loseNextPutResponse = false;
   backend();
 });
 
@@ -418,6 +490,7 @@ describe('ProductsPage', () => {
     expect(await within(table()).findByText('Sản phẩm 01')).toBeTruthy();
     expect(screen.queryByRole('button', { name: /Thêm Sản phẩm/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /Ngừng kinh doanh/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Sửa/ })).toBeNull();
     expect(within(table()).queryByText('Thao tác')).toBeNull();
     expect(within(table()).getAllByText('Đang bán')).toHaveLength(2);
   });
@@ -712,8 +785,10 @@ describe('ProductsPage', () => {
     await within(table()).findByText('Sản phẩm 01');
 
     expect(within(rowOf('Sản phẩm 01')).getByText('Ngừng kinh doanh')).toBeTruthy();
+    // Không có cả nút Sửa: Sản phẩm đã ngừng không sửa được, không mở bán lại
     expect(within(rowOf('Sản phẩm 01')).queryByRole('button')).toBeNull();
     expect(within(rowOf('Sản phẩm 02')).getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 02' })).toBeTruthy();
+    expect(within(rowOf('Sản phẩm 02')).getByRole('button', { name: 'Sửa Sản phẩm 02' })).toBeTruthy();
   });
 
   it('mất mạng khi ngừng kinh doanh: báo ở khung lỗi, đóng được, dòng vẫn "Đang bán"', async () => {
@@ -1093,5 +1168,253 @@ describe('ProductsPage — tìm kiếm, lọc (FR-5, SP-05)', () => {
     setPrice('Giá đến', '30000');
     await waitFor(() => expect(within(filterBar()).queryByRole('alert')).toBeNull());
     expect(priceBox('Giá từ').getAttribute('aria-describedby')).toBeNull();
+  });
+});
+
+describe('ProductsPage — sửa Sản phẩm (FR-2, SP-02)', () => {
+  beforeEach(() => {
+    products = [
+      product(2, {
+        categoryId: 'c-1',
+        categoryName: 'Đồ uống',
+        unit: 'chai',
+        description: 'Uống lạnh ngon hơn',
+        variants: [{ ...product(2).variants[0], barcode: '8935001800026' }],
+      }),
+      product(1, { variants: [{ ...product(1).variants[0], barcode: '8935001800019' }] }),
+    ];
+  });
+
+  it('Chủ cửa hàng đổi giá: form có sẵn dữ liệu, không có Tồn kho, Giá vốn; PUT thay toàn bộ, bảng hiện giá mới ngay', async () => {
+    const { queryClient } = renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    await openEditDialog('Sản phẩm 02');
+    expect(valueOf('Tên Sản phẩm')).toBe('Sản phẩm 02');
+    expect(within(dialog()).getByText('Đồ uống')).toBeTruthy();
+    expect(valueOf('Đơn vị tính')).toBe('chai');
+    expect(valueOf('Giá bán')).toBe('2.000');
+    expect(valueOf('SKU')).toBe('SP-00000002');
+    expect(valueOf('Mã vạch')).toBe('8935001800026');
+    expect(valueOf('Mô tả')).toBe('Uống lạnh ngon hơn');
+    // Giá vốn chỉ đổi qua nhập hàng (AD-15); Tồn kho không sửa ở đây
+    expect(within(dialog()).queryByLabelText('Tồn kho đầu kỳ')).toBeNull();
+    expect(within(dialog()).queryByLabelText('Giá vốn ban đầu')).toBeNull();
+    expect(within(dialog()).queryByText(/Giá vốn/)).toBeNull();
+
+    type('Giá bán', '2500');
+    expect(valueOf('Giá bán')).toBe('2.500');
+    save();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(productPuts()).toHaveLength(1);
+    const [put] = productPuts();
+    expect(new URL(String(put[0]), 'http://localhost').pathname).toBe(`${PRODUCTS_PATH}/p-2`);
+    expect(bodyOf(put)).toEqual({
+      name: 'Sản phẩm 02',
+      salePrice: 2500,
+      categoryId: 'c-1',
+      unit: 'chai',
+      description: 'Uống lạnh ngon hơn',
+      sku: 'SP-00000002',
+      barcode: '8935001800026',
+    });
+    // Không phải chứng từ: không có Idempotency-Key
+    expect(keyOf(put)).toBeNull();
+    expect(await screen.findByText('Đã lưu Sản phẩm "Sản phẩm 02"')).toBeTruthy();
+    // Bảng tải lại tại chỗ, hiện giá mới ngay; thứ tự không đổi
+    await waitFor(() => expect(within(rowOf('Sản phẩm 02')).getByText(/2\.500/)).toBeTruthy());
+    expect(rowNames()).toEqual(['Sản phẩm 01', 'Sản phẩm 02']);
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'products'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'categories'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory', 'stock'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sales', 'sellable'] });
+  });
+
+  it('đổi tên, Danh mục; bỏ trống mô tả, mã vạch, đơn vị: PUT không có các trường đó, bảng đổi theo', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    type('Tên Sản phẩm', '  Nước cam ép ');
+    await chooseCategory('Bánh kẹo');
+    type('Đơn vị tính', ' ');
+    type('Mã vạch', '');
+    type('Mô tả', '');
+    save();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(bodyOf(productPuts()[0])).toEqual({
+      name: 'Nước cam ép',
+      salePrice: 2000,
+      categoryId: 'c-2',
+      sku: 'SP-00000002',
+    });
+    await waitFor(() => expect(rowNames()).toEqual(['Nước cam ép', 'Sản phẩm 01']));
+    expect(within(rowOf('Nước cam ép')).getByText('Bánh kẹo')).toBeTruthy();
+    expect(within(rowOf('Nước cam ép')).getByText('cái')).toBeTruthy();
+  });
+
+  it('không đổi gì (kể cả gõ SKU, mã vạch chữ thường, thêm khoảng trắng): không gửi PUT, đóng hộp thoại', async () => {
+    products = [product(3, { variants: [{ ...product(3).variants[0], sku: 'VNM-1L', barcode: 'ABC123' }] })];
+    renderPage();
+    await within(table()).findByText('Sản phẩm 03');
+
+    await openEditDialog('Sản phẩm 03');
+    type('Tên Sản phẩm', ' Sản phẩm 03 ');
+    type('SKU', 'vnm-1l');
+    type('Mã vạch', 'abc123');
+    type('Giá bán', '3000');
+    save();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(productPuts()).toHaveLength(0);
+  });
+
+  it('bỏ trống SKU khi sửa: không gửi SKU (backend giữ SKU cũ)', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 01');
+
+    await openEditDialog('Sản phẩm 01');
+    type('SKU', '  ');
+    type('Giá bán', '1200');
+    save();
+
+    await waitFor(() => expect(productPuts()).toHaveLength(1));
+    expect(bodyOf(productPuts()[0])).toEqual({
+      name: 'Sản phẩm 01',
+      salePrice: 1200,
+      unit: 'cái',
+      barcode: '8935001800019',
+    });
+    await waitFor(() => expect(within(rowOf('Sản phẩm 01')).getByText(/1\.200/)).toBeTruthy());
+    expect(within(rowOf('Sản phẩm 01')).getByText('SP-00000001')).toBeTruthy();
+  });
+
+  it('kiểm tra phía client như khi thêm: thiếu tên, giá sai, mã vạch có ký tự lạ thì không gửi', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    type('Tên Sản phẩm', '   ');
+    type('Giá bán', '12,5');
+    type('Mã vạch', '893-456');
+    save();
+
+    expect(await within(dialog()).findByText('Nhập tên Sản phẩm')).toBeTruthy();
+    expect(within(dialog()).getByText('Giá bán phải là số nguyên')).toBeTruthy();
+    expect(within(dialog()).getByText('Mã vạch chỉ gồm chữ cái không dấu và chữ số')).toBeTruthy();
+    expect(productPuts()).toHaveLength(0);
+  });
+
+  it('trùng mã vạch của Sản phẩm khác: báo dưới ô Mã vạch, giữ form', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    type('Mã vạch', '8935001800019');
+    save();
+
+    expect(await within(dialog()).findByText('Cửa hàng đã có Sản phẩm dùng mã vạch này.')).toBeTruthy();
+    expect(field('Mã vạch').getAttribute('aria-invalid')).toBe('true');
+    expect(within(dialog()).queryByRole('alert')).toBeNull();
+    expect(defaultOf(products.find((p) => p.id === 'p-2') as Product).barcode).toBe('8935001800026');
+  });
+
+  it('Sản phẩm vừa bị ngừng kinh doanh ở nơi khác: báo ở khung lỗi, bảng tải lại, dòng không còn nút Sửa', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    // Máy khác ngừng kinh doanh sau khi bảng đã tải
+    products = products.map((p): Product => (p.id === 'p-2' ? { ...p, status: 'INACTIVE' } : p));
+
+    await openEditDialog('Sản phẩm 02');
+    type('Giá bán', '2500');
+    save();
+
+    expect(await within(dialog()).findByText('Sản phẩm này đã ngừng kinh doanh nên không sửa được.')).toBeTruthy();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    await waitFor(() => expect(within(rowOf('Sản phẩm 02')).getByText('Ngừng kinh doanh')).toBeTruthy());
+    expect(within(rowOf('Sản phẩm 02')).queryByRole('button', { name: 'Sửa Sản phẩm 02' })).toBeNull();
+    expect(defaultOf(products.find((p) => p.id === 'p-2') as Product).salePrice).toBe(2000);
+    // Chỉ còn đóng được: form và nút "Lưu" bị khóa, khung lỗi vẫn hiện
+    expect((within(dialog()).getByRole('button', { name: 'Lưu' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((field('Giá bán') as HTMLInputElement).disabled).toBe(true);
+    expect((field('Tên Sản phẩm') as HTMLInputElement).disabled).toBe(true);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Đóng' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(productPuts()).toHaveLength(1);
+  });
+
+  it('Sản phẩm không còn (404): báo ở khung lỗi, hộp thoại chỉ còn đóng được', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    // Đã bị xóa ở nơi khác sau khi bảng đã tải
+    products = products.filter((p) => p.id !== 'p-2');
+
+    await openEditDialog('Sản phẩm 02');
+    type('Giá bán', '2500');
+    save();
+
+    expect(await within(dialog()).findByText('Không tìm thấy dữ liệu.')).toBeTruthy();
+    expect((within(dialog()).getByRole('button', { name: 'Lưu' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((field('Giá bán') as HTMLInputElement).disabled).toBe(true);
+    expect(within(dialog()).getByRole('button', { name: 'Đóng' })).toBeTruthy();
+  });
+
+  it('trùng SKU khi sửa: báo dưới ô SKU, hướng dẫn giữ SKU hiện tại (không phải tự sinh)', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    type('SKU', 'sp-00000001');
+    save();
+
+    expect(await within(dialog()).findByText('Cửa hàng đã có Sản phẩm dùng SKU này.')).toBeTruthy();
+    expect(within(dialog()).getByText('Nhập SKU khác, hoặc để trống để giữ SKU hiện tại.')).toBeTruthy();
+    expect(within(dialog()).queryByText(/tự sinh/)).toBeNull();
+    expect(field('SKU').getAttribute('aria-invalid')).toBe('true');
+    expect(within(dialog()).queryByRole('alert')).toBeNull();
+  });
+
+  it('không tải được Danh mục: ô Danh mục vẫn hiện tên Danh mục hiện tại, không hiện id', async () => {
+    failCategories = true;
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+
+    expect(
+      await within(dialog()).findByText('Không tải được danh sách Danh mục. Đóng hộp thoại rồi mở lại.'),
+    ).toBeTruthy();
+    expect(within(dialog()).getByText('Đồ uống')).toBeTruthy();
+    expect(within(dialog()).queryByText('c-1')).toBeNull();
+  });
+
+  it('mất phản hồi sau khi máy chủ đã lưu: báo lỗi mạng, mọi bảng liên quan tải lại; gõ lại giá cũ vẫn gửi', async () => {
+    loseNextPutResponse = true;
+    const { queryClient } = renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    await openEditDialog('Sản phẩm 02');
+    type('Giá bán', '2800');
+    save();
+
+    expect(await within(dialog()).findByText('Không kết nối được máy chủ.')).toBeTruthy();
+    await waitFor(() => expect(within(rowOf('Sản phẩm 02')).getByText(/2\.800/)).toBeTruthy());
+    // Máy chủ có thể đã lưu: tải lại cả Danh mục, Tồn kho và hàng bán được
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'products'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'categories'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory', 'stock'] });
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sales', 'sellable'] });
+
+    // Giống dữ liệu lúc mở hộp thoại nhưng máy chủ đã khác: vẫn gửi PUT
+    type('Giá bán', '2000');
+    save();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(productPuts()).toHaveLength(2);
+    expect(bodyOf(productPuts()[1])).toMatchObject({ salePrice: 2000 });
+    await waitFor(() => expect(within(rowOf('Sản phẩm 02')).getByText(/2\.000/)).toBeTruthy());
   });
 });

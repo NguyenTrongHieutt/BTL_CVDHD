@@ -83,6 +83,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Cửa hàng đã có Sản phẩm dùng SKU này.',
     hint: 'Nhập SKU khác, hoặc để trống để hệ thống tự sinh.',
   },
+  '/errors/catalog/product-inactive': {
+    message: 'Sản phẩm này đã ngừng kinh doanh nên không sửa được.',
+    hint: 'Ngừng kinh doanh không hoàn tác được. Bảng Sản phẩm đã được tải lại để hiện trạng thái mới nhất.',
+  },
   '/errors/catalog/customer-phone-taken': {
     message: 'Cửa hàng đã có Khách hàng dùng số điện thoại này.',
     hint: 'Mở Khách hàng đã có để xem hoặc sửa, thay vì thêm mới.',

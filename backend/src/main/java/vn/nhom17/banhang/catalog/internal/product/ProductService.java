@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
@@ -30,6 +31,8 @@ import vn.nhom17.banhang.catalog.internal.FieldErrors;
 import vn.nhom17.banhang.catalog.internal.TextFields;
 import vn.nhom17.banhang.catalog.internal.category.CategoryRepository;
 import vn.nhom17.banhang.catalog.internal.product.ProductController.CreateProductRequest;
+import vn.nhom17.banhang.catalog.internal.product.ProductController.ProductFieldsInput;
+import vn.nhom17.banhang.catalog.internal.product.ProductController.UpdateProductRequest;
 import vn.nhom17.banhang.platform.AuditAction;
 import vn.nhom17.banhang.platform.AuditLog;
 import vn.nhom17.banhang.platform.CurrentContext;
@@ -39,8 +42,8 @@ import vn.nhom17.banhang.platform.PageResponse;
 import vn.nhom17.banhang.platform.ProblemException;
 
 /**
- * Thêm, xem (FR-1, SP-01), ngừng kinh doanh (FR-3, SP-03), tìm kiếm và lọc (FR-5, SP-05, qua {@link ProductSearch})
- * Sản phẩm.
+ * Thêm, xem (FR-1, SP-01), sửa (FR-2, SP-02), ngừng kinh doanh (FR-3, SP-03), tìm kiếm và lọc (FR-5, SP-05, qua
+ * {@link ProductSearch}) Sản phẩm.
  *
  * <ul>
  *   <li>Tạo Sản phẩm cùng một Biến thể mặc định ({@code is_default}, {@code has_variants = false}) và phát
@@ -55,6 +58,9 @@ import vn.nhom17.banhang.platform.ProblemException;
  *       dùng cùng mã thì được. SKU tự sinh thì kiểm trước và sinh lại cho tới khi còn trống.</li>
  *   <li>{@code categoryId} phải là Danh mục của Cửa hàng hiện tại (khóa ngoại không biết Cửa hàng, nên kiểm qua
  *       {@link CategoryRepository}); sai thì {@code 400} trên trường {@code categoryId}.</li>
+ *   <li>Thêm và sửa kiểm các trường chung ở một chỗ ({@link #checkFields}). Sửa đổi giá bán thì ghi Nhật ký
+ *       {@link AuditAction#CATALOG_VARIANT_PRICE_CHANGE}; Đơn hàng đã tạo giữ giá chụp lúc bán ở
+ *       {@code sales_order_line}, catalog không đụng tới. Xem {@link #update}.</li>
  *   <li>Ngừng kinh doanh là một chiều (AD-14), không xóa hẳn, không đặt {@code deleted_at}: Sản phẩm đã ngừng vẫn
  *       đọc được qua chi tiết và danh sách (lịch sử Đơn hàng, báo cáo). Xem {@link #deactivate}.</li>
  * </ul>
@@ -101,6 +107,25 @@ class ProductService {
             """;
     private static final String ONE_PRODUCT = """
             select p.*, 1 as ord from app.product p where p.store_id = ? and p.id = ? and p.deleted_at is null
+            """;
+    /**
+     * Sản phẩm đang sửa cùng Biến thể mặc định, khóa cả hai dòng tới hết transaction: hai lần sửa cùng lúc (hay sửa
+     * cùng lúc với ngừng kinh doanh, vốn UPDATE dòng {@code product} trước) chạy lần lượt, nên giá cũ ghi vào Nhật ký
+     * luôn là giá lần trước vừa lưu.
+     *
+     * <p><b>Thứ tự bảng trong {@code FROM} là thứ tự khóa, đừng đảo:</b> {@code FOR UPDATE} trên phép nối khóa dòng
+     * của từng bảng theo thứ tự trong {@code FROM}, nên {@code product} bị khóa trước {@code product_variant}, đúng thứ
+     * tự UPDATE của {@link #deactivate}. Đảo lại (khóa Biến thể trước) thì sửa và ngừng kinh doanh cùng lúc có thể
+     * deadlock: mỗi bên giữ một dòng và chờ dòng kia.
+     */
+    private static final String LOCK_FOR_EDIT = """
+            select p.name, p.category_id, p.unit, p.description, p.status,
+                   v.id as variant_id, v.sku, v.barcode, v.sale_price
+            from app.product p
+            join app.product_variant v
+                 on v.store_id = p.store_id and v.product_id = p.id and v.is_default and v.deleted_at is null
+            where p.store_id = ? and p.id = ? and p.deleted_at is null
+            for update
             """;
     /** Một trang Sản phẩm khớp: {@code %1$s} là {@code ORDER BY}, {@code %2$s} là {@code from … where …}. */
     private static final String PAGE_OF_PRODUCTS = """
@@ -212,6 +237,93 @@ class ProductService {
     }
 
     /**
+     * Sửa (FR-2, SP-02): tên, Danh mục, đơn vị, mô tả của Sản phẩm và giá bán, SKU, mã vạch của Biến thể mặc định;
+     * thay toàn bộ (trường tùy chọn trống thì xóa, trừ {@code sku} trống là giữ SKU hiện tại), cùng quy tắc trường
+     * với khi thêm ({@link #checkFields}). Trả chi tiết như {@link #get}. Trong CÙNG transaction:
+     *
+     * <ul>
+     *   <li>Giá bán đổi thì ghi Nhật ký {@link AuditAction#CATALOG_VARIANT_PRICE_CHANGE}, entity là id Biến thể,
+     *       {@code {salePrice: cũ}} → {@code {salePrice: mới}}. Đổi trường khác không ghi nhật ký.</li>
+     *   <li>{@code changed_at} (change-feed, AD-12) chỉ lấy giờ mới khi tên, Danh mục, mô tả hoặc đơn vị đổi; chỉ đổi
+     *       giá, SKU, mã vạch thì giữ nguyên. {@code updated_at} của Sản phẩm (và của Biến thể, nếu Biến thể đổi) lấy
+     *       giờ mới khi có thay đổi.</li>
+     *   <li>Y nguyên (sau chuẩn hóa) thì không ghi gì.</li>
+     * </ul>
+     *
+     * <p>Không đổi Tồn kho, Giá vốn (AD-15), trạng thái; không đụng {@code sales_order_line}: Đơn hàng đã tạo giữ giá
+     * và Giá vốn chụp lúc bán. Dữ liệu sai: {@code 400} (báo trước {@code 404}); id không có, đã xóa mềm hoặc của
+     * Cửa hàng khác: {@code 404}; Sản phẩm đã ngừng kinh doanh: {@code 409 /errors/catalog/product-inactive} (không
+     * mở bán lại, AD-14); trùng SKU, mã vạch với Biến thể khác: {@code 409 sku-taken} / {@code barcode-taken} (giữ
+     * nguyên mã của chính nó thì được).
+     */
+    @Transactional
+    ProductView update(UUID id, UpdateProductRequest request) {
+        ProductFields edit = validate(request);
+        UUID storeId = context.storeId();
+        Editing current = lockForEdit(storeId, id);
+        if (ProductEntity.INACTIVE.equals(current.status())) {
+            throw productInactive();
+        }
+        String sku = edit.sku() == null ? current.sku() : edit.sku();
+        boolean productChanged = !edit.name().equals(current.name())
+                || !Objects.equals(edit.categoryId(), current.categoryId())
+                || !edit.unit().equals(current.unit())
+                || !Objects.equals(edit.description(), current.description());
+        boolean priceChanged = edit.salePrice() != current.salePrice();
+        boolean variantChanged = priceChanged || !sku.equals(current.sku())
+                || !Objects.equals(edit.barcode(), current.barcode());
+        if (!productChanged && !variantChanged) {
+            return loadView(id);
+        }
+        OffsetDateTime now = OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC);
+        try {
+            if (variantChanged) {
+                jdbc.update("""
+                        update app.product_variant set sale_price = ?, sku = ?, barcode = ?, updated_at = ?
+                        where store_id = ? and id = ?
+                        """, edit.salePrice(), sku, edit.barcode(), now, storeId, current.variantId());
+            }
+            if (productChanged) {
+                jdbc.update("""
+                        update app.product set name = ?, category_id = ?, unit = ?, description = ?, updated_at = ?,
+                                               changed_at = ?
+                        where store_id = ? and id = ?
+                        """, edit.name(), edit.categoryId(), edit.unit(), edit.description(), now, now, storeId, id);
+            } else {
+                jdbc.update("update app.product set updated_at = ? where store_id = ? and id = ?", now, storeId, id);
+            }
+        } catch (DataIntegrityViolationException e) {
+            if (Constraints.violated(e, SKU_UNIQUE)) {
+                // Khi sửa, SKU để trống là giữ SKU hiện tại (không tự sinh như khi thêm)
+                throw ProblemException.conflict("/errors/catalog/sku-taken", "SKU đã có",
+                        "Cửa hàng đã có Sản phẩm khác dùng SKU này. Hãy nhập SKU khác, hoặc để trống để giữ SKU hiện tại.");
+            }
+            throw translate(e);
+        }
+        if (priceChanged) {
+            audit.record(AuditAction.CATALOG_VARIANT_PRICE_CHANGE, current.variantId().toString(),
+                    Map.of("salePrice", current.salePrice()), Map.of("salePrice", edit.salePrice()));
+        }
+        return loadView(id);
+    }
+
+    /** Sản phẩm đang sửa (đã khóa dòng) cùng Biến thể mặc định của nó. */
+    private record Editing(String name, UUID categoryId, String unit, String description, String status,
+                           UUID variantId, String sku, String barcode, long salePrice) {
+    }
+
+    private Editing lockForEdit(UUID storeId, UUID id) {
+        List<Editing> found = jdbc.query(LOCK_FOR_EDIT, (rs, i) -> new Editing(rs.getString("name"),
+                rs.getObject("category_id", UUID.class), rs.getString("unit"), rs.getString("description"),
+                rs.getString("status"), rs.getObject("variant_id", UUID.class), rs.getString("sku"),
+                rs.getString("barcode"), rs.getLong("sale_price")), storeId, id);
+        if (found.isEmpty()) {
+            throw notFound();
+        }
+        return found.getFirst();
+    }
+
+    /**
      * Ngừng kinh doanh (FR-3, SP-03): Sản phẩm và mọi Biến thể đang kinh doanh (chưa xóa mềm) sang
      * {@code INACTIVE}, trả chi tiết như {@link #get}. Trong CÙNG transaction:
      *
@@ -294,8 +406,7 @@ class ProductService {
     private ProductView loadView(UUID id) {
         List<ProductView> found = views(ONE_PRODUCT, context.storeId(), id);
         if (found.isEmpty()) {
-            throw ProblemException.notFound("/errors/common/not-found", "Không tìm thấy",
-                    "Không tìm thấy Sản phẩm này.");
+            throw notFound();
         }
         return found.getFirst();
     }
@@ -336,12 +447,51 @@ class ProductService {
     // --- Kiểm dữ liệu ----------------------------------------------------------------------------------------
 
     /**
-     * Kiểm mọi trường, kể cả {@code categoryId} có thuộc Cửa hàng không, và trả lỗi của tất cả trong một lần
+     * Các trường chung của thêm và sửa, đã kiểm và chuẩn hóa: {@code unit} trống đã thành "cái"; {@code description},
+     * {@code sku}, {@code barcode} là {@code null} khi bỏ trống; SKU, mã vạch chữ HOA.
+     */
+    record ProductFields(String name, UUID categoryId, String unit, String description, long salePrice, String sku,
+                         String barcode) {
+    }
+
+    /**
+     * Kiểm mọi trường khi thêm, kể cả {@code categoryId} có thuộc Cửa hàng không, và trả lỗi của tất cả trong một lần
      * ({@code 400 /errors/common/validation}). SKU và mã vạch lưu chữ HOA ({@link Locale#ROOT}), nên
      * {@code abc123} và {@code ABC123} là cùng một mã (unique theo Cửa hàng).
      */
     NewProduct validate(CreateProductRequest request) {
         FieldErrors errors = new FieldErrors();
+        ProductFields fields = checkFields(request, errors);
+        long openingQuantity = wholeNumber(request.openingQuantity(), 0, "openingQuantity", "Tồn kho đầu kỳ",
+                Integer.MAX_VALUE, errors);
+        long openingUnitCost = wholeNumber(request.openingUnitCost(), 0, "openingUnitCost", "Giá vốn ban đầu",
+                MONEY_MAX, errors);
+        if (openingQuantity > 0 && openingUnitCost == 0) {
+            errors.add("openingUnitCost", "Có Tồn kho đầu kỳ thì nhập Giá vốn ban đầu lớn hơn 0");
+        } else if (openingQuantity > 0 && openingUnitCost > 0 && BigInteger.valueOf(openingQuantity)
+                .multiply(BigInteger.valueOf(openingUnitCost)).compareTo(BigInteger.valueOf(MONEY_MAX)) > 0) {
+            // Tổng giá trị tồn đầu kỳ phải còn là một số tiền hợp lệ (inventory nhân hai số này)
+            errors.add("openingUnitCost", "Tồn kho đầu kỳ × Giá vốn ban đầu quá lớn");
+        }
+        errors.throwIfAny();
+        return new NewProduct(fields.name(), fields.categoryId(), fields.unit(), fields.description(),
+                fields.salePrice(), fields.sku(), fields.barcode(), (int) openingQuantity, openingUnitCost);
+    }
+
+    /** Kiểm mọi trường khi sửa (SP-02): đúng các quy tắc của khi thêm, không có Tồn kho, Giá vốn. */
+    ProductFields validate(UpdateProductRequest request) {
+        FieldErrors errors = new FieldErrors();
+        ProductFields fields = checkFields(request, errors);
+        errors.throwIfAny();
+        return fields;
+    }
+
+    /**
+     * Kiểm, chuẩn hóa các trường chung của thêm và sửa, ghi lỗi vào {@code errors} (gọi đầu tiên, với
+     * {@code errors} còn rỗng, để lỗi giữ thứ tự: tên, đơn vị, mô tả, SKU, mã vạch, Danh mục, giá bán). Trả
+     * {@code null} khi có lỗi.
+     */
+    private ProductFields checkFields(ProductFieldsInput request, FieldErrors errors) {
         String name = TextFields.check(request.name(), "name", NAME, errors);
         String unit = TextFields.check(request.unit(), "unit", UNIT, errors);
         String description = TextFields.check(request.description(), "description", DESCRIPTION, errors);
@@ -363,21 +513,11 @@ class ProductService {
         if (request.salePrice() == null) {
             errors.add("salePrice", "Nhập giá bán");
         }
-        long openingQuantity = wholeNumber(request.openingQuantity(), 0, "openingQuantity", "Tồn kho đầu kỳ",
-                Integer.MAX_VALUE, errors);
-        long openingUnitCost = wholeNumber(request.openingUnitCost(), 0, "openingUnitCost", "Giá vốn ban đầu",
-                MONEY_MAX, errors);
-        if (openingQuantity > 0 && openingUnitCost == 0) {
-            errors.add("openingUnitCost", "Có Tồn kho đầu kỳ thì nhập Giá vốn ban đầu lớn hơn 0");
-        } else if (openingQuantity > 0 && openingUnitCost > 0 && BigInteger.valueOf(openingQuantity)
-                .multiply(BigInteger.valueOf(openingUnitCost)).compareTo(BigInteger.valueOf(MONEY_MAX)) > 0) {
-            // Tổng giá trị tồn đầu kỳ phải còn là một số tiền hợp lệ (inventory nhân hai số này)
-            errors.add("openingUnitCost", "Tồn kho đầu kỳ × Giá vốn ban đầu quá lớn");
+        if (!errors.isEmpty()) {
+            return null;
         }
-        errors.throwIfAny();
-        return new NewProduct(name, request.categoryId(), unit.isEmpty() ? DEFAULT_UNIT : unit,
-                emptyToNull(description), salePrice, emptyToNull(sku), emptyToNull(barcode), (int) openingQuantity,
-                openingUnitCost);
+        return new ProductFields(name, request.categoryId(), unit.isEmpty() ? DEFAULT_UNIT : unit,
+                emptyToNull(description), salePrice, emptyToNull(sku), emptyToNull(barcode));
     }
 
     /**
@@ -429,6 +569,15 @@ class ProductService {
             return FieldErrors.of("categoryId", CATEGORY_MISSING);
         }
         return error;
+    }
+
+    private static ProblemException notFound() {
+        return ProblemException.notFound("/errors/common/not-found", "Không tìm thấy", "Không tìm thấy Sản phẩm này.");
+    }
+
+    private static ProblemException productInactive() {
+        return ProblemException.conflict("/errors/catalog/product-inactive", "Sản phẩm đã ngừng kinh doanh",
+                "Sản phẩm này đã ngừng kinh doanh nên không sửa được. Ngừng kinh doanh là một chiều, không mở bán lại.");
     }
 
     private static ProblemException missingKey() {

@@ -343,6 +343,14 @@ class ProductCreateIntegrationTest {
                 .andExpect(jsonPath("$.errors[0].message").value("Nhập tên Sản phẩm"))
                 .andExpect(jsonPath("$.errors[1].field").value("salePrice"))
                 .andExpect(jsonPath("$.errors[1].message").value("Nhập giá bán"));
+        // Lỗi trường chung (kiểm chung với khi sửa) và lỗi Tồn kho đầu kỳ cùng một lần, đúng thứ tự trường
+        Map<String, Object> noNameNegativeStock = body("", 10000);
+        noNameNegativeStock.put("openingQuantity", -3);
+        create(owner, noNameNegativeStock)
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors.length()").value(2))
+                .andExpect(jsonPath("$.errors[0].field").value("name"))
+                .andExpect(jsonPath("$.errors[1].field").value("openingQuantity"));
 
         List<Object[]> cases = new ArrayList<>();
         cases.add(new Object[] {"name", "   "});

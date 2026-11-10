@@ -72,7 +72,8 @@ export interface ProductVariant {
 }
 
 /**
- * Sản phẩm, từ `GET /api/v1/catalog/products`, `GET /api/v1/catalog/products/{id}` và `POST` (FR-1, SP-01).
+ * Sản phẩm, từ `GET /api/v1/catalog/products`, `GET /api/v1/catalog/products/{id}`, `POST` (FR-1, SP-01) và `PUT`
+ * (FR-2, SP-02).
  * Cả hai vai trò đọc được nên không có Giá vốn (AD-15, AD-16). `variants`: Biến thể mặc định đứng đầu.
  */
 export interface Product {
@@ -113,6 +114,29 @@ export interface CreateProductRequest {
   openingQuantity?: Quantity;
   /** Giá vốn ban đầu, ≥ 0, mặc định 0; phải lớn hơn 0 khi có Tồn kho đầu kỳ. Chỉ gửi đi, không bao giờ đọc về. */
   openingUnitCost?: Money;
+}
+
+/**
+ * Body của `PUT /api/v1/catalog/products/{id}` (FR-2, SP-02), chỉ Chủ cửa hàng. **Thay toàn bộ**: `categoryId`,
+ * `description`, `barcode` thiếu thì xóa, `unit` thiếu thì "cái"; riêng `sku` thiếu thì giữ SKU hiện tại. `salePrice`,
+ * `sku`, `barcode` là của Biến thể mặc định. Cùng quy tắc trường với `CreateProductRequest`; không có Tồn kho, Giá vốn
+ * (Giá vốn chỉ đổi qua nhập hàng, AD-15). Không có `Idempotency-Key`. Đổi giá bán thì backend ghi Nhật ký thao tác.
+ */
+export interface UpdateProductRequest {
+  /** Bắt buộc, tối đa 200 ký tự. */
+  name: string;
+  /** Danh mục của Cửa hàng; bỏ trống thì Sản phẩm không thuộc Danh mục nào. */
+  categoryId?: Uuid;
+  /** Tối đa 30 ký tự; bỏ trống thì backend dùng "cái". */
+  unit?: string;
+  /** Tối đa 2000 ký tự, được xuống dòng; bỏ trống thì xóa. */
+  description?: string;
+  /** Bắt buộc, ≥ 0. */
+  salePrice: Money;
+  /** Tối đa 50 ký tự; bỏ trống thì giữ SKU hiện tại. */
+  sku?: string;
+  /** Tối đa 50 ký tự, chỉ chữ cái không dấu và chữ số; bỏ trống thì xóa. */
+  barcode?: string;
 }
 
 /**

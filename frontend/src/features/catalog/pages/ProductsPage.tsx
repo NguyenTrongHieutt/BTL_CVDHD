@@ -1,6 +1,6 @@
 /**
- * Sản phẩm (FR-1, SP-01; FR-3, SP-03; FR-5, SP-05). Người giữ: Hiếu — features/catalog (AD-20). Cả hai vai trò
- * (route `ALL_ROLES`).
+ * Sản phẩm (FR-1, SP-01; FR-2, SP-02; FR-3, SP-03; FR-5, SP-05). Người giữ: Hiếu — features/catalog (AD-20). Cả hai
+ * vai trò (route `ALL_ROLES`).
  *
  * Bảng Sản phẩm phân trang phía server (`DataTable`, khóa `['catalog', 'products', { ...bộ lọc, page, size, sort }]`),
  * mặc định theo tên không dấu (của backend); bấm tiêu đề cột Tên, Giá bán, Ngày tạo để sắp. Thanh bộ lọc phía trên:
@@ -8,11 +8,12 @@
  * query (`?q=&categoryId=&status=&minPrice=&maxPrice=`), nên tải lại trang hay gửi link vẫn giữ; đổi bộ lọc thì bảng về
  * trang đầu. Lọc theo Tồn kho ở màn Tồn kho, không ở đây.
  *
- * Chỉ Chủ cửa hàng thấy nút "Thêm Sản phẩm" và cột thao tác "Ngừng kinh doanh" (backend vẫn kiểm quyền, AD-16).
- * Thêm xong thì bỏ bộ lọc, sắp mới nhất trước và về trang đầu, nên Sản phẩm mới nằm đầu bảng (SP-01). Ngừng kinh
- * doanh có hộp xác nhận; xong thì bảng tải lại
- * tại chỗ, dòng đổi sang "Ngừng kinh doanh" và nút biến mất (thao tác một chiều, AD-14). Bảng không có Giá vốn
- * (Nhân viên cũng xem). Sửa là SP-02.
+ * Chỉ Chủ cửa hàng thấy nút "Thêm Sản phẩm" và cột thao tác "Sửa", "Ngừng kinh doanh" (backend vẫn kiểm quyền,
+ * AD-16). Thêm xong thì bỏ bộ lọc, sắp mới nhất trước và về trang đầu, nên Sản phẩm mới nằm đầu bảng (SP-01). Sửa
+ * (SP-02) mở cùng form với thêm, có sẵn dữ liệu, không có Tồn kho đầu kỳ, Giá vốn; lưu xong thì bảng tải lại tại chỗ
+ * và hiện giá mới ngay. Ngừng kinh doanh có hộp xác nhận; xong thì bảng tải lại tại chỗ, dòng đổi sang "Ngừng kinh
+ * doanh" và cả hai nút biến mất (một chiều, không sửa, không mở bán lại, AD-14). Bảng không có Giá vốn (Nhân viên
+ * cũng xem).
  */
 import { PlusOutlined } from '@ant-design/icons';
 import { App, Button, Flex, Tag, Typography } from 'antd';
@@ -22,10 +23,11 @@ import { useSearchParams } from 'react-router';
 import { useCurrentUser } from '../../../shared/api/session';
 import { DataTable, ErrorAlert, MoneyText, useConfirm, useDocumentTitle } from '../../../shared/components';
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
-import type { Product, ProductSearchParams, ProductVariant } from '../../../shared/types/catalog';
-import { fetchProducts, productsQueryKey, useDeactivateProduct } from '../api/products';
-import { CreateProductModal } from '../components/CreateProductModal';
+import type { Product, ProductSearchParams } from '../../../shared/types/catalog';
+import { defaultVariant, fetchProducts, productsQueryKey, useDeactivateProduct } from '../api/products';
 import { ProductFilterBar } from '../components/ProductFilterBar';
+import { ProductFormModal } from '../components/ProductFormModal';
+import type { ProductEditing } from '../components/ProductFormModal';
 import {
   hasProductFilters,
   productFiltersFromSearchParams,
@@ -43,10 +45,6 @@ const createdDateFormatter = new Intl.DateTimeFormat('vi-VN', {
   month: '2-digit',
   year: 'numeric',
 });
-
-function defaultVariant(product: Product): ProductVariant | undefined {
-  return product.variants.find((v) => v.isDefault) ?? product.variants[0];
-}
 
 /** Chiều sắp ban đầu của cột `key` khi bảng mở với `sort` (`<field>,asc|desc`), để cột hiện đúng mũi tên. */
 function sortOrderOf(sort: string | undefined, key: string): 'ascend' | 'descend' | null {
@@ -100,7 +98,7 @@ export function ProductsPage() {
   useDocumentTitle('Sản phẩm');
   const { role } = useCurrentUser();
   const isOwner = role === 'OWNER';
-  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState<ProductEditing | null>(null);
   // Đổi key thì DataTable dựng lại từ trang đầu với thứ tự `initialSort` (sau khi thêm Sản phẩm).
   const [tableKey, setTableKey] = useState(0);
   const [initialSort, setInitialSort] = useState<string | undefined>(undefined);
@@ -144,19 +142,31 @@ export function ProductsPage() {
   const actionsColumn: TableColumnsType<Product>[number] = {
     title: 'Thao tác',
     key: 'actions',
+    // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại
     render: (_, product) =>
       product.status === 'ACTIVE' ? (
-        <Button
-          type="link"
-          size="small"
-          danger
-          aria-label={`Ngừng kinh doanh ${product.name}`}
-          disabled={deactivate.isPending}
-          loading={deactivate.isPending && deactivate.variables === product.id}
-          onClick={() => void onDeactivate(product)}
-        >
-          Ngừng kinh doanh
-        </Button>
+        <Flex wrap>
+          <Button
+            type="link"
+            size="small"
+            aria-label={`Sửa ${product.name}`}
+            disabled={deactivate.isPending && deactivate.variables === product.id}
+            onClick={() => setEditing({ mode: 'edit', product })}
+          >
+            Sửa
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            danger
+            aria-label={`Ngừng kinh doanh ${product.name}`}
+            disabled={deactivate.isPending}
+            loading={deactivate.isPending && deactivate.variables === product.id}
+            onClick={() => void onDeactivate(product)}
+          >
+            Ngừng kinh doanh
+          </Button>
+        </Flex>
       ) : null,
   };
 
@@ -167,7 +177,7 @@ export function ProductsPage() {
           Sản phẩm
         </Typography.Title>
         {isOwner ? (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAdding(true)}>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>
             Thêm Sản phẩm
           </Button>
         ) : null}
@@ -195,7 +205,12 @@ export function ProductsPage() {
           ),
         }}
       />
-      {adding ? <CreateProductModal onClose={() => setAdding(false)} onCreated={onCreated} /> : null}
+      {editing?.mode === 'create' ? (
+        <ProductFormModal key="create" editing={editing} onClose={() => setEditing(null)} onCreated={onCreated} />
+      ) : null}
+      {editing?.mode === 'edit' ? (
+        <ProductFormModal key={editing.product.id} editing={editing} onClose={() => setEditing(null)} />
+      ) : null}
     </div>
   );
 }

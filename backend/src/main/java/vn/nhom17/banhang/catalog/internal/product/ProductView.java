@@ -5,8 +5,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * Chi tiết Sản phẩm trả cho frontend: {@code POST} (201, hoặc 200 khi phát lại), {@code GET /{id}} và từng dòng của
- * danh sách. Cả hai vai trò đọc được, nên KHÔNG có Giá vốn hay tồn đầu kỳ (AD-15, AD-16). {@code variants} gồm Biến
+ * Chi tiết Sản phẩm trả cho frontend: {@code POST} (201, hoặc 200 khi phát lại), {@code GET /{id}}, {@code PUT /{id}},
+ * ngừng kinh doanh và từng dòng của danh sách. Cả hai vai trò đọc được, nên KHÔNG có Giá vốn hay tồn đầu kỳ (AD-15, AD-16). {@code variants} gồm Biến
  * thể chưa xóa mềm, Biến thể mặc định đứng đầu.
  */
 record ProductView(

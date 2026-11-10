@@ -7,6 +7,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -15,9 +16,9 @@ import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.platform.PageResponse;
 
 /**
- * Sản phẩm (FR-1, SP-01; FR-3, SP-03; FR-5, SP-05). Xem chi tiết và danh sách (có tìm kiếm, lọc): cả hai vai trò;
- * thêm, ngừng kinh doanh: chỉ Chủ cửa hàng. Quyền khai báo ở {@code SecurityConfig} của platform (AD-16). Thêm có
- * {@code Idempotency-Key} (AD-7): lần đầu {@code 201}, gửi lại cùng nội dung {@code 200} +
+ * Sản phẩm (FR-1, SP-01; FR-2, SP-02; FR-3, SP-03; FR-5, SP-05). Xem chi tiết và danh sách (có tìm kiếm, lọc): cả hai
+ * vai trò; thêm, sửa, ngừng kinh doanh: chỉ Chủ cửa hàng. Quyền khai báo ở {@code SecurityConfig} của platform
+ * (AD-16). Thêm có {@code Idempotency-Key} (AD-7): lần đầu {@code 201}, gửi lại cùng nội dung {@code 200} +
  * {@code Idempotent-Replay: true}.
  */
 @RestController
@@ -32,6 +33,27 @@ class ProductController {
 
     ProductController(ProductService products) {
         this.products = products;
+    }
+
+    /**
+     * Các trường thêm và sửa cùng có, kiểm chung một chỗ ({@link ProductService}), để SP-01 và SP-02 không viết hai
+     * lần. Record của từng request hiện thực interface này bằng chính các thành phần cùng tên.
+     */
+    interface ProductFieldsInput {
+
+        String name();
+
+        UUID categoryId();
+
+        String unit();
+
+        String description();
+
+        BigDecimal salePrice();
+
+        String sku();
+
+        String barcode();
     }
 
     /**
@@ -50,7 +72,25 @@ class ProductController {
      *                        {@code inventory} qua sự kiện, không lưu ở catalog, không có trong phản hồi (AD-15)
      */
     record CreateProductRequest(String name, UUID categoryId, String unit, String description, BigDecimal salePrice,
-                                String sku, String barcode, BigDecimal openingQuantity, BigDecimal openingUnitCost) {
+                                String sku, String barcode, BigDecimal openingQuantity, BigDecimal openingUnitCost)
+            implements ProductFieldsInput {
+    }
+
+    /**
+     * Body sửa Sản phẩm (FR-2, SP-02), <b>thay toàn bộ</b>; cùng quy tắc trường với {@link CreateProductRequest}
+     * (kiểm chung ở {@link ProductService}). {@code salePrice}, {@code sku}, {@code barcode} là của Biến thể mặc
+     * định. Không có Tồn kho, Giá vốn: Giá vốn chỉ đổi qua nhập hàng (AD-15).
+     *
+     * @param name        bắt buộc, tối đa 200 ký tự
+     * @param categoryId  phải là Danh mục của Cửa hàng; bỏ trống thì Sản phẩm không thuộc Danh mục nào
+     * @param unit        tối đa 30 ký tự; trống thì "cái"
+     * @param description tối đa 2000 ký tự, được xuống dòng; trống thì xóa
+     * @param salePrice   bắt buộc, ≥ 0; đổi thì ghi Nhật ký {@code catalog.variant.price_change}
+     * @param sku         tối đa 50 ký tự; trống thì giữ SKU hiện tại
+     * @param barcode     tối đa 50 ký tự, chỉ chữ cái không dấu và chữ số; trống thì xóa
+     */
+    record UpdateProductRequest(String name, UUID categoryId, String unit, String description, BigDecimal salePrice,
+                                String sku, String barcode) implements ProductFieldsInput {
     }
 
     /**
@@ -85,6 +125,15 @@ class ProductController {
             return ResponseEntity.ok().header(IDEMPOTENT_REPLAY_HEADER, "true").body(result.product());
         }
         return ResponseEntity.created(URI.create(PATH + "/" + result.product().id())).body(result.product());
+    }
+
+    /**
+     * Sửa (FR-2, SP-02): thay toàn bộ, trả chi tiết như {@code GET /{id}}. Không có {@code Idempotency-Key}: gửi lại
+     * cùng nội dung ra cùng kết quả và không ghi gì lần hai. Xem {@link ProductService#update}.
+     */
+    @PutMapping("/{id}")
+    ProductView update(@PathVariable UUID id, @RequestBody UpdateProductRequest request) {
+        return products.update(id, request);
     }
 
     /**

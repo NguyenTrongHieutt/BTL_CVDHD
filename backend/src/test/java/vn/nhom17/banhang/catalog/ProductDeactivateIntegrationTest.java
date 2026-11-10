@@ -29,6 +29,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -90,6 +91,7 @@ class ProductDeactivateIntegrationTest {
     void reset() {
         probe.deliveries.clear();
         probe.throwNext = false;
+        probe.releaseNext = null;
         clock.useSystemTime();
     }
 
@@ -244,7 +246,7 @@ class ProductDeactivateIntegrationTest {
             }
             start.countDown();
             for (Future<Integer> result : results) {
-                assertThat(result.get()).isEqualTo(200);
+                assertThat(result.get(30, TimeUnit.SECONDS)).isEqualTo(200);
             }
         } finally {
             pool.shutdownNow();
@@ -395,6 +397,12 @@ class ProductDeactivateIntegrationTest {
         final List<Delivery> deliveries = new CopyOnWriteArrayList<>();
         /** Lần nhận sự kiện tới ném lỗi, như {@code inventory} không đặt được {@code stock.is_active}. */
         volatile boolean throwNext;
+        /**
+         * Đặt cả hai thì lần nhận sự kiện tới đếm {@code enteredNext} rồi chờ {@code releaseNext} (tối đa 30 giây), giữ
+         * transaction ngừng kinh doanh mở (đang khóa dòng Sản phẩm, Biến thể) để test chen yêu cầu khác vào.
+         */
+        volatile CountDownLatch enteredNext;
+        volatile CountDownLatch releaseNext;
         private final JdbcTemplate jdbc;
 
         BeforeCommitProbe(JdbcTemplate jdbc) {
@@ -410,6 +418,19 @@ class ProductDeactivateIntegrationTest {
                     """, event.variantId());
             deliveries.add(new Delivery(event, TransactionSynchronizationManager.isActualTransactionActive(),
                     (String) seen.get("variant_status"), (String) seen.get("product_status")));
+            CountDownLatch release = releaseNext;
+            if (release != null) {
+                releaseNext = null;
+                enteredNext.countDown();
+                try {
+                    if (!release.await(30, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("Test không thả transaction ngừng kinh doanh sau 30 giây");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new IllegalStateException(e);
+                }
+            }
             if (throwNext) {
                 throwNext = false;
                 throw new IllegalStateException("inventory giả: không đặt được stock.is_active");

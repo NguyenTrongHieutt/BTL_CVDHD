@@ -15,9 +15,10 @@ import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.platform.PageResponse;
 
 /**
- * Sản phẩm (FR-1, SP-01; FR-3, SP-03). Xem chi tiết và danh sách: cả hai vai trò; thêm, ngừng kinh doanh: chỉ Chủ
- * cửa hàng. Quyền khai báo ở {@code SecurityConfig} của platform (AD-16). Thêm có {@code Idempotency-Key} (AD-7): lần
- * đầu {@code 201}, gửi lại cùng nội dung {@code 200} + {@code Idempotent-Replay: true}.
+ * Sản phẩm (FR-1, SP-01; FR-3, SP-03; FR-5, SP-05). Xem chi tiết và danh sách (có tìm kiếm, lọc): cả hai vai trò;
+ * thêm, ngừng kinh doanh: chỉ Chủ cửa hàng. Quyền khai báo ở {@code SecurityConfig} của platform (AD-16). Thêm có
+ * {@code Idempotency-Key} (AD-7): lần đầu {@code 201}, gửi lại cùng nội dung {@code 200} +
+ * {@code Idempotent-Replay: true}.
  */
 @RestController
 @RequestMapping(ProductController.PATH)
@@ -52,11 +53,22 @@ class ProductController {
                                 String sku, String barcode, BigDecimal openingQuantity, BigDecimal openingUnitCost) {
     }
 
-    /** Danh sách đơn giản, mới nhất trước. Tìm kiếm và lọc là SP-05. */
+    /**
+     * Danh sách có Tìm kiếm thường và lọc (FR-5, SP-05), cả hai vai trò. Tham số nhận dạng chuỗi và kiểm ở
+     * {@link ProductService#list}, để giá trị sai trả {@code 400 /errors/common/validation} theo trường. Xem
+     * {@link ProductService.ListQuery}.
+     */
     @GetMapping
-    PageResponse<ProductView> list(@RequestParam(required = false) Integer page,
-                                   @RequestParam(required = false) Integer size) {
-        return products.list(page, size);
+    PageResponse<ProductView> list(@RequestParam(required = false) String q,
+                                   @RequestParam(required = false) String categoryId,
+                                   @RequestParam(required = false) String status,
+                                   @RequestParam(required = false) String minPrice,
+                                   @RequestParam(required = false) String maxPrice,
+                                   @RequestParam(required = false) Integer page,
+                                   @RequestParam(required = false) Integer size,
+                                   @RequestParam(required = false) String sort) {
+        return products.list(new ProductService.ListQuery(q, categoryId, status, minPrice, maxPrice, page, size,
+                sort));
     }
 
     @GetMapping("/{id}")

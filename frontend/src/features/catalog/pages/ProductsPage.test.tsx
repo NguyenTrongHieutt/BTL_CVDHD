@@ -1,15 +1,24 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
+import { createMemoryRouter } from 'react-router';
+import { RouterProvider } from 'react-router/dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CurrentUserContext } from '../../../shared/api/session';
-import type { Category, CreateProductRequest, Product } from '../../../shared/types/catalog';
+import type { Category, CreateProductRequest, Product, ProductStatus } from '../../../shared/types/catalog';
 import type { Me, Role } from '../../../shared/types/platform';
+import { foldText } from '../components/textUtils';
 import { ProductsPage } from './ProductsPage';
 
 const PRODUCTS_PATH = '/api/v1/catalog/products';
 const CATEGORIES_PATH = '/api/v1/catalog/categories';
+const PAGE_PATH = '/catalog/products';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+/** Danh mục có id dạng UUID (có chữ, để thấy id viết hoa trên URL), đi qua được URL của bộ lọc. */
+const DRINKS = 'aaaaaaaa-1111-4111-8111-111111111111';
+const SNACKS = 'bbbbbbbb-2222-4222-8222-222222222222';
+/** Bỏ dấu, chữ thường: như backend sắp, so khớp tên. */
+const fold = foldText;
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -39,7 +48,7 @@ function product(n: number, overrides: Partial<Product> = {}): Product {
   };
 }
 
-/** Mới nhất trước, như backend. */
+/** Sản phẩm của backend giả; thêm mới vào đầu mảng, còn danh sách trả về sắp theo tên như backend. */
 let products: Product[];
 let categories: Category[];
 let nextId: number;
@@ -51,13 +60,73 @@ let loseNextPostResponse: boolean;
 let failNextDeactivateWithNetworkError: boolean;
 /** Lần ngừng kinh doanh tới được backend ghi (`INACTIVE`) nhưng phản hồi bị mất (lỗi mạng sau khi đã ngừng). */
 let loseNextDeactivateResponse: boolean;
+/** Danh sách Danh mục trả `500`. */
+let failCategories: boolean;
 
 const DEACTIVATE_PATH = /^\/api\/v1\/catalog\/products\/([^/]+)\/deactivate$/;
 
+/** Biến thể mặc định: giá, SKU, mã vạch của dòng trong bảng. */
+function defaultOf(p: Product) {
+  return p.variants.find((v) => v.isDefault) ?? p.variants[0];
+}
+
+/** Khóa sắp của `sort=<field>,asc|desc`; mặc định theo tên không dấu. */
+function sortKey(sortField: string, p: Product): string | number {
+  if (sortField === 'salePrice') return defaultOf(p).salePrice;
+  if (sortField === 'createdAt') return p.createdAt;
+  return fold(p.name);
+}
+
 /**
- * Backend giả: danh sách có phân trang, POST trả đúng mã lỗi của SP-01 và phát lại theo `Idempotency-Key` (cùng
- * nội dung thì trả lại Sản phẩm cũ, khác nội dung thì `409 idempotency-key-reuse`). Ngừng kinh doanh (SP-03) đổi
- * Sản phẩm và Biến thể sang `INACTIVE`, gọi lại vẫn `200`.
+ * Danh sách như `GET /api/v1/catalog/products` của SP-05: `q` (tên chứa, không dấu; SKU, mã vạch bắt đầu bằng),
+ * `categoryId`, `status`, `minPrice`/`maxPrice` (giá Biến thể mặc định, gồm hai đầu); `sort`, mặc định theo tên.
+ */
+function listProducts(params: URLSearchParams): Response {
+  const q = params.get('q');
+  const categoryId = params.get('categoryId');
+  const status = params.get('status');
+  const minPrice = params.get('minPrice') === null ? null : Number(params.get('minPrice'));
+  const maxPrice = params.get('maxPrice') === null ? null : Number(params.get('maxPrice'));
+  if (minPrice !== null && maxPrice !== null && minPrice > maxPrice) {
+    return json(
+      {
+        type: '/errors/common/validation',
+        title: 'Dữ liệu không hợp lệ',
+        status: 400,
+        requestId: 'req-400',
+        errors: [{ field: 'minPrice', message: 'Giá thấp nhất không được lớn hơn giá cao nhất' }],
+      },
+      400,
+    );
+  }
+  const startsWith = (code: string | null) => !!q && !!code && code.toUpperCase().startsWith(q.toUpperCase());
+  // Như backend: mã của bất kỳ Biến thể nào; giá theo Biến thể mặc định
+  const codeMatches = (p: Product) => p.variants.some((v) => startsWith(v.sku) || startsWith(v.barcode));
+  const matching = products
+    .filter((p) => {
+      const variant = defaultOf(p);
+      return (
+        (!q || fold(p.name).includes(fold(q)) || codeMatches(p)) &&
+        (!categoryId || p.categoryId === categoryId) &&
+        (!status || p.status === status) &&
+        (minPrice === null || variant.salePrice >= minPrice) &&
+        (maxPrice === null || variant.salePrice <= maxPrice)
+      );
+    })
+    .sort((a, b) => {
+      const [sortField, direction] = (params.get('sort') ?? 'name,asc').split(',');
+      const [x, y] = [sortKey(sortField, a), sortKey(sortField, b)];
+      return (x < y ? -1 : x > y ? 1 : 0) * (direction === 'desc' ? -1 : 1);
+    });
+  const page = Number(params.get('page') ?? '0');
+  const size = Number(params.get('size') ?? '20');
+  return json({ items: matching.slice(page * size, (page + 1) * size), total: matching.length, page, size });
+}
+
+/**
+ * Backend giả: danh sách có tìm kiếm, lọc, phân trang (SP-05); POST trả đúng mã lỗi của SP-01 và phát lại theo
+ * `Idempotency-Key` (cùng nội dung thì trả lại Sản phẩm cũ, khác nội dung thì `409 idempotency-key-reuse`). Ngừng
+ * kinh doanh (SP-03) đổi Sản phẩm và Biến thể sang `INACTIVE`, gọi lại vẫn `200`.
  */
 function backend() {
   const byKey = new Map<string, { body: string; product: Product }>();
@@ -65,12 +134,13 @@ function backend() {
     const url = new URL(String(input), 'http://localhost');
     const method = init?.method ?? 'GET';
     if (url.pathname === CATEGORIES_PATH && method === 'GET') {
+      if (failCategories) {
+        return json({ type: '/errors/common/internal', title: 'Lỗi hệ thống', status: 500, requestId: 'r' }, 500);
+      }
       return json({ items: categories, total: categories.length, page: 0, size: 100 });
     }
     if (url.pathname === PRODUCTS_PATH && method === 'GET') {
-      const page = Number(url.searchParams.get('page') ?? '0');
-      const size = Number(url.searchParams.get('size') ?? '20');
-      return json({ items: products.slice(page * size, (page + 1) * size), total: products.length, page, size });
+      return listProducts(url.searchParams);
     }
     if (url.pathname === PRODUCTS_PATH && method === 'POST') {
       if (failNextPostWithNetworkError) {
@@ -113,6 +183,8 @@ function backend() {
       const category = categories.find((c) => c.id === body.categoryId);
       const created: Product = {
         ...product(id),
+        // Tạo sau mọi Sản phẩm có sẵn: đứng đầu khi sắp mới nhất trước
+        createdAt: new Date(Date.UTC(2026, 10, 10, 5, 0, 0) + id * 1000).toISOString(),
         name: body.name,
         categoryId: category?.id ?? null,
         categoryName: category?.name ?? null,
@@ -168,18 +240,54 @@ function me(role: Role): Me {
   return { userId: 'u-1', storeId: 's-1', storeName: 'Cửa hàng thử', role, displayName: 'Người thử' };
 }
 
-function renderPage(role: Role = 'OWNER'): QueryClient {
+/** Mở màn Sản phẩm ở `path` (có thể kèm query của bộ lọc). */
+function renderPage(role: Role = 'OWNER', path = PAGE_PATH) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const router = createMemoryRouter([{ path: PAGE_PATH, Component: ProductsPage }], { initialEntries: [path] });
   render(
     <QueryClientProvider client={queryClient}>
       <AntdApp>
         <CurrentUserContext value={me(role)}>
-          <ProductsPage />
+          <RouterProvider router={router} />
         </CurrentUserContext>
       </AntdApp>
     </QueryClientProvider>,
   );
-  return queryClient;
+  return { queryClient, router };
+}
+
+/** Tham số query của từng lần tải danh sách Sản phẩm. */
+function productQueries(): URLSearchParams[] {
+  return fetchMock.mock.calls
+    .map(([input, init]) => ({ url: new URL(String(input), 'http://localhost'), method: init?.method ?? 'GET' }))
+    .filter(({ url, method }) => method === 'GET' && url.pathname === PRODUCTS_PATH)
+    .map(({ url }) => url.searchParams);
+}
+
+function lastProductQuery(): Record<string, string> {
+  const queries = productQueries();
+  return Object.fromEntries(queries[queries.length - 1] ?? []);
+}
+
+function filterBar(): HTMLElement {
+  return screen.getByRole('search', { name: 'Bộ lọc Sản phẩm' });
+}
+
+/** Chọn một lựa chọn của ô chọn trong thanh bộ lọc. */
+async function chooseFilter(label: string, option: string) {
+  fireEvent.mouseDown(within(filterBar()).getByLabelText(label));
+  const found = await waitFor(() => {
+    const options = [...document.querySelectorAll(`.ant-select-item-option[title="${option}"]`)];
+    if (options.length === 0) throw new Error(`chưa thấy lựa chọn ${option}`);
+    return options[options.length - 1];
+  });
+  fireEvent.click(found);
+}
+
+function setPrice(label: 'Giá từ' | 'Giá đến', value: string) {
+  const input = within(filterBar()).getByLabelText(label);
+  fireEvent.change(input, { target: { value } });
+  fireEvent.blur(input);
 }
 
 function posts() {
@@ -286,15 +394,18 @@ beforeEach(() => {
   loseNextPostResponse = false;
   failNextDeactivateWithNetworkError = false;
   loseNextDeactivateResponse = false;
+  failCategories = false;
   backend();
 });
 
 describe('ProductsPage', () => {
-  it('hiện bảng mới nhất trước: tên, Danh mục, SKU, giá bán; không có Giá vốn', async () => {
+  it('hiện bảng sắp theo tên: tên, Danh mục, SKU, giá bán; không có Giá vốn; không gửi bộ lọc trống', async () => {
     renderPage();
     await within(table()).findByText('Sản phẩm 02');
 
-    expect(rowNames()).toEqual(['Sản phẩm 02', 'Sản phẩm 01']);
+    expect(rowNames()).toEqual(['Sản phẩm 01', 'Sản phẩm 02']);
+    // Không có `sort`: backend sắp theo tên không dấu
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20' });
     expect(within(table()).getByText('Đồ uống')).toBeTruthy();
     expect(within(table()).getByText('SP-00000002')).toBeTruthy();
     expect(within(table()).getByText(/2\.000/)).toBeTruthy();
@@ -348,8 +459,10 @@ describe('ProductsPage', () => {
     });
     expect(keyOf(post)).toMatch(UUID);
     expect(await screen.findByText('Đã thêm Sản phẩm "Sữa tươi Vinamilk 1L"')).toBeTruthy();
+    // Thêm xong bảng sắp mới nhất trước: Sản phẩm mới đứng đầu dù theo tên nó đứng cuối
     await waitFor(() => expect(rowNames()[0]).toBe('Sữa tươi Vinamilk 1L'));
     expect(rowNames()).toHaveLength(3);
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20', sort: 'createdAt,desc' });
   });
 
   it('chỉ nhập tên và giá: trường tùy chọn không gửi, tồn đầu kỳ mặc định 0', async () => {
@@ -532,10 +645,10 @@ describe('ProductsPage', () => {
   it('đang ở trang sau mà thêm Sản phẩm: bảng về trang đầu, Sản phẩm mới nằm đầu bảng', async () => {
     products = Array.from({ length: 25 }, (_, i) => product(25 - i));
     renderPage();
-    await within(table()).findByText('Sản phẩm 25');
+    await within(table()).findByText('Sản phẩm 01');
 
     fireEvent.click(within(screen.getByTitle('2')).getByRole('button'));
-    expect(await within(table()).findByText('Sản phẩm 05')).toBeTruthy();
+    expect(await within(table()).findByText('Sản phẩm 21')).toBeTruthy();
 
     await openAddDialog();
     type('Tên Sản phẩm', 'Hàng mới nhất');
@@ -545,10 +658,11 @@ describe('ProductsPage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     await waitFor(() => expect(rowNames()[0]).toBe('Hàng mới nhất'));
     expect(rowNames()[1]).toBe('Sản phẩm 25');
+    expect(lastProductQuery()).toMatchObject({ page: '0', sort: 'createdAt,desc' });
   });
 
   it('Chủ cửa hàng ngừng kinh doanh có xác nhận: dòng đổi sang "Ngừng kinh doanh" ngay, nút biến mất', async () => {
-    const queryClient = renderPage();
+    const { queryClient } = renderPage();
     await within(table()).findByText('Sản phẩm 01');
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
 
@@ -566,7 +680,7 @@ describe('ProductsPage', () => {
     // Dòng khác không đổi, vẫn ngừng được; bảng vẫn ở chỗ cũ
     expect(within(rowOf('Sản phẩm 02')).getByText('Đang bán')).toBeTruthy();
     expect(within(rowOf('Sản phẩm 02')).getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 02' })).toBeTruthy();
-    expect(rowNames()).toEqual(['Sản phẩm 02', 'Sản phẩm 01']);
+    expect(rowNames()).toEqual(['Sản phẩm 01', 'Sản phẩm 02']);
 
     expect(deactivations()).toHaveLength(1);
     const [call] = deactivations();
@@ -624,7 +738,7 @@ describe('ProductsPage', () => {
 
   it('mất phản hồi sau khi máy chủ đã ngừng: báo lỗi mạng, bảng tải lại và dòng thành "Ngừng kinh doanh"', async () => {
     loseNextDeactivateResponse = true;
-    const queryClient = renderPage();
+    const { queryClient } = renderPage();
     await within(table()).findByText('Sản phẩm 01');
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
 
@@ -641,5 +755,343 @@ describe('ProductsPage', () => {
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'products'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory', 'stock'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sales', 'sellable'] });
+  });
+});
+
+/** Sản phẩm một Biến thể mặc định với giá, Danh mục, mã vạch, trạng thái cho trước. */
+function shopItem(
+  n: number,
+  name: string,
+  salePrice: number,
+  categoryId: string | null,
+  extra: { barcode?: string; status?: ProductStatus } = {},
+): Product {
+  const base = product(n);
+  const status = extra.status ?? 'ACTIVE';
+  return {
+    ...base,
+    name,
+    categoryId,
+    categoryName: categories.find((c) => c.id === categoryId)?.name ?? null,
+    status,
+    variants: [{ ...base.variants[0], salePrice, barcode: extra.barcode ?? null, status }],
+  };
+}
+
+function searchBox(): HTMLInputElement {
+  return within(filterBar()).getByLabelText('Tìm Sản phẩm') as HTMLInputElement;
+}
+
+function priceBox(label: 'Giá từ' | 'Giá đến'): HTMLInputElement {
+  return within(filterBar()).getByLabelText(label) as HTMLInputElement;
+}
+
+function filterParams(router: ReturnType<typeof renderPage>['router']): Record<string, string> {
+  return Object.fromEntries(new URLSearchParams(router.state.location.search));
+}
+
+describe('ProductsPage — tìm kiếm, lọc (FR-5, SP-05)', () => {
+  beforeEach(() => {
+    categories = [
+      { id: DRINKS, name: 'Đồ uống', productCount: 4 },
+      { id: SNACKS, name: 'Bánh kẹo', productCount: 1 },
+    ];
+    products = [
+      shopItem(1, 'Sữa tươi Vinamilk', 15000, DRINKS, { barcode: '8934673123456' }),
+      shopItem(2, 'Sữa chua Ba Vì', 8000, DRINKS),
+      shopItem(3, 'Nước suối Lavie', 5000, DRINKS),
+      shopItem(4, 'Bánh quy bơ', 30000, SNACKS),
+      shopItem(5, 'Sữa đặc ngừng bán', 25000, DRINKS, { status: 'INACTIVE' }),
+    ];
+  });
+
+  it('Nhân viên gõ "sua": bảng chỉ còn Sản phẩm có "Sữa" trong tên, gửi một lần sau khi gõ xong, URL giữ từ khóa', async () => {
+    const { router } = renderPage('STAFF');
+    await within(table()).findByText('Nước suối Lavie');
+
+    fireEvent.change(searchBox(), { target: { value: 's' } });
+    fireEvent.change(searchBox(), { target: { value: 'su' } });
+    fireEvent.change(searchBox(), { target: { value: ' sua ' } });
+
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa chua Ba Vì', 'Sữa đặc ngừng bán', 'Sữa tươi Vinamilk']));
+    // Debounce: các lần gõ dồn thành một yêu cầu, từ khóa đã cắt khoảng trắng
+    expect(productQueries().filter((query) => query.has('q')).map((query) => query.get('q'))).toEqual(['sua']);
+    expect(lastProductQuery()).toEqual({ q: 'sua', page: '0', size: '20' });
+    expect(filterParams(router)).toEqual({ q: 'sua' });
+  });
+
+  it('quét mã vạch (Enter) thì tìm theo đầu mã vạch', async () => {
+    renderPage();
+    await within(table()).findByText('Nước suối Lavie');
+
+    fireEvent.change(searchBox(), { target: { value: '8934' } });
+    fireEvent.keyDown(searchBox(), { key: 'Enter', code: 'Enter', keyCode: 13 });
+
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa tươi Vinamilk']));
+    expect(lastProductQuery().q).toBe('8934');
+  });
+
+  it('lọc theo Danh mục, khoảng giá, trạng thái: gửi đúng tham số, ghi lên URL, không còn hàng thì báo khớp bộ lọc', async () => {
+    const { router } = renderPage();
+    await within(table()).findByText('Bánh quy bơ');
+
+    await chooseFilter('Lọc theo Danh mục', 'Đồ uống');
+    await waitFor(() =>
+      expect(rowNames()).toEqual(['Nước suối Lavie', 'Sữa chua Ba Vì', 'Sữa đặc ngừng bán', 'Sữa tươi Vinamilk']),
+    );
+    expect(lastProductQuery()).toEqual({ categoryId: DRINKS, page: '0', size: '20' });
+
+    setPrice('Giá từ', '10000');
+    // Tự nhóm nghìn khi gõ
+    expect(priceBox('Giá từ').value).toBe('10.000');
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa đặc ngừng bán', 'Sữa tươi Vinamilk']));
+    setPrice('Giá đến', '20.000');
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa tươi Vinamilk']));
+    expect(lastProductQuery()).toEqual({
+      categoryId: DRINKS,
+      minPrice: '10000',
+      maxPrice: '20000',
+      page: '0',
+      size: '20',
+    });
+
+    await chooseFilter('Lọc theo trạng thái', 'Ngừng kinh doanh');
+    expect(await within(table()).findByText('Không có Sản phẩm nào khớp bộ lọc.')).toBeTruthy();
+    expect(lastProductQuery().status).toBe('INACTIVE');
+    expect(filterParams(router)).toEqual({
+      categoryId: DRINKS,
+      minPrice: '10000',
+      maxPrice: '20000',
+      status: 'INACTIVE',
+    });
+  });
+
+  it('mở trang từ link có bộ lọc: gửi đủ tham số ngay lần đầu, các ô hiện đúng giá trị', async () => {
+    renderPage('OWNER', `${PAGE_PATH}?q=sua&categoryId=${DRINKS}&status=ACTIVE&minPrice=10000&maxPrice=20000`);
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa tươi Vinamilk']));
+
+    // Không có lần tải nào thiếu bộ lọc
+    expect(productQueries().map((query) => Object.fromEntries(query))).toEqual([
+      { q: 'sua', categoryId: DRINKS, status: 'ACTIVE', minPrice: '10000', maxPrice: '20000', page: '0', size: '20' },
+    ]);
+    expect(searchBox().value).toBe('sua');
+    expect(priceBox('Giá từ').value).toBe('10.000');
+    expect(priceBox('Giá đến').value).toBe('20.000');
+    expect(await within(filterBar()).findByText('Đồ uống')).toBeTruthy();
+    expect(within(filterBar()).getByText('Đang bán')).toBeTruthy();
+  });
+
+  it('giá trị sai trên URL bị bỏ qua thay vì gửi đi', async () => {
+    renderPage('OWNER', `${PAGE_PATH}?q=%20%20&categoryId=c-1&status=DELETED&minPrice=abc&maxPrice=-5`);
+    await within(table()).findByText('Bánh quy bơ');
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20' });
+  });
+
+  it('khoảng giá ngược trên URL cũng bị bỏ qua', async () => {
+    renderPage('OWNER', `${PAGE_PATH}?minPrice=5&maxPrice=1`);
+    await within(table()).findByText('Bánh quy bơ');
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20' });
+  });
+
+  it('ô giá: giá từ lớn hơn giá đến hay giá không phải số nguyên thì báo dưới ô và không gửi', async () => {
+    const { router } = renderPage();
+    await within(table()).findByText('Bánh quy bơ');
+
+    setPrice('Giá từ', '20000');
+    await waitFor(() => expect(lastProductQuery().minPrice).toBe('20000'));
+    setPrice('Giá đến', '10000');
+    expect(await within(filterBar()).findByText('Giá từ không được lớn hơn giá đến')).toBeTruthy();
+    expect(priceBox('Giá từ').getAttribute('aria-invalid')).toBe('true');
+
+    setPrice('Giá đến', '12,5');
+    expect(await within(filterBar()).findByText('Giá đến phải là số nguyên')).toBeTruthy();
+    setPrice('Giá đến', '-3');
+    expect(await within(filterBar()).findByText('Giá đến không được âm')).toBeTruthy();
+    expect(productQueries().some((query) => query.has('maxPrice'))).toBe(false);
+    expect(filterParams(router)).toEqual({ minPrice: '20000' });
+
+    setPrice('Giá đến', '30000');
+    await waitFor(() => expect(rowNames()).toEqual(['Bánh quy bơ', 'Sữa đặc ngừng bán']));
+    expect(within(filterBar()).queryByText(/không được|phải là/)).toBeNull();
+    expect(priceBox('Giá từ').getAttribute('aria-invalid')).toBe('false');
+    expect(lastProductQuery()).toMatchObject({ minPrice: '20000', maxPrice: '30000' });
+  });
+
+  it('đổi bộ lọc khi đang ở trang sau thì bảng về trang đầu', async () => {
+    products = Array.from({ length: 25 }, (_, i) =>
+      shopItem(i + 1, `Hàng ${String(i + 1).padStart(2, '0')}`, 1000, DRINKS),
+    );
+    renderPage();
+    await within(table()).findByText('Hàng 01');
+    fireEvent.click(within(screen.getByTitle('2')).getByRole('button'));
+    expect(await within(table()).findByText('Hàng 21')).toBeTruthy();
+
+    await chooseFilter('Lọc theo trạng thái', 'Đang bán');
+    await waitFor(() => expect(lastProductQuery()).toEqual({ status: 'ACTIVE', page: '0', size: '20' }));
+    expect(await within(table()).findByText('Hàng 01')).toBeTruthy();
+  });
+
+  it('xóa chữ trong ô tìm kiếm thì bỏ từ khóa khỏi yêu cầu và URL', async () => {
+    const { router } = renderPage('OWNER', `${PAGE_PATH}?q=sua`);
+    await waitFor(() => expect(rowNames()).toHaveLength(3));
+
+    fireEvent.change(searchBox(), { target: { value: '' } });
+    await waitFor(() => expect(rowNames()).toHaveLength(5));
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20' });
+    expect(router.state.location.search).toBe('');
+  });
+
+  it('URL đổi từ nơi khác (bấm lại menu "Sản phẩm"): các ô về trống, bảng bỏ bộ lọc', async () => {
+    const { router } = renderPage('OWNER', `${PAGE_PATH}?q=sua&minPrice=10000&status=ACTIVE`);
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa tươi Vinamilk']));
+
+    await act(() => router.navigate(PAGE_PATH));
+
+    await waitFor(() => expect(rowNames()).toHaveLength(5));
+    expect(searchBox().value).toBe('');
+    expect(priceBox('Giá từ').value).toBe('');
+    expect(within(filterBar()).queryByText('Đang bán')).toBeNull();
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20' });
+  });
+
+  it('thêm Sản phẩm khi đang lọc: bỏ bộ lọc, sắp mới nhất trước, Sản phẩm mới nằm đầu bảng', async () => {
+    const { router } = renderPage('OWNER', `${PAGE_PATH}?q=sua&status=INACTIVE`);
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa đặc ngừng bán']));
+
+    await openAddDialog();
+    // Không khớp bộ lọc đang dùng
+    type('Tên Sản phẩm', 'Bánh mới');
+    type('Giá bán', '9000');
+    submit();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(rowNames()[0]).toBe('Bánh mới'));
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20', sort: 'createdAt,desc' });
+    expect(router.state.location.search).toBe('');
+    expect(searchBox().value).toBe('');
+    // Cột Ngày tạo hiện đang sắp giảm dần
+    expect(within(table()).getByRole('columnheader', { name: /Ngày tạo/ }).getAttribute('aria-sort')).toBe(
+      'descending',
+    );
+  });
+
+  it('bấm tiêu đề cột Tên, Giá bán, Ngày tạo thì sắp phía server', async () => {
+    products = [
+      { ...shopItem(1, 'Sữa tươi Vinamilk', 15000, DRINKS), createdAt: '2026-11-08T03:00:00Z' },
+      { ...shopItem(2, 'Bánh quy bơ', 30000, SNACKS), createdAt: '2026-11-09T18:00:00Z' },
+      { ...shopItem(3, 'Nước suối Lavie', 5000, DRINKS), createdAt: '2026-11-07T03:00:00Z' },
+    ];
+    renderPage();
+    await waitFor(() => expect(rowNames()).toEqual(['Bánh quy bơ', 'Nước suối Lavie', 'Sữa tươi Vinamilk']));
+    // Ngày theo giờ Việt Nam: 18:00 UTC ngày 9 là ngày 10
+    expect(within(rowOf('Bánh quy bơ')).getByText('10/11/2026')).toBeTruthy();
+
+    const header = (title: string) => within(table()).getByRole('columnheader', { name: new RegExp(title) });
+    fireEvent.click(header('Tên Sản phẩm'));
+    await waitFor(() => expect(lastProductQuery().sort).toBe('name,asc'));
+    fireEvent.click(header('Tên Sản phẩm'));
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa tươi Vinamilk', 'Nước suối Lavie', 'Bánh quy bơ']));
+    expect(lastProductQuery().sort).toBe('name,desc');
+
+    fireEvent.click(header('Giá bán'));
+    await waitFor(() => expect(rowNames()).toEqual(['Nước suối Lavie', 'Sữa tươi Vinamilk', 'Bánh quy bơ']));
+    expect(lastProductQuery().sort).toBe('salePrice,asc');
+
+    fireEvent.click(header('Ngày tạo'));
+    // Cùng thứ tự với bước trước, nên chờ yêu cầu chứ không chờ dòng
+    await waitFor(() => expect(lastProductQuery().sort).toBe('createdAt,asc'));
+    await waitFor(() => expect(rowNames()).toEqual(['Nước suối Lavie', 'Sữa tươi Vinamilk', 'Bánh quy bơ']));
+    fireEvent.click(header('Ngày tạo'));
+    await waitFor(() => expect(rowNames()).toEqual(['Bánh quy bơ', 'Sữa tươi Vinamilk', 'Nước suối Lavie']));
+  });
+
+  it('Cửa hàng chưa có Sản phẩm, không lọc: hiện hướng dẫn thêm Sản phẩm', async () => {
+    products = [];
+    renderPage();
+    expect(await within(table()).findByText('Chưa có Sản phẩm nào. Bấm "Thêm Sản phẩm" để tạo.')).toBeTruthy();
+    expect(within(table()).queryByText('Không có Sản phẩm nào khớp bộ lọc.')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Xóa bộ lọc' })).toBeNull();
+  });
+
+  it('Cửa hàng chưa có Sản phẩm nhưng đang lọc (?status=ACTIVE): báo không khớp bộ lọc', async () => {
+    products = [];
+    renderPage('OWNER', `${PAGE_PATH}?status=ACTIVE`);
+    expect(await within(table()).findByText('Không có Sản phẩm nào khớp bộ lọc.')).toBeTruthy();
+    expect(within(table()).queryByText(/Bấm "Thêm Sản phẩm"/)).toBeNull();
+  });
+
+  it('nút "Xóa bộ lọc" ở bảng trống bỏ mọi bộ lọc', async () => {
+    const { router } = renderPage('OWNER', `${PAGE_PATH}?q=khong%20co&status=ACTIVE`);
+    expect(await within(table()).findByText('Không có Sản phẩm nào khớp bộ lọc.')).toBeTruthy();
+
+    fireEvent.click(within(table()).getByRole('button', { name: 'Xóa bộ lọc' }));
+
+    await waitFor(() => expect(rowNames()).toHaveLength(5));
+    expect(router.state.location.search).toBe('');
+    expect(searchBox().value).toBe('');
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20' });
+  });
+
+  it('nút "Xóa bộ lọc" trên thanh bộ lọc bỏ mọi bộ lọc và chữ trong các ô, chỉ hiện khi đang lọc', async () => {
+    const { router } = renderPage('OWNER', `${PAGE_PATH}?q=sua&minPrice=10000&status=ACTIVE&categoryId=${DRINKS}`);
+    await waitFor(() => expect(rowNames()).toEqual(['Sữa tươi Vinamilk']));
+
+    fireEvent.click(within(filterBar()).getByRole('button', { name: 'Xóa bộ lọc' }));
+
+    await waitFor(() => expect(rowNames()).toHaveLength(5));
+    expect(router.state.location.search).toBe('');
+    expect(searchBox().value).toBe('');
+    expect(priceBox('Giá từ').value).toBe('');
+    expect(within(filterBar()).queryByText('Đồ uống')).toBeNull();
+    expect(within(filterBar()).queryByRole('button', { name: 'Xóa bộ lọc' })).toBeNull();
+  });
+
+  it('đổi bộ lọc thay URL hiện tại (REPLACE), không thêm bước "Quay lại"', async () => {
+    const { router } = renderPage();
+    await within(table()).findByText('Bánh quy bơ');
+
+    await chooseFilter('Lọc theo trạng thái', 'Đang bán');
+    await waitFor(() => expect(filterParams(router)).toEqual({ status: 'ACTIVE' }));
+    expect(router.state.historyAction).toBe('REPLACE');
+  });
+
+  it('Danh mục trên URL viết hoa vẫn là Danh mục đó; gửi id chữ thường', async () => {
+    renderPage('OWNER', `${PAGE_PATH}?categoryId=${DRINKS.toUpperCase()}`);
+    await waitFor(() => expect(rowNames()).toHaveLength(4));
+    expect(lastProductQuery().categoryId).toBe(DRINKS);
+    expect(await within(filterBar()).findByText('Đồ uống')).toBeTruthy();
+  });
+
+  it('Danh mục trên URL không còn (đã xóa): hiện "Danh mục không còn", không hiện id thô', async () => {
+    const missing = 'cccccccc-3333-4333-8333-333333333333';
+    renderPage('OWNER', `${PAGE_PATH}?categoryId=${missing}`);
+    expect(await within(table()).findByText('Không có Sản phẩm nào khớp bộ lọc.')).toBeTruthy();
+    expect(await within(filterBar()).findByText('Danh mục không còn')).toBeTruthy();
+    expect(within(filterBar()).queryByText(missing)).toBeNull();
+  });
+
+  it('tải danh sách Danh mục lỗi: ô Danh mục báo lỗi thay vì "Danh mục không còn"', async () => {
+    failCategories = true;
+    renderPage('OWNER', `${PAGE_PATH}?categoryId=${DRINKS}`);
+    expect(await within(filterBar()).findByText('Không tải được Danh mục')).toBeTruthy();
+    expect(within(filterBar()).queryByText('Danh mục không còn')).toBeNull();
+    expect(within(filterBar()).queryByText(DRINKS)).toBeNull();
+  });
+
+  it('lỗi ô giá gắn với ô (aria-describedby) và được đọc ngay (role="alert")', async () => {
+    renderPage();
+    await within(table()).findByText('Bánh quy bơ');
+
+    setPrice('Giá từ', '20000');
+    setPrice('Giá đến', '10000');
+    const alert = await within(filterBar()).findByRole('alert');
+    expect(alert.textContent).toBe('Giá từ không được lớn hơn giá đến');
+    expect(alert.id).not.toBe('');
+    expect(priceBox('Giá từ').getAttribute('aria-describedby')).toBe(alert.id);
+    expect(priceBox('Giá đến').getAttribute('aria-describedby')).toBeNull();
+
+    setPrice('Giá đến', '30000');
+    await waitFor(() => expect(within(filterBar()).queryByRole('alert')).toBeNull());
+    expect(priceBox('Giá từ').getAttribute('aria-describedby')).toBeNull();
   });
 });

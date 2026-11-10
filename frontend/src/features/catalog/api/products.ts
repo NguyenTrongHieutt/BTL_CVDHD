@@ -1,7 +1,7 @@
 /**
- * API Sản phẩm (FR-1, SP-01; FR-3, SP-03). Người giữ: Hiếu — features/catalog (AD-20).
+ * API Sản phẩm (FR-1, SP-01; FR-3, SP-03; FR-5, SP-05). Người giữ: Hiếu — features/catalog (AD-20).
  *
- * Bảng dùng khóa `['catalog', 'products', params]`. Thêm thành công thì invalidate `['catalog', 'products']`,
+ * Bảng dùng khóa `['catalog', 'products', params]`, `params` gồm bộ lọc và trang. Thêm thành công thì invalidate `['catalog', 'products']`,
  * `['inventory', 'stock']` (Sản phẩm mới có dòng Tồn kho, kèm Tồn kho đầu kỳ nếu có) và `['catalog', 'categories']`
  * (số Sản phẩm của Danh mục đổi). Thêm Sản phẩm là một chứng từ (Tồn kho đầu kỳ `OPENING`) nên có
  * `Idempotency-Key` (AD-7). Ngừng kinh doanh xong (thành công hay lỗi) thì invalidate `['catalog', 'products']`,
@@ -12,7 +12,7 @@ import { useRef } from 'react';
 import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { pageRequestToQuery } from '../../../shared/api/pagination';
 import type { PageRequest, PageResponse } from '../../../shared/api/pagination';
-import type { CreateProductRequest, Product } from '../../../shared/types/catalog';
+import type { CreateProductRequest, Product, ProductSearchParams } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { categoriesQueryKey } from './categories';
 
@@ -27,9 +27,20 @@ export const IDEMPOTENCY_KEY_REUSE = '/errors/common/idempotency-key-reuse';
 const ZWNJ = 0x200c;
 const ZWJ = 0x200d;
 
-/** Danh sách Sản phẩm, mới nhất trước (tìm kiếm, lọc là SP-05). */
-export function fetchProducts(request: PageRequest, signal?: AbortSignal): Promise<PageResponse<Product>> {
-  return api.get<PageResponse<Product>>(PRODUCTS_PATH, { query: pageRequestToQuery(request), signal });
+/**
+ * Danh sách Sản phẩm có Tìm kiếm thường và lọc (FR-5, SP-05). Bộ lọc trống không gửi; không có `sort` thì backend
+ * sắp theo tên không dấu.
+ */
+export function fetchProducts(
+  request: PageRequest,
+  filters: ProductSearchParams = {},
+  signal?: AbortSignal,
+): Promise<PageResponse<Product>> {
+  const { q, categoryId, status, minPrice, maxPrice } = filters;
+  return api.get<PageResponse<Product>>(PRODUCTS_PATH, {
+    query: { ...pageRequestToQuery(request), q: q || undefined, categoryId, status, minPrice, maxPrice },
+    signal,
+  });
 }
 
 /**

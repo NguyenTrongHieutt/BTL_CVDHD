@@ -9,14 +9,13 @@
  * Ô tiền, số lượng là ô chữ (không dùng `InputNumber`, vốn lặng lẽ bỏ hoặc kẹp giá trị sai): chỉ nhận chữ số, dấu
  * chấm là dấu nhóm nghìn (tự nhóm khi gõ); có dấu phẩy, dấu trừ hay ký tự khác thì báo lỗi dưới ô.
  */
-import { useQuery } from '@tanstack/react-query';
 import { Alert, App, Col, Form, Input, Modal, Row, Select } from 'antd';
 import { isApiError } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components';
 import { PROBLEM_MESSAGES } from '../../../shared/messages.vi';
 import type { CreateProductRequest, Product } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
-import { categoriesQueryKey, fetchCategories } from '../api/categories';
+import { useCategoryOptions } from '../api/categories';
 import {
   IDEMPOTENCY_KEY_REUSE,
   hasInvalidChars,
@@ -24,17 +23,14 @@ import {
   productTextLength,
   useCreateProduct,
 } from '../api/products';
+import { MONEY_MAX, foldText, groupThousands, parseWholeNumber } from './textUtils';
 
 const NAME_MAX = 200;
 const UNIT_MAX = 30;
 const DESCRIPTION_MAX = 2000;
 const CODE_MAX = 50;
 const BARCODE_CHARS = /^[A-Za-z0-9]*$/;
-/** Giới hạn của backend: số nguyên lớn nhất JavaScript còn biểu diễn đúng. */
-const MONEY_MAX = Number.MAX_SAFE_INTEGER;
 const QUANTITY_MAX = 2_147_483_647;
-/** Ô chọn Danh mục lấy tối đa 100 Danh mục (đủ cho một Cửa hàng nhỏ). */
-const CATEGORY_OPTIONS_REQUEST = { page: 0, size: 100 };
 
 /** Ô tiền, số lượng giữ nguyên chữ người dùng gõ; đổi thành số khi gửi (`parseWholeNumber`). */
 interface ProductFormValues {
@@ -95,11 +91,6 @@ function isKeyReuse(error: unknown): boolean {
   return isApiError(error) && error.type === IDEMPOTENCY_KEY_REUSE;
 }
 
-/** Chữ thường, bỏ dấu, để tìm Danh mục không cần gõ dấu. */
-function fold(text: string): string {
-  return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/[đĐ]/g, 'd').toLowerCase();
-}
-
 /** Chuỗi tùy chọn: chuẩn hóa, bỏ trống thì không gửi. */
 function optionalText(value: string | undefined, multiline = false): string | undefined {
   const text = value === undefined ? '' : normalizeProductText(value, multiline);
@@ -122,24 +113,6 @@ function textRules(label: string, max: number, multiline = false) {
           : Promise.reject(new Error(`${label} tối đa ${max} ký tự`)),
     },
   ];
-}
-
-/**
- * Đọc ô số: chữ số, dấu chấm nhóm nghìn. Trống thì `null`; có ký tự khác (dấu phẩy, dấu trừ, chữ…) thì `NaN`.
- */
-function parseWholeNumber(text: string | null | undefined): number | null {
-  const trimmed = (text ?? '').trim();
-  if (trimmed === '') return null;
-  const digits = trimmed.replace(/\./g, '');
-  return /^\d+$/.test(digits) ? Number(digits) : Number.NaN;
-}
-
-/** Tự nhóm nghìn khi gõ ("1500000" → "1.500.000"); chuỗi có ký tự khác để nguyên cho luật kiểm báo lỗi. */
-function groupThousands(value: string | undefined): string | undefined {
-  if (value === undefined) return value;
-  const digits = value.trim().replace(/\./g, '');
-  if (!/^\d+$/.test(digits)) return value;
-  return BigInt(digits).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
 }
 
 /** Số nguyên từ 0 tới `max`; bỏ trống thì để luật `required` (nếu có) báo. */
@@ -175,10 +148,7 @@ export function CreateProductModal({ onClose, onCreated }: CreateProductModalPro
   const [form] = Form.useForm<ProductFormValues>();
   const { message } = App.useApp();
   const create = useCreateProduct();
-  const categories = useQuery({
-    queryKey: [...categoriesQueryKey, CATEGORY_OPTIONS_REQUEST],
-    queryFn: ({ signal }) => fetchCategories(CATEGORY_OPTIONS_REQUEST, signal),
-  });
+  const categories = useCategoryOptions();
   // Đang gửi thì không cho đóng: đóng sẽ bỏ mất kết quả của yêu cầu đang chạy.
   const pending = create.isPending;
 
@@ -267,7 +237,9 @@ export function CreateProductModal({ onClose, onCreated }: CreateProductModalPro
                 placeholder="Không chọn"
                 loading={categories.isLoading}
                 options={(categories.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))}
-                showSearch={{ filterOption: (input, option) => fold(String(option?.label ?? '')).includes(fold(input)) }}
+                showSearch={{
+                  filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
+                }}
                 notFoundContent="Chưa có Danh mục nào"
                 // Ô không có luật kiểm, nên lỗi của backend (Danh mục không tồn tại) phải tự xóa khi chọn lại
                 onChange={() => form.setFields([{ name: 'categoryId', errors: [] }])}

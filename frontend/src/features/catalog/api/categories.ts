@@ -6,7 +6,7 @@
  * thành công còn invalidate `['catalog', 'products']` vì Sản phẩm hiện tên Danh mục. Danh mục không phải chứng từ
  * nên không có `Idempotency-Key`.
  */
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../shared/api/client';
 import { pageRequestToQuery } from '../../../shared/api/pagination';
 import type { PageRequest, PageResponse } from '../../../shared/api/pagination';
@@ -20,6 +20,17 @@ const productsQueryKey = ['catalog', 'products'] as const;
 
 export function fetchCategories(request: PageRequest, signal?: AbortSignal): Promise<PageResponse<Category>> {
   return api.get<PageResponse<Category>>(CATEGORIES_PATH, { query: pageRequestToQuery(request), signal });
+}
+
+/** Ô chọn Danh mục (form thêm Sản phẩm, bộ lọc Sản phẩm) lấy tối đa 100 Danh mục, đủ cho một Cửa hàng nhỏ. */
+export const CATEGORY_OPTIONS_REQUEST: PageRequest = { page: 0, size: 100 };
+
+/** Danh mục cho ô chọn, khóa `['catalog', 'categories', { page: 0, size: 100 }]`: thêm, đổi tên, xóa thì tải lại. */
+export function useCategoryOptions() {
+  return useQuery({
+    queryKey: [...categoriesQueryKey, CATEGORY_OPTIONS_REQUEST],
+    queryFn: ({ signal }) => fetchCategories(CATEGORY_OPTIONS_REQUEST, signal),
+  });
 }
 
 /** Chuẩn hóa tên như backend: NFC rồi cắt khoảng trắng hai đầu. */

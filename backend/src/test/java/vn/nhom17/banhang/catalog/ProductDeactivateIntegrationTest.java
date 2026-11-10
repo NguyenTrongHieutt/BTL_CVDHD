@@ -370,7 +370,7 @@ class ProductDeactivateIntegrationTest {
         create(owner, "Thứ hai", 2000, 0, 0);
         deactivate(owner, first.productId()).andExpect(status().isOk());
 
-        mvc.perform(get(PRODUCTS).cookie(owner.cookie()))
+        mvc.perform(get(PRODUCTS + "?sort=createdAt,desc").cookie(owner.cookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(2))
                 .andExpect(jsonPath("$.items[0].name").value("Thứ hai"))

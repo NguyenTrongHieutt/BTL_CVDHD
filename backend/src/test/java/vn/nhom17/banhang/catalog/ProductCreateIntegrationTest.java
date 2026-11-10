@@ -518,7 +518,8 @@ class ProductCreateIntegrationTest {
                 .andExpect(jsonPath("$.variants[0].salePrice").value(20000))
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(detail.toLowerCase(Locale.ROOT)).doesNotContain("cost").doesNotContain("opening");
-        mvc.perform(get(PRODUCTS).cookie(staff)).andExpect(status().isOk())
+        // Cửa hàng dev dùng chung giữa các test: sắp mới nhất trước để Sản phẩm vừa thêm đứng đầu
+        mvc.perform(get(PRODUCTS + "?sort=createdAt,desc").cookie(staff)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].id").value(id));
     }
 
@@ -537,8 +538,9 @@ class ProductCreateIntegrationTest {
         send(b, get(PRODUCTS + "/" + ofB)).andExpect(status().isOk());
     }
 
+    /** Mặc định sắp theo tên không dấu từ SP-05; {@code sort=createdAt,desc} cho thứ tự mới nhất trước của SP-01. */
     @Test
-    void listIsNewestFirstAndPaged() throws Exception {
+    void listIsPagedAndCanBeNewestFirst() throws Exception {
         Owner owner = newStore();
         UUID drinks = createCategory(owner, "Đồ uống");
         List<String> names = List.of("Thứ nhất", "Thứ hai", "Thứ ba");
@@ -548,7 +550,7 @@ class ProductCreateIntegrationTest {
             create(owner, body).andExpect(status().isCreated());
         }
 
-        send(owner, get(PRODUCTS))
+        send(owner, get(PRODUCTS + "?sort=createdAt,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(3))
                 .andExpect(jsonPath("$.page").value(0))
@@ -559,7 +561,7 @@ class ProductCreateIntegrationTest {
                 .andExpect(jsonPath("$.items[0].categoryName").value("Đồ uống"))
                 .andExpect(jsonPath("$.items[0].variants.length()").value(1))
                 .andExpect(jsonPath("$.items[0].variants[0].isDefault").value(true));
-        send(owner, get(PRODUCTS + "?page=1&size=2"))
+        send(owner, get(PRODUCTS + "?page=1&size=2&sort=createdAt,desc"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.total").value(3))
                 .andExpect(jsonPath("$.page").value(1))

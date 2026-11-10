@@ -91,5 +91,22 @@ export interface CreateProductRequest {
   openingUnitCost?: Money;
 }
 
-// TODO(Hiếu, FR-5/SP-05, GĐ1): tham số Tìm kiếm thường và lọc Sản phẩm.
+/**
+ * Bộ lọc của `GET /api/v1/catalog/products` (FR-5, SP-05), cả hai vai trò. Trường bỏ trống thì không lọc.
+ * Mặc định sắp theo tên không dấu. Lọc theo Tồn kho không có ở đây: thuộc `GET /api/v1/sales/sellable?inStock=`.
+ */
+export interface ProductSearchParams {
+  /**
+   * Tìm kiếm thường: tên Sản phẩm chứa `q` (không phân biệt hoa thường, không cần dấu), hoặc SKU, mã vạch bắt đầu
+   * bằng `q`. Backend chuẩn NFC, cắt khoảng trắng; rỗng thì bỏ qua.
+   */
+  q?: string;
+  categoryId?: Uuid;
+  /** Bỏ trống là mọi trạng thái. */
+  status?: ProductStatus;
+  /** Giá bán của Biến thể mặc định, gồm cả hai đầu; `minPrice > maxPrice` bị backend từ chối (`400`). */
+  minPrice?: Money;
+  maxPrice?: Money;
+}
+
 // TODO(Hiếu, FR-23, GĐ1): kiểu Supplier.

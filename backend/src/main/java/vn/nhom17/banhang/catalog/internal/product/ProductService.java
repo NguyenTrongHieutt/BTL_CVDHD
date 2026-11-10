@@ -39,7 +39,8 @@ import vn.nhom17.banhang.platform.PageResponse;
 import vn.nhom17.banhang.platform.ProblemException;
 
 /**
- * Thêm, xem (FR-1, SP-01) và ngừng kinh doanh (FR-3, SP-03) Sản phẩm.
+ * Thêm, xem (FR-1, SP-01), ngừng kinh doanh (FR-3, SP-03), tìm kiếm và lọc (FR-5, SP-05, qua {@link ProductSearch})
+ * Sản phẩm.
  *
  * <ul>
  *   <li>Tạo Sản phẩm cùng một Biến thể mặc định ({@code is_default}, {@code has_variants = false}) và phát
@@ -81,9 +82,12 @@ class ProductService {
     private static final Pattern BARCODE_CHARS = Pattern.compile("[A-Za-z0-9]+");
     private static final String CATEGORY_MISSING = "Danh mục không tồn tại. Hãy chọn lại Danh mục.";
     /** Giá trị trả về của {@link #wholeNumber} khi đã ghi lỗi. */
-    private static final long INVALID = -1;
+    static final long INVALID = -1;
 
-    /** Chi tiết Sản phẩm: {@code %s} là câu chọn các dòng {@code app.product} (đã lọc, sắp, phân trang). */
+    /**
+     * Chi tiết Sản phẩm: {@code %s} là câu chọn các dòng {@code app.product} (đã lọc, sắp, phân trang) kèm cột
+     * {@code ord} là thứ tự của dòng; Biến thể của mỗi Sản phẩm xếp sau đó, Biến thể mặc định đứng đầu.
+     */
     private static final String VIEW_SQL = """
             select p.id, p.name, p.category_id, c.name as category_name, p.unit, p.description, p.has_variants,
                    p.status, p.created_at, p.updated_at,
@@ -93,14 +97,17 @@ class ProductService {
             left join app.category c on c.store_id = p.store_id and c.id = p.category_id
             left join app.product_variant v
                    on v.store_id = p.store_id and v.product_id = p.id and v.deleted_at is null
-            order by p.created_at desc, p.id desc, v.is_default desc, v.created_at, v.id
+            order by p.ord, v.is_default desc, v.created_at, v.id
             """;
     private static final String ONE_PRODUCT = """
-            select * from app.product where store_id = ? and id = ? and deleted_at is null
+            select p.*, 1 as ord from app.product p where p.store_id = ? and p.id = ? and p.deleted_at is null
             """;
+    /** Một trang Sản phẩm khớp: {@code %1$s} là {@code ORDER BY}, {@code %2$s} là {@code from … where …}. */
     private static final String PAGE_OF_PRODUCTS = """
-            select * from app.product where store_id = ? and deleted_at is null
-            order by created_at desc, id desc limit ? offset ?
+            select p.*, row_number() over (order by %1$s) as ord
+            %2$s
+            order by %1$s
+            limit ? offset ?
             """;
 
     private final EntityManager em;
@@ -162,16 +169,46 @@ class ProductService {
         return loadView(id);
     }
 
-    /** Mới nhất trước; {@code page} bắt đầu từ 0, {@code size} mặc định 20, tối đa 100 (AD-19). */
+    /**
+     * Tham số thô của {@code GET} danh sách (FR-5, SP-05), kiểm ở {@link #list}. Bỏ trống thì không lọc.
+     *
+     * @param q          tìm theo tên (chứa, không dấu, không phân biệt hoa thường), SKU hoặc mã vạch (bắt đầu bằng)
+     * @param categoryId UUID Danh mục
+     * @param status     {@code ACTIVE} hoặc {@code INACTIVE}
+     * @param minPrice   giá bán thấp nhất của Biến thể mặc định, gồm cả giá này
+     * @param maxPrice   giá bán cao nhất, gồm cả giá này
+     * @param sort       {@code name|salePrice|createdAt[,asc|desc]}; mặc định theo tên không dấu, tăng dần
+     */
+    record ListQuery(String q, String categoryId, String status, String minPrice, String maxPrice, Integer page,
+                     Integer size, String sort) {
+    }
+
+    /**
+     * Danh sách có tìm kiếm, lọc (FR-5, SP-05) qua {@link ProductSearch}, phạm vi {@link ProductSearch.Scope#PRODUCTS}:
+     * Sản phẩm đã ngừng kinh doanh vẫn có (trừ khi lọc {@code status}). Mặc định sắp theo tên không dấu. Tham số sai:
+     * {@code 400 /errors/common/validation}, mọi trường trong một lần. {@code page} bắt đầu từ 0, {@code size} mặc định
+     * 20, tối đa 100 (AD-19).
+     */
     @Transactional(readOnly = true)
-    PageResponse<ProductView> list(Integer page, Integer size) {
-        int pageNo = page == null || page < 0 ? 0 : page;
-        int pageSize = PageResponse.clampSize(size);
-        UUID storeId = context.storeId();
-        Long total = jdbc.queryForObject("select count(*) from app.product where store_id = ? and deleted_at is null",
-                Long.class, storeId);
-        List<ProductView> items = views(PAGE_OF_PRODUCTS, storeId, pageSize, (long) pageNo * pageSize);
-        return new PageResponse<>(items, total == null ? 0 : total, pageNo, pageSize);
+    PageResponse<ProductView> list(ListQuery query) {
+        FieldErrors errors = new FieldErrors();
+        ProductSearch.Criteria criteria = ProductSearch.criteria(query.q(), query.categoryId(), query.status(),
+                query.minPrice(), query.maxPrice(), errors);
+        ProductSearch.Sort sort = ProductSearch.sort(query.sort(), errors);
+        errors.throwIfAny();
+        int pageNo = query.page() == null || query.page() < 0 ? 0 : query.page();
+        int pageSize = PageResponse.clampSize(query.size());
+        ProductSearch.Sql matching = ProductSearch.from(ProductSearch.Scope.PRODUCTS, context.storeId(), criteria);
+        Long total = jdbc.queryForObject("select count(*)\n" + matching.text(), Long.class,
+                matching.args().toArray());
+        if (total == null || total == 0) {
+            return new PageResponse<>(List.of(), 0, pageNo, pageSize);
+        }
+        List<Object> args = new ArrayList<>(matching.args());
+        args.add(pageSize);
+        args.add((long) pageNo * pageSize);
+        List<ProductView> items = views(PAGE_OF_PRODUCTS.formatted(sort.orderBy(), matching.text()), args.toArray());
+        return new PageResponse<>(items, total, pageNo, pageSize);
     }
 
     /**
@@ -345,10 +382,11 @@ class ProductService {
 
     /**
      * Số nguyên từ 0 đến {@code max}. Bỏ trống thì trả {@code whenMissing}; sai thì ghi lỗi và trả {@link #INVALID}.
-     * Nhận {@link BigDecimal} để số lẻ như {@code 1.5} báo lỗi thay vì bị cắt im lặng thành 1.
+     * Nhận {@link BigDecimal} để số lẻ như {@code 1.5} báo lỗi thay vì bị cắt im lặng thành 1. Dùng cả cho tham số
+     * giá của tìm kiếm ({@link ProductSearch}).
      */
-    private static long wholeNumber(BigDecimal raw, long whenMissing, String field, String label, long max,
-                                    FieldErrors errors) {
+    static long wholeNumber(BigDecimal raw, long whenMissing, String field, String label, long max,
+                            FieldErrors errors) {
         if (raw == null) {
             return whenMissing;
         }

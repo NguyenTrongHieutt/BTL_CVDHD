@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { App as AntdApp } from 'antd';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CurrentUserContext } from '../../../shared/api/session';
 import type {
   Category,
@@ -13,8 +13,12 @@ import type {
   UpdateProductRequest,
 } from '../../../shared/types/catalog';
 import type { Me, Role } from '../../../shared/types/platform';
+import { downscaleImage } from '../components/imageResize';
 import { foldText } from '../components/textUtils';
 import { ProductsPage } from './ProductsPage';
+
+// jsdom không giải mã, không vẽ được ảnh: thay bộ thu nhỏ ảnh; mặc định trả nguyên tệp (beforeEach)
+vi.mock('../components/imageResize', () => ({ downscaleImage: vi.fn<(file: File) => Promise<File>>() }));
 
 const PRODUCTS_PATH = '/api/v1/catalog/products';
 const CATEGORIES_PATH = '/api/v1/catalog/categories';
@@ -43,6 +47,7 @@ function product(n: number, overrides: Partial<Product> = {}): Product {
     categoryName: null,
     unit: 'cái',
     description: null,
+    imageUrl: null,
     hasVariants: false,
     status: 'ACTIVE',
     createdAt: '2026-11-10T03:00:00Z',
@@ -68,10 +73,20 @@ let failNextDeactivateWithNetworkError: boolean;
 let loseNextDeactivateResponse: boolean;
 /** Danh sách Danh mục trả `500`. */
 let failCategories: boolean;
+/** Phiên bản ảnh đã tải của từng Sản phẩm (backend giả của SP-01b). */
+let imageVersions: Map<string, number>;
+/**
+ * Lần tải ảnh tới: backend từ chối tệp (`415 image-type`), quá cỡ (`413 image-too-large`, hoặc `413 payload-too-large`
+ * khi lố giới hạn máy chủ), mất mạng (fetch ném lỗi), hoặc lưu xong nhưng phản hồi bị mất.
+ */
+let failNextImageUpload: 'type' | 'too-large' | 'payload-too-large' | 'network' | 'lose-response' | null;
+/** Lần gỡ ảnh tới được backend lưu nhưng phản hồi bị mất. */
+let loseNextImageRemoval: boolean;
 /** Lần sửa tới được backend lưu nhưng phản hồi bị mất (lỗi mạng sau khi đã lưu). */
 let loseNextPutResponse: boolean;
 
 const DEACTIVATE_PATH = /^\/api\/v1\/catalog\/products\/([^/]+)\/deactivate$/;
+const IMAGE_PATH = /^\/api\/v1\/catalog\/products\/([^/]+)\/image$/;
 const PRODUCT_PATH = /^\/api\/v1\/catalog\/products\/([^/]+)$/;
 
 /** Biến thể mặc định: giá, SKU, mã vạch của dòng trong bảng. */
@@ -171,6 +186,45 @@ function updateProduct(id: string, body: UpdateProductRequest): Response {
 }
 
 /**
+ * Ảnh như `PUT`/`DELETE …/products/{id}/image` của SP-01b: tải lên tăng phiên bản (`imageUrl` có `?v=`), gỡ thì
+ * `imageUrl` về `null`; Sản phẩm đã ngừng `409 product-inactive`; id không có `404`.
+ */
+function changeImage(id: string, method: string, body: unknown): Response {
+  const existing = products.find((p) => p.id === id);
+  if (!existing) return json({ type: '/errors/common/not-found', title: 'Không tìm thấy', status: 404 }, 404);
+  if (existing.status === 'INACTIVE') {
+    return json({ type: '/errors/catalog/product-inactive', title: 'Ngừng kinh doanh', status: 409, requestId: 'r' }, 409);
+  }
+  if (method === 'DELETE') {
+    products = products.map((p) => (p.id === id ? { ...p, imageUrl: null } : p));
+    if (loseNextImageRemoval) {
+      loseNextImageRemoval = false;
+      throw new TypeError('Failed to fetch');
+    }
+    return new Response(null, { status: 204 });
+  }
+  if (!(body instanceof FormData) || !(body.get('file') instanceof File)) {
+    return json({ type: '/errors/common/validation', title: 'Dữ liệu không hợp lệ', status: 400, requestId: 'r' }, 400);
+  }
+  const failure = failNextImageUpload;
+  failNextImageUpload = null;
+  if (failure === 'network') throw new TypeError('Failed to fetch');
+  if (failure === 'type') {
+    return json({ type: '/errors/catalog/image-type', title: 'Không phải ảnh', status: 415, requestId: 'r' }, 415);
+  }
+  if (failure === 'too-large' || failure === 'payload-too-large') {
+    const problemType = failure === 'too-large' ? '/errors/catalog/image-too-large' : '/errors/common/payload-too-large';
+    return json({ type: problemType, title: 'Quá lớn', status: 413, requestId: 'r' }, 413);
+  }
+  const version = (imageVersions.get(id) ?? 0) + 1;
+  imageVersions.set(id, version);
+  const withImage: Product = { ...existing, imageUrl: `${PRODUCTS_PATH}/${id}/image?v=${version}` };
+  products = products.map((p) => (p.id === id ? withImage : p));
+  if (failure === 'lose-response') throw new TypeError('Failed to fetch');
+  return json(withImage);
+}
+
+/**
  * Backend giả: danh sách có tìm kiếm, lọc, phân trang (SP-05); POST trả đúng mã lỗi của SP-01 và phát lại theo
  * `Idempotency-Key` (cùng nội dung thì trả lại Sản phẩm cũ, khác nội dung thì `409 idempotency-key-reuse`). Sửa
  * (SP-02) như `updateProduct`. Ngừng kinh doanh (SP-03) đổi Sản phẩm và Biến thể sang `INACTIVE`, gọi lại vẫn `200`.
@@ -260,6 +314,10 @@ function backend() {
     const editing = PRODUCT_PATH.exec(url.pathname);
     if (editing && method === 'PUT') {
       return updateProduct(decodeURIComponent(editing[1]), JSON.parse(String(init?.body)) as UpdateProductRequest);
+    }
+    const imaging = IMAGE_PATH.exec(url.pathname);
+    if (imaging && (method === 'PUT' || method === 'DELETE')) {
+      return changeImage(decodeURIComponent(imaging[1]), method, init?.body);
     }
     const deactivating = DEACTIVATE_PATH.exec(url.pathname);
     if (deactivating && method === 'POST') {
@@ -467,6 +525,11 @@ beforeEach(() => {
   loseNextDeactivateResponse = false;
   failCategories = false;
   loseNextPutResponse = false;
+  imageVersions = new Map();
+  failNextImageUpload = null;
+  loseNextImageRemoval = false;
+  vi.mocked(downscaleImage).mockReset();
+  vi.mocked(downscaleImage).mockImplementation(async (file) => file);
   backend();
 });
 
@@ -1416,5 +1479,417 @@ describe('ProductsPage — sửa Sản phẩm (FR-2, SP-02)', () => {
     expect(productPuts()).toHaveLength(2);
     expect(bodyOf(productPuts()[1])).toMatchObject({ salePrice: 2000 });
     await waitFor(() => expect(within(rowOf('Sản phẩm 02')).getByText(/2\.000/)).toBeTruthy());
+  });
+});
+
+describe('ProductsPage — ảnh Sản phẩm (FR-1, SP-01b)', () => {
+  let previews: number;
+
+  beforeEach(() => {
+    // jsdom không có URL.createObjectURL: URL xem trước giả, đếm theo lần chọn
+    previews = 0;
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      writable: true,
+      value: vi.fn<(file: Blob) => string>(() => `blob:xem-truoc-${++previews}`),
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      writable: true,
+      value: vi.fn<(url: string) => void>(),
+    });
+  });
+
+  afterEach(() => {
+    Reflect.deleteProperty(URL, 'createObjectURL');
+    Reflect.deleteProperty(URL, 'revokeObjectURL');
+  });
+
+  function imageFile(name: string, mimeType: string, size = 2048): File {
+    return new File([new Uint8Array(size)], name, { type: mimeType });
+  }
+
+  /** Chọn tệp ở ô Ảnh của hộp thoại (antd Upload, ô chọn tệp ẩn). */
+  function chooseImage(file: File) {
+    const input = dialog().querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error('không có ô chọn ảnh');
+    fireEvent.change(input, { target: { files: [file] } });
+  }
+
+  /** Ảnh xem trước trong hộp thoại; `null` khi đang hiện biểu tượng "chưa có ảnh". */
+  function previewSrc(): string | null {
+    return within(dialog()).queryByRole('img', { name: 'Ảnh Sản phẩm' })?.getAttribute('src') ?? null;
+  }
+
+  /** Ảnh thu nhỏ ở dòng của Sản phẩm; `null` khi chưa có ảnh (biểu tượng). */
+  function thumbnailOf(name: string): string | null {
+    return rowOf(name).querySelector('img')?.getAttribute('src') ?? null;
+  }
+
+  function imageCalls(method: 'PUT' | 'DELETE') {
+    return fetchMock.mock.calls.filter(
+      ([input, init]) => init?.method === method && IMAGE_PATH.test(new URL(String(input), 'http://localhost').pathname),
+    );
+  }
+
+  /** Thứ tự các lần ghi (bỏ các lần đọc): `POST …/products`, `PUT …/image`… */
+  function writes(): string[] {
+    return fetchMock.mock.calls
+      .filter(([, init]) => (init?.method ?? 'GET') !== 'GET')
+      .map(([input, init]) => `${init?.method} ${new URL(String(input), 'http://localhost').pathname}`);
+  }
+
+  it('bảng có ảnh thu nhỏ ở cột tên, Nhân viên cũng thấy; chưa có ảnh thì hiện biểu tượng', async () => {
+    products = [product(2, { imageUrl: `${PRODUCTS_PATH}/p-2/image?v=3` }), product(1)];
+    renderPage('STAFF');
+    await within(table()).findByText('Sản phẩm 02');
+
+    expect(thumbnailOf('Sản phẩm 02')).toBe('/api/v1/catalog/products/p-2/image?v=3');
+    expect(thumbnailOf('Sản phẩm 01')).toBeNull();
+    // Ô tên vẫn chỉ có chữ là tên Sản phẩm
+    expect(rowNames()).toEqual(['Sản phẩm 01', 'Sản phẩm 02']);
+  });
+
+  it('thêm Sản phẩm kèm ảnh: xem trước ngay, tạo xong mới tải ảnh (multipart), ảnh hiện ở bảng ngay', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openAddDialog();
+    expect(previewSrc()).toBeNull();
+    type('Tên Sản phẩm', 'Bánh quy bơ');
+    type('Giá bán', '45000');
+    const png = imageFile('banh-quy.png', 'image/png', 200 * 1024);
+    chooseImage(png);
+    // Xem trước ngay, chưa gửi gì
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    expect(within(dialog()).getByRole('button', { name: /Đổi ảnh/ })).toBeTruthy();
+    expect(writes()).toEqual([]);
+    submit();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // Hai bước: tạo Sản phẩm rồi mới tải ảnh lên Sản phẩm vừa tạo
+    expect(writes()).toEqual(['POST /api/v1/catalog/products', 'PUT /api/v1/catalog/products/p-100/image']);
+    const [upload] = imageCalls('PUT');
+    const body = upload[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get('file')).toBe(png);
+    // Trình duyệt tự đặt multipart kèm boundary; không phải JSON
+    expect(new Headers(upload[1]?.headers).has('Content-Type')).toBe(false);
+    // Body POST không có ảnh
+    expect(bodyOf(posts()[0])).toEqual({ name: 'Bánh quy bơ', salePrice: 45000, openingQuantity: 0, openingUnitCost: 0 });
+    expect(await screen.findByText('Đã thêm Sản phẩm "Bánh quy bơ"')).toBeTruthy();
+    // Ảnh hiện ở bảng ngay, Sản phẩm mới đứng đầu
+    await waitFor(() => expect(rowNames()[0]).toBe('Bánh quy bơ'));
+    await waitFor(() => expect(thumbnailOf('Bánh quy bơ')).toBe('/api/v1/catalog/products/p-100/image?v=1'));
+    // URL xem trước được thu hồi khi đóng hộp thoại
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:xem-truoc-1');
+  });
+
+  it('chọn ảnh sai kiểu hay quá 1 MB: báo dưới ô Ảnh, không xem trước; thêm vẫn được, không tải ảnh', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openAddDialog();
+    type('Tên Sản phẩm', 'Kẹo dẻo');
+    type('Giá bán', '10000');
+    chooseImage(imageFile('anh.gif', 'image/gif'));
+    expect(await within(dialog()).findByText('Ảnh phải là JPEG, PNG hoặc WebP.')).toBeTruthy();
+    expect(previewSrc()).toBeNull();
+    chooseImage(imageFile('anh-lon.webp', 'image/webp', 1_048_577));
+    expect(await within(dialog()).findByText('Ảnh tối đa 1 MB. Hãy chọn ảnh nhỏ hơn.')).toBeTruthy();
+    expect(previewSrc()).toBeNull();
+    // Đúng 1 MB thì được
+    chooseImage(imageFile('anh-vua.jpg', 'image/jpeg', 1_048_576));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    await waitFor(() => expect(within(dialog()).queryByText('Ảnh tối đa 1 MB. Hãy chọn ảnh nhỏ hơn.')).toBeNull());
+    // Bỏ ảnh vừa chọn rồi thêm: không tải ảnh
+    fireEvent.click(within(dialog()).getByRole('button', { name: /Bỏ ảnh vừa chọn/ }));
+    expect(previewSrc()).toBeNull();
+    submit();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(writes()).toEqual(['POST /api/v1/catalog/products']);
+    await waitFor(() => expect(rowNames()[0]).toBe('Kẹo dẻo'));
+    expect(thumbnailOf('Kẹo dẻo')).toBeNull();
+  });
+
+  it('tải ảnh lỗi sau khi đã thêm: vẫn đóng hộp thoại, báo chưa tải được ảnh, không tạo trùng', async () => {
+    failNextImageUpload = 'type';
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openAddDialog();
+    type('Tên Sản phẩm', 'Sổ tay');
+    type('Giá bán', '20000');
+    // Tệp PDF đổi đuôi .png: trình duyệt báo image/png nên qua được kiểm phía client, backend kiểm nội dung và từ chối
+    chooseImage(imageFile('so-tay.png', 'image/png'));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    submit();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(
+      await screen.findByText(
+        'Đã thêm Sản phẩm "Sổ tay" nhưng chưa tải được ảnh: Tệp này không phải ảnh JPEG, PNG hay WebP. ' +
+          'Bấm "Sửa" ở dòng Sản phẩm để tải lại ảnh.',
+      ),
+    ).toBeTruthy();
+    expect(posts()).toHaveLength(1);
+    await waitFor(() => expect(rowNames()[0]).toBe('Sổ tay'));
+    expect(thumbnailOf('Sổ tay')).toBeNull();
+  });
+
+  it('sửa chỉ đổi ảnh: không gửi PUT Sản phẩm, tải ảnh mới, bảng hiện ảnh mới', async () => {
+    products = [product(2, { imageUrl: `${PRODUCTS_PATH}/p-2/image?v=1` }), product(1)];
+    imageVersions.set('p-2', 1);
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    // Ảnh hiện có
+    expect(previewSrc()).toBe('/api/v1/catalog/products/p-2/image?v=1');
+    chooseImage(imageFile('moi.png', 'image/png'));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    // Bỏ tệp vừa chọn thì về ảnh hiện có; chọn lại
+    fireEvent.click(within(dialog()).getByRole('button', { name: /Bỏ ảnh vừa chọn/ }));
+    expect(previewSrc()).toBe('/api/v1/catalog/products/p-2/image?v=1');
+    const webp = imageFile('moi.webp', 'image/webp');
+    chooseImage(webp);
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-2'));
+    save();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(writes()).toEqual(['PUT /api/v1/catalog/products/p-2/image']);
+    const [upload] = imageCalls('PUT');
+    expect((upload[1]?.body as FormData | undefined)?.get('file')).toBe(webp);
+    expect(await screen.findByText('Đã lưu Sản phẩm "Sản phẩm 02"')).toBeTruthy();
+    await waitFor(() => expect(thumbnailOf('Sản phẩm 02')).toBe('/api/v1/catalog/products/p-2/image?v=2'));
+  });
+
+  it('sửa gỡ ảnh: gửi DELETE, bảng hiện biểu tượng', async () => {
+    products = [product(2, { imageUrl: `${PRODUCTS_PATH}/p-2/image?v=1` }), product(1)];
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    fireEvent.click(within(dialog()).getByRole('button', { name: /Gỡ ảnh/ }));
+    expect(previewSrc()).toBeNull();
+    expect(within(dialog()).getByRole('button', { name: /Chọn ảnh/ })).toBeTruthy();
+    save();
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(writes()).toEqual(['DELETE /api/v1/catalog/products/p-2/image']);
+    await waitFor(() => expect(thumbnailOf('Sản phẩm 02')).toBeNull());
+  });
+
+  it('sửa trường và ảnh: lưu Sản phẩm trước rồi tải ảnh; backend từ chối tệp thì báo dưới ô Ảnh, gửi lại được', async () => {
+    failNextImageUpload = 'type';
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    type('Giá bán', '2500');
+    chooseImage(imageFile('la.png', 'image/png'));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    save();
+
+    expect(await within(dialog()).findByText('Tệp này không phải ảnh JPEG, PNG hay WebP.')).toBeTruthy();
+    expect(writes()).toEqual(['PUT /api/v1/catalog/products/p-2', 'PUT /api/v1/catalog/products/p-2/image']);
+    // Nói rõ phần đã lưu
+    expect(
+      await screen.findByText(
+        'Đã lưu thông tin, chưa lưu được ảnh của Sản phẩm "Sản phẩm 02": Tệp này không phải ảnh JPEG, PNG hay WebP.',
+      ),
+    ).toBeTruthy();
+    // Câu chỉ có một chỗ (findByText ở trên hỏng nếu có hai): dưới ô Ảnh, không ở khung báo lỗi chung. Hộp thoại vẫn
+    // mở, giá mới đã lưu
+    await waitFor(() => expect(within(rowOf('Sản phẩm 02')).getByText(/2\.500/)).toBeTruthy());
+
+    chooseImage(imageFile('dung.png', 'image/png'));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-2'));
+    await waitFor(() => expect(within(dialog()).queryByText('Tệp này không phải ảnh JPEG, PNG hay WebP.')).toBeNull());
+    save();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(imageCalls('PUT')).toHaveLength(2);
+    await waitFor(() => expect(thumbnailOf('Sản phẩm 02')).toBe('/api/v1/catalog/products/p-2/image?v=1'));
+  });
+
+  it('mất mạng khi tải ảnh lúc sửa: báo ở khung lỗi, hộp thoại vẫn mở', async () => {
+    failNextImageUpload = 'network';
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    chooseImage(imageFile('anh.png', 'image/png'));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    save();
+
+    expect(await within(dialog()).findByText('Không kết nối được máy chủ.')).toBeTruthy();
+    expect(productPuts()).toHaveLength(0);
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+
+  it('chọn ảnh hợp lệ rồi chọn tệp sai: bỏ cả ảnh đã chọn, không gửi ảnh; tệp không rõ kiểu thì để backend kiểm', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openAddDialog();
+    type('Tên Sản phẩm', 'Bút chì');
+    type('Giá bán', '3000');
+    chooseImage(imageFile('dung.png', 'image/png'));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    chooseImage(imageFile('tai-lieu.pdf', 'application/pdf'));
+    expect(await within(dialog()).findByText('Ảnh phải là JPEG, PNG hoặc WebP.')).toBeTruthy();
+    // Ảnh đã chọn trước đó cũng bị bỏ: không xem trước, "Thêm" không gửi ảnh nào
+    expect(previewSrc()).toBeNull();
+    submit();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(writes()).toEqual(['POST /api/v1/catalog/products']);
+
+    // Tệp không đuôi (trình duyệt không biết kiểu): không chặn ở client, gửi để backend kiểm theo nội dung
+    await openAddDialog();
+    type('Tên Sản phẩm', 'Bút mực');
+    type('Giá bán', '5000');
+    const unknown = imageFile('anh-khong-duoi', '');
+    chooseImage(unknown);
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-2'));
+    expect(within(dialog()).queryByText('Ảnh phải là JPEG, PNG hoặc WebP.')).toBeNull();
+    submit();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const uploads = imageCalls('PUT');
+    expect(uploads).toHaveLength(1);
+    expect((uploads[0][1]?.body as FormData | undefined)?.get('file')).toBe(unknown);
+  });
+
+  it('ảnh lớn được thu nhỏ ở trình duyệt trước khi tải; thu nhỏ rồi vẫn quá 1 MB thì báo dưới ô Ảnh', async () => {
+    const small = imageFile('chup.jpg', 'image/jpeg', 250 * 1024);
+    vi.mocked(downscaleImage).mockImplementation(async (file) => (file.name === 'chup.png' ? small : file));
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    await openEditDialog('Sản phẩm 02');
+    // Ảnh chụp điện thoại 4 MB: tự thu nhỏ, không báo lỗi 1 MB
+    const photo = imageFile('chup.png', 'image/png', 4 * 1_048_576);
+    chooseImage(photo);
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    expect(downscaleImage).toHaveBeenCalledWith(photo);
+    expect(URL.createObjectURL).toHaveBeenCalledWith(small);
+    expect(within(dialog()).queryByText('Ảnh tối đa 1 MB. Hãy chọn ảnh nhỏ hơn.')).toBeNull();
+
+    // Không thu nhỏ được (bộ thu nhỏ trả nguyên tệp) mà vẫn quá 1 MB: báo, bỏ ảnh đã chọn
+    const huge = imageFile('khong-thu-nho.webp', 'image/webp', 3 * 1_048_576);
+    chooseImage(huge);
+    expect(await within(dialog()).findByText('Ảnh tối đa 1 MB. Hãy chọn ảnh nhỏ hơn.')).toBeTruthy();
+    expect(downscaleImage).toHaveBeenCalledWith(huge);
+    expect(previewSrc()).toBeNull();
+
+    chooseImage(photo);
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-2'));
+    save();
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect((imageCalls('PUT')[0]?.[1]?.body as FormData | undefined)?.get('file')).toBe(small);
+  });
+
+  it('backend báo ảnh quá cỡ (413 của ảnh hay của máy chủ): báo dưới ô Ảnh, không ở khung lỗi chung', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    await openEditDialog('Sản phẩm 02');
+
+    const failures = ['payload-too-large', 'too-large'] as const;
+    for (const [index, failure] of failures.entries()) {
+      failNextImageUpload = failure;
+      chooseImage(imageFile(`${failure}.png`, 'image/png'));
+      await waitFor(() => expect(previewSrc()).toBe(`blob:xem-truoc-${index + 1}`));
+      // Chọn ảnh mới thì lỗi cũ dưới ô Ảnh biến mất
+      await waitFor(() => expect(within(dialog()).queryByText('Ảnh lớn hơn 1 MB.')).toBeNull());
+      save();
+      expect(await within(dialog()).findByText('Ảnh lớn hơn 1 MB.')).toBeTruthy();
+      expect(within(dialog()).queryByText('Tệp gửi lên quá lớn.')).toBeNull();
+      expect(screen.getByRole('dialog')).toBeTruthy();
+    }
+    expect(productPuts()).toHaveLength(0);
+  });
+
+  it('sửa chỉ ảnh mà Sản phẩm vừa ngừng kinh doanh (409): khung lỗi, hộp thoại chỉ còn đóng được, không PUT Sản phẩm', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    await openEditDialog('Sản phẩm 02');
+    // Bị ngừng kinh doanh ở nơi khác sau khi đã mở hộp thoại
+    products = products.map((p) => (p.id === 'p-2' ? { ...p, status: 'INACTIVE' as ProductStatus } : p));
+
+    chooseImage(imageFile('anh.png', 'image/png'));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    save();
+
+    expect(await within(dialog()).findByText('Sản phẩm này đã ngừng kinh doanh nên không sửa được.')).toBeTruthy();
+    expect((within(dialog()).getByRole('button', { name: 'Lưu' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(dialog()).getByRole('button', { name: 'Đóng' })).toBeTruthy();
+    expect(productPuts()).toHaveLength(0);
+    expect(writes()).toEqual(['PUT /api/v1/catalog/products/p-2/image']);
+  });
+
+  it('gỡ ảnh mà Sản phẩm không còn (404): khung lỗi, hộp thoại chỉ còn đóng được, không PUT Sản phẩm', async () => {
+    products = [product(2, { imageUrl: `${PRODUCTS_PATH}/p-2/image?v=1` }), product(1)];
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    await openEditDialog('Sản phẩm 02');
+    products = products.filter((p) => p.id !== 'p-2');
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: /Gỡ ảnh/ }));
+    save();
+
+    expect(await within(dialog()).findByText('Không tìm thấy dữ liệu.')).toBeTruthy();
+    expect((within(dialog()).getByRole('button', { name: 'Lưu' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(dialog()).getByRole('button', { name: 'Đóng' })).toBeTruthy();
+    expect(productPuts()).toHaveLength(0);
+    expect(writes()).toEqual(['DELETE /api/v1/catalog/products/p-2/image']);
+  });
+
+  it('mất phản hồi sau khi máy chủ đã lưu ảnh: báo lỗi mạng, bảng tải lại và hiện ảnh mới', async () => {
+    failNextImageUpload = 'lose-response';
+    const { queryClient } = renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    await openEditDialog('Sản phẩm 02');
+    chooseImage(imageFile('anh.png', 'image/png'));
+    await waitFor(() => expect(previewSrc()).toBe('blob:xem-truoc-1'));
+    save();
+
+    expect(await within(dialog()).findByText('Không kết nối được máy chủ.')).toBeTruthy();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'products'] });
+    await waitFor(() => expect(thumbnailOf('Sản phẩm 02')).toBe('/api/v1/catalog/products/p-2/image?v=1'));
+  });
+
+  it('mất phản hồi sau khi máy chủ đã gỡ ảnh: báo lỗi mạng, bảng tải lại và không còn ảnh', async () => {
+    products = [product(2, { imageUrl: `${PRODUCTS_PATH}/p-2/image?v=1` }), product(1)];
+    loseNextImageRemoval = true;
+    const { queryClient } = renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
+
+    await openEditDialog('Sản phẩm 02');
+    fireEvent.click(within(dialog()).getByRole('button', { name: /Gỡ ảnh/ }));
+    save();
+
+    expect(await within(dialog()).findByText('Không kết nối được máy chủ.')).toBeTruthy();
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'products'] });
+    await waitFor(() => expect(thumbnailOf('Sản phẩm 02')).toBeNull());
+  });
+
+  it('ảnh thu nhỏ không tải được thì hiện biểu tượng; imageUrl mới thì hiện lại ảnh', async () => {
+    products = [product(2, { imageUrl: `${PRODUCTS_PATH}/p-2/image?v=1` }), product(1)];
+    const { queryClient } = renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    const img = rowOf('Sản phẩm 02').querySelector('img');
+    if (!img) throw new Error('chưa có ảnh thu nhỏ');
+    fireEvent.error(img);
+    expect(thumbnailOf('Sản phẩm 02')).toBeNull();
+    expect(rowNames()).toEqual(['Sản phẩm 01', 'Sản phẩm 02']);
+
+    // Ảnh được tải lại ở nơi khác: URL mới
+    products = products.map((p) => (p.id === 'p-2' ? { ...p, imageUrl: `${PRODUCTS_PATH}/p-2/image?v=2` } : p));
+    await act(() => queryClient.invalidateQueries({ queryKey: ['catalog', 'products'] }));
+    await waitFor(() => expect(thumbnailOf('Sản phẩm 02')).toBe('/api/v1/catalog/products/p-2/image?v=2'));
   });
 });

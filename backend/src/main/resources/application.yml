@@ -29,10 +29,21 @@ spring:
   mvc:
     problemdetails:
       enabled: true                  # AD-19
+  servlet:
+    multipart:
+      # Chỉ ảnh Sản phẩm nhận tệp, tối đa 1 MB: ProductImageService kiểm và trả 413 /errors/catalog/image-too-large.
+      # Giới hạn của Tomcat để cao hơn một chút, nên ảnh lố cỡ vẫn tới được controller và nhận đúng mã đó; lố cả giới
+      # hạn này thì ApiExceptionHandler trả 413 /errors/common/payload-too-large. nginx nhận tới 10 MB.
+      max-file-size: 2MB
+      max-request-size: 3MB
 
 server:
   port: ${SERVER_PORT:8080}
   shutdown: graceful
+  tomcat:
+    # Body lố max-request-size bị từ chối trước khi đọc hết; Tomcat đọc bỏ phần còn lại tới giới hạn này rồi mới trả
+    # 413, quá thì đóng kết nối (client thấy lỗi kết nối). Để bằng client_max_body_size của nginx (10 MB).
+    max-swallow-size: 10MB
 
 management:
   endpoints:

@@ -47,6 +47,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Yêu cầu này trùng mã với một yêu cầu trước đó nhưng nội dung khác.',
     hint: 'Tải lại trang rồi thao tác lại. Chứng từ trước đó (nếu có) đã được ghi.',
   },
+  '/errors/common/payload-too-large': {
+    message: 'Tệp gửi lên quá lớn.',
+    hint: 'Chọn tệp nhỏ hơn rồi gửi lại.',
+  },
   '/errors/common/internal': {
     message: 'Máy chủ gặp lỗi.',
     hint: 'Thử lại sau ít phút. Nếu vẫn lỗi, báo mã yêu cầu cho nhóm hỗ trợ.',
@@ -86,6 +90,14 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
   '/errors/catalog/product-inactive': {
     message: 'Sản phẩm này đã ngừng kinh doanh nên không sửa được.',
     hint: 'Ngừng kinh doanh không hoàn tác được. Bảng Sản phẩm đã được tải lại để hiện trạng thái mới nhất.',
+  },
+  '/errors/catalog/image-type': {
+    message: 'Tệp này không phải ảnh JPEG, PNG hay WebP.',
+    hint: 'Chọn ảnh khác. Hệ thống kiểm theo nội dung tệp, nên đổi đuôi tên tệp không có tác dụng.',
+  },
+  '/errors/catalog/image-too-large': {
+    message: 'Ảnh lớn hơn 1 MB.',
+    hint: 'Chọn ảnh nhỏ hơn, hoặc giảm kích thước ảnh rồi tải lại.',
   },
   '/errors/catalog/customer-phone-taken': {
     message: 'Cửa hàng đã có Khách hàng dùng số điện thoại này.',

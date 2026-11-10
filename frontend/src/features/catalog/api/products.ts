@@ -7,7 +7,8 @@
  * `Idempotency-Key` (AD-7). Sửa xong (thành công hay lỗi) thì invalidate `['catalog', 'products']` (bảng hiện giá mới
  * ngay), `['catalog', 'categories']`, `['inventory', 'stock']` và `['sales', 'sellable']` (giá, tên, mã ở màn bán
  * hàng). Ngừng kinh doanh xong (thành công hay lỗi) thì invalidate `['catalog', 'products']`, `['inventory', 'stock']`
- * và `['sales', 'sellable']` (Sản phẩm ẩn khỏi màn bán hàng).
+ * và `['sales', 'sellable']` (Sản phẩm ẩn khỏi màn bán hàng). Tải lên, gỡ ảnh (SP-01b) xong (thành công hay lỗi) thì
+ * invalidate `['catalog', 'products']` (ảnh thu nhỏ ở bảng đổi theo `imageUrl`).
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
@@ -137,5 +138,44 @@ export function useDeactivateProduct() {
         queryClient.invalidateQueries({ queryKey: stockQueryKey }),
         queryClient.invalidateQueries({ queryKey: sellableQueryKey }),
       ]),
+  });
+}
+
+/** Kiểu ảnh Sản phẩm backend nhận (SP-01b); backend kiểm theo byte đầu tệp, không theo tên hay kiểu khai báo. */
+export const PRODUCT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+/** Ảnh Sản phẩm tối đa 1 MB, như backend. */
+export const PRODUCT_IMAGE_MAX_BYTES = 1_048_576;
+
+function productImagePath(id: Uuid): string {
+  return `${productPath(id)}/image`;
+}
+
+/**
+ * Tải lên hoặc thay ảnh Sản phẩm (SP-01b), chỉ Chủ cửa hàng: `PUT /api/v1/catalog/products/{id}/image`,
+ * `multipart/form-data` với tệp ở phần `file`, trả chi tiết Sản phẩm có `imageUrl` mới. Không có `Idempotency-Key`
+ * (gửi lại chỉ thay ảnh thêm một lần). Thêm Sản phẩm là hai bước: tạo xong mới tải ảnh. Xong, kể cả khi lỗi, thì tải lại
+ * bảng Sản phẩm: mất phản hồi có thể là máy chủ đã lưu ảnh rồi.
+ */
+export function useUploadProductImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, file }: { id: Uuid; file: File }) => {
+      const form = new FormData();
+      form.append('file', file);
+      return api.put<Product>(productImagePath(id), form);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+  });
+}
+
+/**
+ * Gỡ ảnh Sản phẩm (SP-01b), chỉ Chủ cửa hàng: `DELETE /api/v1/catalog/products/{id}/image` → `204` (cả khi chưa có
+ * ảnh). Xong, kể cả khi lỗi, thì tải lại bảng Sản phẩm.
+ */
+export function useRemoveProductImage() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: Uuid) => api.delete<void>(productImagePath(id)),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: productsQueryKey }),
   });
 }

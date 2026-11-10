@@ -14,16 +14,37 @@
  *
  * Ô tiền, số lượng là ô chữ (không dùng `InputNumber`, vốn lặng lẽ bỏ hoặc kẹp giá trị sai): chỉ nhận chữ số, dấu
  * chấm là dấu nhóm nghìn (tự nhóm khi gõ); có dấu phẩy, dấu trừ hay ký tự khác thì báo lỗi dưới ô.
+ *
+ * Ô Ảnh (SP-01b): chọn ảnh (antd `Upload`, không tự tải lên) thì kiểm kiểu phía client (JPEG, PNG, WebP; kiểu rỗng
+ * hay không rõ thì để backend kiểm theo nội dung), thu nhỏ ở trình duyệt nếu lớn hơn 1 MB hoặc cạnh dài hơn 1280 px
+ * (`downscaleImage`), rồi mới kiểm 1 MB và xem trước; ảnh chỉ gửi khi bấm "Thêm"/"Lưu". Tệp sai thì bỏ luôn ảnh đã chọn
+ * trước đó. Thêm là hai bước: tạo Sản phẩm xong mới tải ảnh; tải ảnh lỗi thì Sản phẩm vẫn đã thêm, hộp thoại vẫn đóng
+ * (gửi lại sẽ tạo trùng) và báo để tải lại ảnh bằng "Sửa". Sửa: lưu các trường trước (chỉ khi có đổi), rồi tải ảnh mới
+ * hoặc gỡ ảnh; chỉ đổi ảnh thì không gửi `PUT` Sản phẩm; lưu trường xong mà ảnh lỗi thì báo phần nào đã lưu. Lỗi tệp
+ * của backend (sai kiểu, quá cỡ, lố giới hạn máy chủ) hiện dưới ô Ảnh.
  */
-import { Alert, App, Col, Form, Input, Modal, Row, Select } from 'antd';
-import { useRef } from 'react';
+import { DeleteOutlined, UploadOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Col, Flex, Form, Input, Modal, Row, Select, Upload } from 'antd';
+import { useEffect, useRef, useState } from 'react';
 import { isApiError } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components';
-import { PROBLEM_MESSAGES } from '../../../shared/messages.vi';
+import { PROBLEM_MESSAGES, describeError } from '../../../shared/messages.vi';
 import type { CreateProductRequest, Product, UpdateProductRequest } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { useCategoryOptions } from '../api/categories';
-import { DEFAULT_UNIT, IDEMPOTENCY_KEY_REUSE, defaultVariant, useCreateProduct, useUpdateProduct } from '../api/products';
+import {
+  DEFAULT_UNIT,
+  IDEMPOTENCY_KEY_REUSE,
+  PRODUCT_IMAGE_MAX_BYTES,
+  PRODUCT_IMAGE_TYPES,
+  defaultVariant,
+  useCreateProduct,
+  useRemoveProductImage,
+  useUpdateProduct,
+  useUploadProductImage,
+} from '../api/products';
+import { ProductThumbnail } from './ProductThumbnail';
+import { downscaleImage } from './imageResize';
 import {
   MONEY_MAX,
   foldText,
@@ -116,6 +137,38 @@ function isKeyReuse(error: unknown): boolean {
 /** Không sửa được nữa: Sản phẩm đã ngừng kinh doanh, hoặc không còn (`404`). */
 function cannotEditAnyMore(error: unknown): boolean {
   return isApiError(error) && (error.type === PRODUCT_INACTIVE || error.status === 404);
+}
+
+/**
+ * Ảnh trong form: giữ như hiện có (khi thêm: không có ảnh), tải tệp vừa chọn lên (`previewUrl` là URL tạm để xem trước),
+ * hoặc gỡ ảnh hiện có.
+ */
+type ImageChoice = { kind: 'keep' } | { kind: 'upload'; file: File; previewUrl: string } | { kind: 'remove' };
+
+const IMAGE_TYPE = '/errors/catalog/image-type';
+const IMAGE_TOO_LARGE = '/errors/catalog/image-too-large';
+/** Ảnh quá cỡ: giới hạn 1 MB của ảnh, hoặc lố giới hạn chung của máy chủ (bị chặn trước controller). */
+const IMAGE_SIZE_ERRORS: ReadonlySet<string> = new Set([IMAGE_TOO_LARGE, '/errors/common/payload-too-large']);
+
+/** Câu hiện dưới ô Ảnh cho lỗi tệp của backend; `null` khi lỗi không thuộc ô Ảnh (hiện ở khung báo lỗi chung). */
+function imageFieldMessage(error: unknown): string | null {
+  if (!isApiError(error)) return null;
+  if (error.type === IMAGE_TYPE) return PROBLEM_MESSAGES[IMAGE_TYPE].message;
+  if (IMAGE_SIZE_ERRORS.has(error.type)) return PROBLEM_MESSAGES[IMAGE_TOO_LARGE].message;
+  return null;
+}
+
+function isImageFileError(error: unknown): boolean {
+  return imageFieldMessage(error) !== null;
+}
+
+/** Kiểu trình duyệt không nhận ra (tệp không đuôi…): không chặn ở client, để backend kiểm theo nội dung tệp. */
+const UNKNOWN_FILE_TYPES: ReadonlySet<string> = new Set(['', 'application/octet-stream']);
+const IMAGE_TYPE_PROBLEM = 'Ảnh phải là JPEG, PNG hoặc WebP.';
+const IMAGE_SIZE_PROBLEM = 'Ảnh tối đa 1 MB. Hãy chọn ảnh nhỏ hơn.';
+
+function hasAcceptedType(file: File): boolean {
+  return UNKNOWN_FILE_TYPES.has(file.type) || (PRODUCT_IMAGE_TYPES as readonly string[]).includes(file.type);
 }
 
 /** Chuỗi tùy chọn: chuẩn hóa, bỏ trống thì không gửi. */
@@ -233,51 +286,171 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
   const create = useCreateProduct();
   const update = useUpdateProduct();
   const mutation = editing.mode === 'create' ? create : update;
+  const uploadImage = useUploadProductImage();
+  const removeImage = useRemoveProductImage();
   const categories = useCategoryOptions();
   // Đã gửi PUT trong hộp thoại này: máy chủ có thể đã khác dữ liệu lúc mở (mất phản hồi sau khi đã lưu), nên từ đó
   // luôn gửi, không so với dữ liệu lúc mở để bỏ qua.
   const attempted = useRef(false);
+  const [image, setImage] = useState<ImageChoice>({ kind: 'keep' });
+  // Lỗi của ô Ảnh: tệp không hợp lệ (kiểm phía client) hoặc backend từ chối tệp
+  const [imageError, setImageError] = useState<string | null>(null);
+  // Đang thu nhỏ ảnh vừa chọn; lần chọn mới nhất (kết quả của lần chọn cũ hơn bị bỏ qua)
+  const [preparingImage, setPreparingImage] = useState(false);
+  const latestPick = useRef(0);
+  // Lỗi khác khi tải lên hay gỡ ảnh (mất mạng, Sản phẩm vừa ngừng kinh doanh…): khung báo lỗi chung
+  const imageRequestError = uploadImage.error ?? removeImage.error;
   // Đang gửi thì không cho đóng: đóng sẽ bỏ mất kết quả của yêu cầu đang chạy.
-  const pending = mutation.isPending;
+  const pending = mutation.isPending || uploadImage.isPending || removeImage.isPending;
+  // Đang thu nhỏ ảnh (rất ngắn) thì cũng chưa cho đóng hay gửi, nhưng không hiện vòng xoay trên nút
+  const busy = pending || preparingImage;
   // Sản phẩm đã ngừng kinh doanh hay không còn: chỉ còn đóng hộp thoại
-  const closeOnly = editing.mode === 'edit' && update.isError && cannotEditAnyMore(update.error);
+  const closeOnly =
+    editing.mode === 'edit' &&
+    ((update.isError && cannotEditAnyMore(update.error)) || cannotEditAnyMore(imageRequestError));
+
+  // Ảnh hiện có của Sản phẩm đang sửa, và ảnh đang hiện ở ô xem trước
+  const currentImageUrl = editing.mode === 'edit' ? editing.product.imageUrl : null;
+  const previewSrc = image.kind === 'upload' ? image.previewUrl : image.kind === 'remove' ? null : currentImageUrl;
+
+  // Thu hồi URL xem trước khi chọn ảnh khác hoặc đóng hộp thoại
+  useEffect(() => {
+    if (image.kind !== 'upload') return undefined;
+    const { previewUrl } = image;
+    return () => URL.revokeObjectURL(previewUrl);
+  }, [image]);
 
   const showErrors = (error: unknown) => {
     const errors = formErrorsOf(error, editing.mode);
     if (errors) form.setFields(errors);
   };
 
+  // Lỗi tải, gỡ ảnh của lần trước không còn đúng khi người dùng đổi lựa chọn hoặc gửi lại
+  const resetImageRequests = () => {
+    uploadImage.reset();
+    removeImage.reset();
+  };
+
+  // Tệp sai: báo dưới ô Ảnh và bỏ luôn ảnh đã chọn trước đó, để "Lưu" không gửi ảnh cũ
+  const rejectImage = (problem: string) => {
+    setImageError(problem);
+    setImage({ kind: 'keep' });
+  };
+
+  const chooseImage = async (picked: File) => {
+    const pick = ++latestPick.current;
+    resetImageRequests();
+    setImageError(null);
+    if (!hasAcceptedType(picked)) {
+      rejectImage(IMAGE_TYPE_PROBLEM);
+      return;
+    }
+    setPreparingImage(true);
+    let file: File;
+    try {
+      file = await downscaleImage(picked);
+    } catch {
+      file = picked;
+    } finally {
+      if (pick === latestPick.current) setPreparingImage(false);
+    }
+    if (pick !== latestPick.current) return;
+    if (file.size > PRODUCT_IMAGE_MAX_BYTES) {
+      rejectImage(IMAGE_SIZE_PROBLEM);
+      return;
+    }
+    setImage({ kind: 'upload', file, previewUrl: URL.createObjectURL(file) });
+  };
+
+  // Có tệp vừa chọn thì bỏ tệp đó (về ảnh hiện có); không có thì gỡ ảnh hiện có
+  const clearImage = () => {
+    resetImageRequests();
+    setImageError(null);
+    setImage(image.kind === 'upload' || currentImageUrl === null ? { kind: 'keep' } : { kind: 'remove' });
+  };
+
+  const showImageError = (error: unknown) => {
+    const fieldMessage = imageFieldMessage(error);
+    if (fieldMessage !== null) setImageError(fieldMessage);
+  };
+
+  /** Bước ảnh sau khi Sản phẩm đã lưu: tải ảnh mới hoặc gỡ ảnh, xong thì gọi `done` với Sản phẩm mới nhất. */
+  const saveImage = (product: Product, done: (saved: Product) => void, onError: (error: unknown) => void) => {
+    if (image.kind === 'keep') {
+      done(product);
+      return;
+    }
+    setImageError(null);
+    uploadImage.reset();
+    removeImage.reset();
+    if (image.kind === 'upload') {
+      uploadImage.mutate({ id: product.id, file: image.file }, { onSuccess: done, onError });
+    } else {
+      removeImage.mutate(product.id, { onSuccess: () => done({ ...product, imageUrl: null }), onError });
+    }
+  };
+
   const onFinish = (values: ProductFormValues) => {
-    if (closeOnly) return;
+    // Đang thu nhỏ ảnh vừa chọn (Enter trong ô nhập vẫn gửi form): chờ có ảnh rồi mới gửi
+    if (closeOnly || preparingImage) return;
+    resetImageRequests();
     if (editing.mode === 'create') {
       const request: CreateProductRequest = {
         ...commonFields(values),
         openingQuantity: parseWholeNumber(values.openingQuantity) ?? undefined,
         openingUnitCost: parseWholeNumber(values.openingUnitCost) ?? undefined,
       };
+      const added = (product: Product) => {
+        void message.success(`Đã thêm Sản phẩm "${product.name}"`);
+        onCreated?.(product);
+        onClose();
+      };
       create.mutate(request, {
-        onSuccess: (product) => {
-          void message.success(`Đã thêm Sản phẩm "${product.name}"`);
-          onCreated?.(product);
-          onClose();
-        },
+        // Hai bước: Sản phẩm đã tạo rồi mới tải ảnh. Tải ảnh lỗi thì Sản phẩm vẫn đã có: đóng hộp thoại (gửi lại sẽ tạo
+        // trùng) và báo để tải lại ảnh bằng "Sửa".
+        onSuccess: (product) =>
+          saveImage(product, added, (error) => {
+            // Câu dài, cần hành động tiếp: để lâu hơn mặc định (3 giây)
+            void message.warning(
+              `Đã thêm Sản phẩm "${product.name}" nhưng chưa tải được ảnh: ${describeError(error).message} ` +
+                'Bấm "Sửa" ở dòng Sản phẩm để tải lại ảnh.',
+              8,
+            );
+            onCreated?.(product);
+            onClose();
+          }),
         onError: showErrors,
       });
       return;
     }
     const request = commonFields(values);
-    if (!attempted.current && isUnchanged(editing.product, request)) {
+    const fieldsChanged = attempted.current || !isUnchanged(editing.product, request);
+    if (!fieldsChanged && image.kind === 'keep') {
       onClose();
+      return;
+    }
+    const saved = (product: Product) => {
+      void message.success(`Đã lưu Sản phẩm "${product.name}"`);
+      onClose();
+    };
+    // Chỉ đổi ảnh: không gửi PUT Sản phẩm
+    if (!fieldsChanged) {
+      saveImage(editing.product, saved, showImageError);
       return;
     }
     attempted.current = true;
     update.mutate(
       { id: editing.product.id, request },
       {
-        onSuccess: (product) => {
-          void message.success(`Đã lưu Sản phẩm "${product.name}"`);
-          onClose();
-        },
+        // Các trường đã lưu, chỉ ảnh lỗi: nói rõ phần nào đã lưu; hộp thoại vẫn mở để thử lại ảnh
+        onSuccess: (product) =>
+          saveImage(product, saved, (error) => {
+            showImageError(error);
+            void message.warning(
+              `Đã lưu thông tin, chưa lưu được ảnh của Sản phẩm "${product.name}": ${describeError(error).message}`,
+              8,
+            );
+          }),
         onError: showErrors,
       },
     );
@@ -307,13 +480,13 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
       width={720}
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!pending) onClose();
+        if (!busy) onClose();
       }}
       confirmLoading={pending}
-      okButtonProps={{ disabled: closeOnly }}
-      cancelButtonProps={{ disabled: pending }}
-      closable={!pending}
-      keyboard={!pending}
+      okButtonProps={{ disabled: closeOnly || preparingImage }}
+      cancelButtonProps={{ disabled: busy }}
+      closable={!busy}
+      keyboard={!busy}
       mask={{ closable: false }}
     >
       {editing.mode === 'create' && create.isError && isKeyReuse(create.error) ? (
@@ -327,6 +500,9 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
       ) : null}
       {mutation.isError && !isKeyReuse(mutation.error) && !formErrorsOf(mutation.error) ? (
         <ErrorAlert error={mutation.error} />
+      ) : null}
+      {editing.mode === 'edit' && imageRequestError && !isImageFileError(imageRequestError) ? (
+        <ErrorAlert error={imageRequestError} />
       ) : null}
       <Form<ProductFormValues>
         form={form}
@@ -457,6 +633,34 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
         ) : null}
         <Form.Item name="description" label="Mô tả" rules={textRules('Mô tả', DESCRIPTION_MAX, true)}>
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
+        </Form.Item>
+        <Form.Item
+          label="Ảnh"
+          validateStatus={imageError ? 'error' : undefined}
+          help={imageError ?? undefined}
+          extra="JPEG, PNG hoặc WebP, tối đa 1 MB."
+        >
+          <Flex align="center" gap={16} wrap>
+            <ProductThumbnail src={previewSrc} size={96} alt="Ảnh Sản phẩm" />
+            <Flex vertical gap={8} align="flex-start">
+              <Upload
+                accept={PRODUCT_IMAGE_TYPES.join(',')}
+                showUploadList={false}
+                // Không tự tải lên: chỉ giữ tệp để xem trước, gửi khi bấm Thêm/Lưu
+                beforeUpload={(file) => {
+                  void chooseImage(file);
+                  return Upload.LIST_IGNORE;
+                }}
+              >
+                <Button icon={<UploadOutlined />}>{previewSrc ? 'Đổi ảnh' : 'Chọn ảnh'}</Button>
+              </Upload>
+              {previewSrc ? (
+                <Button icon={<DeleteOutlined />} onClick={clearImage}>
+                  {image.kind === 'upload' ? 'Bỏ ảnh vừa chọn' : 'Gỡ ảnh'}
+                </Button>
+              ) : null}
+            </Flex>
+          </Flex>
         </Form.Item>
       </Form>
     </Modal>

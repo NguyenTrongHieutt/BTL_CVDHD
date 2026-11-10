@@ -15,6 +15,8 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 import vn.nhom17.banhang.platform.ProblemException;
 
@@ -60,6 +62,34 @@ class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 .toList();
         pd.setProperty("errors", errors);
         return ResponseEntity.badRequest().headers(headers).body(pd);
+    }
+
+    /**
+     * Body multipart lố giới hạn của máy chủ ({@code spring.servlet.multipart.*}): bị chặn trước khi tới controller,
+     * nên trả mã chung. Giới hạn nghiệp vụ của từng endpoint (ví dụ ảnh Sản phẩm 1 MB) do module đó kiểm và báo mã riêng.
+     */
+    @Override
+    protected ResponseEntity<Object> handleMaxUploadSizeExceededException(MaxUploadSizeExceededException ex,
+                                                                          HttpHeaders headers, HttpStatusCode status,
+                                                                          WebRequest request) {
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE).headers(headers).body(Problems.of(
+                HttpStatus.CONTENT_TOO_LARGE, "/errors/common/payload-too-large", "Dữ liệu gửi lên quá lớn",
+                "Tệp gửi lên vượt giới hạn của máy chủ. Hãy chọn tệp nhỏ hơn."));
+    }
+
+    /**
+     * Body multipart hỏng, bị cắt hoặc bị hủy giữa chừng: lỗi của dữ liệu gửi lên, không phải lỗi máy chủ. Báo trên
+     * trường {@code file} (phần tệp của endpoint nhận tệp duy nhất, ảnh Sản phẩm); chỉ ghi log WARN.
+     * {@link MaxUploadSizeExceededException} (lớp con) vẫn do handler riêng ở trên xử lý.
+     */
+    @ExceptionHandler(MultipartException.class)
+    ResponseEntity<ProblemDetail> handleBrokenMultipart(MultipartException ex) {
+        log.warn("Không đọc được body multipart: {}", ex.getMostSpecificCause().toString());
+        ProblemDetail pd = Problems.of(HttpStatus.BAD_REQUEST, "/errors/common/validation", "Dữ liệu không hợp lệ",
+                "Vui lòng kiểm tra lại các trường được đánh dấu.");
+        pd.setProperty("errors", List.of(Map.of("field", "file",
+                "message", "Không đọc được tệp gửi lên. Hãy chọn lại tệp rồi thử lại.")));
+        return ResponseEntity.badRequest().body(pd);
     }
 
     @Override

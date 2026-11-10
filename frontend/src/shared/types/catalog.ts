@@ -72,8 +72,8 @@ export interface ProductVariant {
 }
 
 /**
- * Sản phẩm, từ `GET /api/v1/catalog/products`, `GET /api/v1/catalog/products/{id}`, `POST` (FR-1, SP-01) và `PUT`
- * (FR-2, SP-02).
+ * Sản phẩm, từ `GET /api/v1/catalog/products`, `GET /api/v1/catalog/products/{id}`, `POST` (FR-1, SP-01), `PUT`
+ * (FR-2, SP-02) và `PUT …/{id}/image` (SP-01b).
  * Cả hai vai trò đọc được nên không có Giá vốn (AD-15, AD-16). `variants`: Biến thể mặc định đứng đầu.
  */
 export interface Product {
@@ -84,6 +84,11 @@ export interface Product {
   /** Đơn vị tính, mặc định "cái". */
   unit: string;
   description: string | null;
+  /**
+   * Ảnh (SP-01b): `/api/v1/catalog/products/{id}/image?v=<phiên bản>`, dùng thẳng làm `<img src>` (cùng địa chỉ nên
+   * cookie phiên tự gửi kèm; đổi ảnh là đổi URL). `null` khi chưa có ảnh.
+   */
+  imageUrl: string | null;
   hasVariants: boolean;
   status: ProductStatus;
   createdAt: IsoDateTime;

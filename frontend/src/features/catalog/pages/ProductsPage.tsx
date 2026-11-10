@@ -13,7 +13,8 @@
  * (SP-02) mở cùng form với thêm, có sẵn dữ liệu, không có Tồn kho đầu kỳ, Giá vốn; lưu xong thì bảng tải lại tại chỗ
  * và hiện giá mới ngay. Ngừng kinh doanh có hộp xác nhận; xong thì bảng tải lại tại chỗ, dòng đổi sang "Ngừng kinh
  * doanh" và cả hai nút biến mất (một chiều, không sửa, không mở bán lại, AD-14). Bảng không có Giá vốn (Nhân viên
- * cũng xem).
+ * cũng xem). Cột tên có ảnh thu nhỏ của Sản phẩm (SP-01b; chưa có ảnh thì hiện biểu tượng), cả hai vai trò đều thấy;
+ * ảnh tải lên, đổi, gỡ trong form thêm và sửa.
  */
 import { PlusOutlined } from '@ant-design/icons';
 import { App, Button, Flex, Tag, Typography } from 'antd';
@@ -27,6 +28,7 @@ import type { Product, ProductSearchParams } from '../../../shared/types/catalog
 import { defaultVariant, fetchProducts, productsQueryKey, useDeactivateProduct } from '../api/products';
 import { ProductFilterBar } from '../components/ProductFilterBar';
 import { ProductFormModal } from '../components/ProductFormModal';
+import { ProductThumbnail } from '../components/ProductThumbnail';
 import type { ProductEditing } from '../components/ProductFormModal';
 import {
   hasProductFilters,
@@ -60,7 +62,19 @@ function sortOrderOf(sort: string | undefined, key: string): 'ascend' | 'descend
 function buildColumns(initialSort: string | undefined): TableColumnsType<Product> {
   const sortable = (key: string) => ({ sorter: true, defaultSortOrder: sortOrderOf(initialSort, key) });
   return [
-    { title: 'Tên Sản phẩm', dataIndex: 'name', key: 'name', ...sortable('name') },
+    {
+      title: 'Tên Sản phẩm',
+      dataIndex: 'name',
+      key: 'name',
+      ...sortable('name'),
+      // Ảnh thu nhỏ (SP-01b) đứng trước tên; ô vẫn chỉ có chữ là tên Sản phẩm
+      render: (name: string, product) => (
+        <Flex align="center" gap={12}>
+          <ProductThumbnail src={product.imageUrl} />
+          <span>{name}</span>
+        </Flex>
+      ),
+    },
     {
       title: 'Danh mục',
       dataIndex: 'categoryName',

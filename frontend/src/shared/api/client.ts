@@ -5,6 +5,7 @@
  *   chuyển `/api/` sang backend, `/ai/` sang ai-service.
  * - Mỗi request mang một `X-Request-Id` mới (UUID) để lần theo log qua các khối.
  * - Gửi và nhận JSON. Lỗi dạng RFC 9457 Problem Details được đọc thành `ApiError` (AD-19).
+ * - Body là `FormData` (tải tệp, ví dụ ảnh Sản phẩm) thì gửi nguyên dạng `multipart/form-data`.
  * - Gặp `401` thì gọi handler chung (app đăng ký: xóa cache, chuyển về `/login`).
  * - POST tạo hoặc chuyển trạng thái chứng từ phải truyền `idempotencyKey` (AD-7).
  *
@@ -144,7 +145,7 @@ export interface RequestOptions {
   method?: HttpMethod;
   /** Tham số query. Bỏ qua `null`/`undefined`; mảng thành nhiều tham số cùng tên. */
   query?: QueryParams;
-  /** Body JSON. */
+  /** Body JSON; `FormData` thì gửi nguyên dạng `multipart/form-data` (trình duyệt tự đặt `Content-Type` kèm boundary). */
   body?: unknown;
   headers?: Readonly<Record<string, string>>;
   signal?: AbortSignal;
@@ -245,8 +246,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   headers.set('Accept', 'application/json, application/problem+json');
   if (options.idempotencyKey) headers.set(IDEMPOTENCY_KEY_HEADER, options.idempotencyKey);
 
-  let body: string | undefined;
-  if (options.body !== undefined) {
+  let body: string | FormData | undefined;
+  if (options.body instanceof FormData) {
+    body = options.body;
+  } else if (options.body !== undefined) {
     headers.set('Content-Type', 'application/json');
     body = JSON.stringify(options.body);
   }

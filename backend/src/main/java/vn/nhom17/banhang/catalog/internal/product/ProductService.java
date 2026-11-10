@@ -95,8 +95,8 @@ class ProductService {
      * {@code ord} là thứ tự của dòng; Biến thể của mỗi Sản phẩm xếp sau đó, Biến thể mặc định đứng đầu.
      */
     private static final String VIEW_SQL = """
-            select p.id, p.name, p.category_id, c.name as category_name, p.unit, p.description, p.has_variants,
-                   p.status, p.created_at, p.updated_at,
+            select p.id, p.name, p.category_id, c.name as category_name, p.unit, p.description, p.image_url,
+                   p.has_variants, p.status, p.created_at, p.updated_at,
                    v.id as variant_id, v.sku, v.barcode, v.name as variant_name, v.sale_price, v.is_default,
                    v.status as variant_status
             from (%s) p
@@ -419,7 +419,7 @@ class ProductService {
             if (product == null) {
                 product = new ViewBuilder(id, rs.getString("name"), rs.getObject("category_id", UUID.class),
                         rs.getString("category_name"), rs.getString("unit"), rs.getString("description"),
-                        rs.getBoolean("has_variants"), rs.getString("status"),
+                        rs.getString("image_url"), rs.getBoolean("has_variants"), rs.getString("status"),
                         rs.getObject("created_at", OffsetDateTime.class).toInstant(),
                         rs.getObject("updated_at", OffsetDateTime.class).toInstant(), new ArrayList<>());
                 products.put(id, product);
@@ -435,12 +435,12 @@ class ProductService {
     }
 
     private record ViewBuilder(UUID id, String name, UUID categoryId, String categoryName, String unit,
-                               String description, boolean hasVariants, String status, Instant createdAt,
-                               Instant updatedAt, List<ProductView.Variant> variants) {
+                               String description, String imageUrl, boolean hasVariants, String status,
+                               Instant createdAt, Instant updatedAt, List<ProductView.Variant> variants) {
 
         ProductView build() {
-            return new ProductView(id, name, categoryId, categoryName, unit, description, hasVariants, status,
-                    createdAt, updatedAt, List.copyOf(variants));
+            return new ProductView(id, name, categoryId, categoryName, unit, description, imageUrl, hasVariants,
+                    status, createdAt, updatedAt, List.copyOf(variants));
         }
     }
 
@@ -571,11 +571,11 @@ class ProductService {
         return error;
     }
 
-    private static ProblemException notFound() {
+    static ProblemException notFound() {
         return ProblemException.notFound("/errors/common/not-found", "Không tìm thấy", "Không tìm thấy Sản phẩm này.");
     }
 
-    private static ProblemException productInactive() {
+    static ProblemException productInactive() {
         return ProblemException.conflict("/errors/catalog/product-inactive", "Sản phẩm đã ngừng kinh doanh",
                 "Sản phẩm này đã ngừng kinh doanh nên không sửa được. Ngừng kinh doanh là một chiều, không mở bán lại.");
     }

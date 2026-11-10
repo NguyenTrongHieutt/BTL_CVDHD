@@ -6,8 +6,10 @@ import java.util.UUID;
 
 /**
  * Chi tiết Sản phẩm trả cho frontend: {@code POST} (201, hoặc 200 khi phát lại), {@code GET /{id}}, {@code PUT /{id}},
- * ngừng kinh doanh và từng dòng của danh sách. Cả hai vai trò đọc được, nên KHÔNG có Giá vốn hay tồn đầu kỳ (AD-15, AD-16). {@code variants} gồm Biến
- * thể chưa xóa mềm, Biến thể mặc định đứng đầu.
+ * ngừng kinh doanh, tải ảnh lên ({@code PUT /{id}/image}) và từng dòng của danh sách. Cả hai vai trò đọc được, nên
+ * KHÔNG có Giá vốn hay tồn đầu kỳ (AD-15, AD-16). {@code variants} gồm Biến thể chưa xóa mềm, Biến thể mặc định đứng
+ * đầu. {@code imageUrl} là đường dẫn {@code GET /api/v1/catalog/products/{id}/image?v=<phiên bản>} (SP-01b), hoặc
+ * {@code null} khi chưa có ảnh.
  */
 record ProductView(
         UUID id,
@@ -16,6 +18,7 @@ record ProductView(
         String categoryName,
         String unit,
         String description,
+        String imageUrl,
         boolean hasVariants,
         String status,
         Instant createdAt,

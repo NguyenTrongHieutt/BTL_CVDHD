@@ -127,6 +127,10 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/catalog/products", U, F, A),
                 row("PUT", "/api/v1/catalog/products/{id}", U, F, A),
                 row("POST", "/api/v1/catalog/products/{id}/deactivate", U, F, A),
+                // Ảnh Sản phẩm (SP-01b): xem cả hai vai trò (<img src> gửi cookie), tải lên, gỡ chỉ Chủ cửa hàng
+                row("GET", "/api/v1/catalog/products/{id}/image", U, A, A),
+                row("PUT", "/api/v1/catalog/products/{id}/image", U, F, A),
+                row("DELETE", "/api/v1/catalog/products/{id}/image", U, F, A),
                 row("GET", "/api/v1/catalog/categories", U, A, A),
                 row("POST", "/api/v1/catalog/categories", U, F, A),
                 row("PUT", "/api/v1/catalog/categories/{id}", U, F, A),

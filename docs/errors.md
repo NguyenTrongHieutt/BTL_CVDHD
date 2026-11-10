@@ -15,6 +15,8 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/platform/invalid-credentials` | 401 | Sai tên đăng nhập hoặc mật khẩu, hoặc tài khoản đã bị khóa khi đăng nhập (một thông báo chung, không lộ tài khoản có tồn tại hay bị khóa, FR-44) | platform |
 | `/errors/platform/account-locked` | 401 | Tài khoản bị khóa khi đang dùng (AD-9) | platform |
 | `/errors/platform/login-taken` | 409 | Tên đăng nhập, số điện thoại hoặc email đã dùng (AD-9) | platform |
+| `/errors/catalog/category-name-taken` | 409 | Cửa hàng đã có Danh mục cùng tên, không phân biệt hoa thường (unique `category_name_uq`, FR-4) | catalog |
+| `/errors/catalog/category-in-use` | 409 | Xóa Danh mục còn Sản phẩm: mọi Sản phẩm thuộc Danh mục đều tính, kể cả Sản phẩm đã ngừng kinh doanh (khóa ngoại `RESTRICT`, FR-4) | catalog |
 | `/errors/inventory/insufficient-stock` | 422 | Không đủ hàng; cả chứng từ rollback (AD-6) | inventory |
 | `/errors/inventory/variant-inactive` | 409 | Nhập hàng cho Biến thể đã ngừng kinh doanh (AD-14) | inventory |
 | `/errors/sales/invalid-state` | 409 | Chuyển trạng thái Đơn hàng không hợp lệ, ví dụ hủy đơn đã hủy hoặc đã có Phiếu trả (AD-17) | sales |

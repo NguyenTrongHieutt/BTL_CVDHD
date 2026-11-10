@@ -9,6 +9,8 @@ describe('messages.vi', () => {
   it.each([
     '/errors/common/idempotency-key-reuse',
     '/errors/platform/login-taken',
+    '/errors/catalog/category-name-taken',
+    '/errors/catalog/category-in-use',
     '/errors/sales/invalid-state',
     '/errors/sales/cart-stale',
     '/errors/inventory/variant-inactive',

@@ -64,6 +64,10 @@ Hợp đồng chạy thật là **OpenAPI do springdoc sinh** (`/v3/api-docs`, g
 | Sự kiện `VariantCreated(storeId, variantId, openingQuantity, openingUnitCost)` | Phát trong transaction tạo Biến thể; `inventory` nghe `BEFORE_COMMIT` |
 | Sự kiện `VariantDeactivated(storeId, variantId)` | Phát cho từng Biến thể khi ngừng kinh doanh |
 | `GET /api/v1/catalog/products?q=&categoryId=&status=&page=&size=` | Màn quản lý Sản phẩm |
+| `GET /api/v1/catalog/categories?page=&size=` | Danh mục (FR-4), cả hai vai trò (ô lọc theo Danh mục). `PageResponse<{id, name, productCount}>`, sắp theo tên không dấu, không phân biệt hoa thường. `productCount`: mọi Sản phẩm thuộc Danh mục đều tính, kể cả Sản phẩm đã ngừng kinh doanh |
+| `POST /api/v1/catalog/categories` | Chủ cửa hàng. Body `{name}` (cắt khoảng trắng, bắt buộc, ≤ 100 ký tự) → `201 {id, name, productCount: 0}`. Không có `Idempotency-Key`. Trùng tên trong Cửa hàng (không phân biệt hoa thường): `409 /errors/catalog/category-name-taken`; tên sai: `400 /errors/common/validation` trên trường `name` |
+| `PUT /api/v1/catalog/categories/{id}` | Chủ cửa hàng. Đổi tên, body `{name}` → `200 {id, name, productCount}`; cập nhật `product.changed_at` của các Sản phẩm thuộc Danh mục (AD-12). Trùng tên: `409 category-name-taken`; id không có hoặc của Cửa hàng khác: `404 /errors/common/not-found` |
+| `DELETE /api/v1/catalog/categories/{id}` | Chủ cửa hàng → `204`. Còn Sản phẩm (mọi Sản phẩm thuộc Danh mục đều tính, kể cả Sản phẩm đã ngừng kinh doanh): `409 /errors/catalog/category-in-use`; id không có hoặc của Cửa hàng khác: `404 /errors/common/not-found` |
 | `GET/POST/PUT /api/v1/catalog/customers…` | Khách hàng (cả hai vai trò). `POST` tạo nhanh chỉ cần `phone` (FR-14) |
 | `GET /internal/catalog/product-changes?after=<cursor>&limit=500` | Header `X-Service-Key`. Phản hồi `{items: [{storeId, productId, searchText, status: "ACTIVE"\|"INACTIVE", changedAt}], nextCursor}`. `after` bỏ trống = từ đầu. `nextCursor` là chuỗi mờ (base64url của `changedAt\|productId`), `null` khi hết |
 

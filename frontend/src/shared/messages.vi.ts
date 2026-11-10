@@ -66,6 +66,16 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     hint: 'Liên hệ Chủ cửa hàng để mở lại tài khoản.',
   },
 
+  // catalog
+  '/errors/catalog/category-name-taken': {
+    message: 'Cửa hàng đã có Danh mục tên này.',
+    hint: 'Tên Danh mục không phân biệt chữ hoa, chữ thường. Hãy chọn tên khác.',
+  },
+  '/errors/catalog/category-in-use': {
+    message: 'Danh mục này còn Sản phẩm nên không xóa được.',
+    hint: 'Mọi Sản phẩm thuộc Danh mục đều tính, kể cả Sản phẩm đã ngừng kinh doanh. Chuyển các Sản phẩm sang Danh mục khác rồi xóa lại.',
+  },
+
   // sales
   '/errors/sales/invalid-state': {
     message: 'Đơn hàng đã đổi trạng thái nên không làm được thao tác này.',

@@ -37,14 +37,14 @@ Hợp đồng chạy thật là **OpenAPI do springdoc sinh** (`/v3/api-docs`, g
 
 ## 3. Chi tiết
 
-### 3.1 platform (Hiếu) — đã có ở GĐ0
+### 3.1 platform (Hiếu) — GĐ0 (đăng nhập, `/me`, API Java); GĐ1 (đăng ký Cửa hàng)
 
 | API | Mô tả |
 |---|---|
-| `POST /api/v1/platform/auth/login` | Body `{loginKey, password}` → `200 Me` + cookie. Sai thông tin: `401 /errors/platform/invalid-credentials` (một thông báo chung) |
+| `POST /api/v1/platform/auth/login` | Body `{loginKey, password}` → `200 Me` + cookie. `loginKey` được cắt khoảng trắng, đổi chữ thường, và `+84…` đổi thành `0…` (cùng quy tắc với đăng ký). Sai thông tin hoặc tài khoản bị khóa: `401 /errors/platform/invalid-credentials` (một thông báo chung) |
 | `POST /api/v1/platform/auth/logout` | Xóa cookie, `204` |
 | `GET /api/v1/platform/me` | `Me = {userId, storeId, storeName, role: "OWNER"\|"STAFF", displayName}` |
-| `POST /api/v1/platform/stores` | Đăng ký Cửa hàng (FR-43, GĐ1): body `{storeName, loginKey, password, displayName}` + `Idempotency-Key` → `201 Me` + cookie; trùng `loginKey`: `409 /errors/platform/login-taken` |
+| `POST /api/v1/platform/stores` | Đăng ký Cửa hàng (FR-43, GĐ1), công khai. Body `{storeName, loginKey, password, displayName}` + header `Idempotency-Key` (UUID). Tạo Cửa hàng cùng tài khoản Chủ cửa hàng → `201 Me` + cookie như đăng nhập. Gửi lại cùng khóa, cùng nội dung, đúng mật khẩu: `200 Me` + `Idempotent-Replay: true` + cookie. Lỗi: trùng `loginKey` (kể cả khác hoa thường, `+84`/`0`): `409 /errors/platform/login-taken`; cùng khóa nhưng khác nội dung hoặc sai mật khẩu: `409 /errors/common/idempotency-key-reuse`; phát lại cho tài khoản đã bị khóa: `401 /errors/platform/invalid-credentials`; thiếu khóa hoặc khóa không phải UUID hợp lệ: `422 /errors/common/idempotency-key-missing`; dữ liệu sai: `400 /errors/common/validation` với `errors[]` theo trường. Quy tắc trường: `storeName` 1–200 ký tự, `displayName` 1–100 ký tự (không được chỉ gồm khoảng trắng); `loginKey` ≤ 254 ký tự, là số điện thoại (`0` hoặc `+84`, rồi 9 chữ số; lưu dạng `0…`) hoặc email ASCII, lưu chữ thường; `password` 8–72 ký tự và ≤ 72 byte UTF-8 |
 | Java `CurrentContext` | `storeId()`, `userId()`, `role()`, `isOwner()` |
 | Java `TenantScope.runAs(storeId, …)` | Chỉ cho seed, test, đăng ký Cửa hàng |
 | Java `StoreSettings.current()` | Tên, địa chỉ, điện thoại, chân hóa đơn, `bankBin`, `bankAccountNo`, `bankAccountName`, tỷ lệ tích điểm, số ngày cảnh báo hết hạn |

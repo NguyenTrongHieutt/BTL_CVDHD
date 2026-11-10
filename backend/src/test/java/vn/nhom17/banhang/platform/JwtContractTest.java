@@ -1,6 +1,7 @@
 package vn.nhom17.banhang.platform;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,6 +12,8 @@ import java.time.ZoneOffset;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.oauth2.jwt.Jwt;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.jwt.JwtValidationException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import vn.nhom17.banhang.platform.internal.security.JwtService;
@@ -54,6 +57,16 @@ class JwtContractTest {
                 .decode(service.issue(USER, STORE, Role.STAFF));
         assertThat(jwt.getClaims().keySet()).containsExactlyInAnyOrder("sub", "store_id", "role", "iat", "exp", "jti");
         assertThat(jwt.getExpiresAt()).isEqualTo(now.plus(Duration.ofHours(8)));
+    }
+
+    @Test
+    void expiredTokenIsRejected() {
+        Instant now = Instant.parse("2026-11-06T01:00:00Z");
+        Duration ttl = Duration.ofHours(8);
+        String token = service(Clock.fixed(now, ZoneOffset.UTC), ttl).issue(USER, STORE, Role.STAFF);
+        // Quá exp hơn độ lệch giờ cho phép (60 giây) của JwtTimestampValidator, tính theo Clock của ứng dụng
+        JwtDecoder later = service(Clock.fixed(now.plus(ttl).plusSeconds(61), ZoneOffset.UTC), ttl).decoder();
+        assertThatThrownBy(() -> later.decode(token)).isInstanceOf(JwtValidationException.class);
     }
 
     private void writeFixture() throws Exception {

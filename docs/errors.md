@@ -9,7 +9,7 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/common/unauthorized` | 401 | Chưa đăng nhập, token hết hạn hoặc sai | common |
 | `/errors/common/forbidden` | 403 | Sai vai trò, hoặc route chưa khai báo (mặc định cấm, AD-16) | common |
 | `/errors/common/not-found` | 404 | Không có, hoặc là dữ liệu của Cửa hàng khác (AD-5) | common |
-| `/errors/common/idempotency-key-missing` | 422 | Tạo chứng từ mà thiếu `Idempotency-Key` | common |
+| `/errors/common/idempotency-key-missing` | 422 | Tạo chứng từ mà thiếu `Idempotency-Key`, hoặc khóa không phải UUID hợp lệ | common |
 | `/errors/common/idempotency-key-reuse` | 409 | Cùng `Idempotency-Key` nhưng nội dung khác (AD-7) | common |
 | `/errors/common/internal` | 500 | Lỗi không mong đợi; báo kèm `requestId` | common |
 | `/errors/platform/invalid-credentials` | 401 | Sai tên đăng nhập hoặc mật khẩu (một thông báo chung, FR-44) | platform |

@@ -15,6 +15,8 @@ import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwtTimestampValidator;
+import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.stereotype.Component;
@@ -37,7 +39,14 @@ public class JwtService {
         this.clock = clock;
         SecretKey key = new SecretKeySpec(props.jwtSecret().getBytes(StandardCharsets.UTF_8), "HmacSHA256");
         this.encoder = new NimbusJwtEncoder(new ImmutableSecret<SecurityContext>(key));
-        this.decoder = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
+        NimbusJwtDecoder nimbus = NimbusJwtDecoder.withSecretKey(key).macAlgorithm(MacAlgorithm.HS256).build();
+        // Kiểm tra exp/nbf theo Clock của ứng dụng (cùng nguồn giờ với lúc cấp), không theo giờ hệ thống.
+        // createDefaultWithValidators giữ các validator mặc định (typ, thumbprint) và chỉ thêm JwtTimestampValidator
+        // khi danh sách chưa có, nên không có validator thứ hai theo giờ hệ thống.
+        JwtTimestampValidator timestamps = new JwtTimestampValidator();
+        timestamps.setClock(clock);
+        nimbus.setJwtValidator(JwtValidators.createDefaultWithValidators(timestamps));
+        this.decoder = nimbus;
     }
 
     public String issue(UUID userId, UUID storeId, Role role) {

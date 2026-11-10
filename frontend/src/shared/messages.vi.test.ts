@@ -11,6 +11,7 @@ describe('messages.vi', () => {
     '/errors/common/payload-too-large',
     '/errors/platform/login-taken',
     '/errors/platform/owner-protected',
+    '/errors/platform/wrong-current-password',
     '/errors/catalog/category-name-taken',
     '/errors/catalog/category-in-use',
     '/errors/catalog/barcode-taken',

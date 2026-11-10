@@ -37,7 +37,8 @@ class StaffAccountController {
      *                    được có dạng số điện thoại hay email (dành cho Chủ cửa hàng); duy nhất toàn hệ thống
      * @param displayName bắt buộc, tối đa 100 ký tự
      * @param password    8–72 ký tự và tối đa 72 byte UTF-8
-     * @param phone       tùy chọn, tối đa 20 ký tự: chữ số, khoảng trắng, {@code +}, {@code .}, {@code -}
+     * @param phone       tùy chọn, số Việt Nam: {@code 0} + 9 chữ số hoặc {@code +84} + 9 chữ số (được nhóm bằng dấu
+     *                    cách, dấu chấm, gạch ngang), lưu dạng {@code 0…}
      */
     record CreateStaffRequest(String loginKey, String displayName, String password, String phone) {
 

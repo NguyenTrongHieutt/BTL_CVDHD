@@ -31,12 +31,14 @@ export const PASSWORD_MIN = 8;
 export const PASSWORD_MAX = 72;
 /** Giới hạn của bcrypt tính theo byte UTF-8 (chữ có dấu tốn 2–3 byte). */
 export const PASSWORD_MAX_BYTES = 72;
-export const PHONE_MAX = 20;
+/** Câu lỗi khi số điện thoại không đúng dạng, như backend (`AccountFields.PHONE_INVALID`) và số Khách hàng (KH-01). */
+export const PHONE_INVALID = 'Số điện thoại phải là 0 và 9 chữ số, hoặc +84 và 9 chữ số';
 
 const LOGIN_KEY_CHARS = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** Định danh của Chủ cửa hàng (`LoginKeys.OWNER_LOGIN_KEY` ở backend): số điện thoại hoặc email. */
+const VIETNAM_PHONE = /^(?:0|\+84)([0-9]{9})$/;
+const PHONE_SEPARATORS = /[ .-]/g;
 const OWNER_SHAPED = /^(?:(?:0|\+84)[0-9]{9}|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})$/;
-const PHONE_CHARS = /^[0-9 +.-]+$/;
 
 export function fetchUsers(request: PageRequest, signal?: AbortSignal): Promise<PageResponse<StoreUser>> {
   return api.get<PageResponse<StoreUser>>(USERS_PATH, { query: pageRequestToQuery(request), signal });
@@ -72,53 +74,71 @@ export function loginKeyError(value: string | null | undefined): string | null {
   return null;
 }
 
-/** Câu lỗi của tên Nhân viên (chuẩn hóa như các tên khác), như backend; `null` nếu hợp lệ. */
-export function displayNameError(value: string | null | undefined): string | null {
-  if (hasInvalidStoreChars(value)) return 'Tên Nhân viên có ký tự không hợp lệ';
-  if (normalizeStoreText(value) === '') return 'Nhập tên Nhân viên';
-  if (storeTextLength(value) > DISPLAY_NAME_MAX) return `Tên Nhân viên tối đa ${DISPLAY_NAME_MAX} ký tự`;
+/** "Tên Nhân viên" → "tên Nhân viên", cho câu "Nhập …" (như `AccountFields` ở backend). */
+function lowerFirst(label: string): string {
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+/**
+ * Câu lỗi của tên hiển thị (chuẩn hóa như các tên khác), như backend (`AccountFields.displayName`); `null` nếu hợp lệ.
+ * `label` là tên ô trong câu lỗi: "Tên Nhân viên" (TK-02), "Tên hiển thị" (TK-04).
+ */
+export function displayNameError(value: string | null | undefined, label = 'Tên Nhân viên'): string | null {
+  if (hasInvalidStoreChars(value)) return `${label} có ký tự không hợp lệ`;
+  if (normalizeStoreText(value) === '') return `Nhập ${lowerFirst(label)}`;
+  if (storeTextLength(value) > DISPLAY_NAME_MAX) return `${label} tối đa ${DISPLAY_NAME_MAX} ký tự`;
   return null;
 }
 
 /**
- * Câu lỗi của mật khẩu, như backend; `null` nếu hợp lệ. Mật khẩu gửi nguyên (không cắt khoảng trắng), nhưng chỉ có
- * khoảng trắng là thiếu: màn đăng nhập (`@NotBlank`) không bao giờ nhận mật khẩu như vậy. Surrogate lẻ bị từ chối vì
- * backend mã hóa UTF-8 đổi nó thành `?`.
+ * Câu lỗi của mật khẩu, như backend (`AccountFields.password`); `null` nếu hợp lệ. Mật khẩu gửi nguyên (không cắt
+ * khoảng trắng), nhưng chỉ có khoảng trắng là thiếu: màn đăng nhập (`@NotBlank`) không bao giờ nhận mật khẩu như vậy.
+ * Surrogate lẻ bị từ chối vì backend mã hóa UTF-8 đổi nó thành `?`. `label`: "Mật khẩu", "Mật khẩu mới".
  */
-export function passwordError(value: string | null | undefined): string | null {
+export function passwordError(value: string | null | undefined, label = 'Mật khẩu'): string | null {
   const password = value ?? '';
-  if (trimLikeJava(password) === '') return 'Nhập mật khẩu';
-  if (/\p{Cs}/u.test(password)) return 'Mật khẩu có ký tự không hợp lệ';
+  if (trimLikeJava(password) === '') return `Nhập ${lowerFirst(label)}`;
+  if (/\p{Cs}/u.test(password)) return `${label} có ký tự không hợp lệ`;
   const length = [...password].length;
   if (length < PASSWORD_MIN || length > PASSWORD_MAX) {
-    return `Mật khẩu từ ${PASSWORD_MIN} đến ${PASSWORD_MAX} ký tự`;
+    return `${label} từ ${PASSWORD_MIN} đến ${PASSWORD_MAX} ký tự`;
   }
   if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) {
-    return 'Mật khẩu quá dài, hãy dùng mật khẩu ngắn hơn';
+    return `${label} quá dài, hãy dùng mật khẩu ngắn hơn`;
   }
   return null;
 }
 
-/** Câu lỗi của số điện thoại (tùy chọn, như Thông tin Cửa hàng); `null` nếu hợp lệ hoặc bỏ trống. */
+/** Chỉ có khoảng trắng (như `String.trim()` của Java) là trống: backend báo "thiếu" cho mật khẩu như vậy. */
+export function isBlankPassword(value: string | null | undefined): boolean {
+  return trimLikeJava(value ?? '') === '';
+}
+
+/**
+ * Số điện thoại Việt Nam như backend lưu (`AccountFields.vietnamPhone`, dùng cho tài khoản Nhân viên và Thông tin cá
+ * nhân): chuẩn hóa như trường văn bản, bỏ dấu cách, dấu chấm, gạch ngang; `0` + 9 chữ số hoặc `+84` + 9 chữ số thành
+ * `0…`. Trống là `''`; sai dạng là `null`.
+ */
+export function normalizeVietnamPhone(value: string | null | undefined): string | null {
+  const text = normalizeStoreText(value);
+  if (text === '') return '';
+  const match = VIETNAM_PHONE.exec(text.replace(PHONE_SEPARATORS, ''));
+  return match ? `0${match[1]}` : null;
+}
+
+/** Câu lỗi của số điện thoại Nhân viên (tùy chọn, số Việt Nam); `null` nếu hợp lệ hoặc bỏ trống. */
 export function staffPhoneError(value: string | null | undefined): string | null {
-  const phone = normalizeStoreText(value);
-  if (phone === '') return null;
-  if (hasInvalidStoreChars(value) || !PHONE_CHARS.test(phone)) {
-    return 'Số điện thoại chỉ gồm chữ số, khoảng trắng và các dấu + . -';
-  }
-  if (!/[0-9]/.test(phone)) return 'Số điện thoại phải có chữ số';
-  if ([...phone].length > PHONE_MAX) return `Số điện thoại tối đa ${PHONE_MAX} ký tự`;
-  return null;
+  return normalizeVietnamPhone(value) === null ? PHONE_INVALID : null;
 }
 
-/** Body gửi đi đã chuẩn hóa như backend; số điện thoại bỏ trống thì không gửi. */
+/** Body gửi đi đã chuẩn hóa như backend; số điện thoại bỏ trống thì không gửi, số sai dạng gửi nguyên để backend báo. */
 export function createStaffBody(request: CreateStaffRequest): CreateStaffRequest {
-  const phone = normalizeStoreText(request.phone);
+  const phone = normalizeVietnamPhone(request.phone);
   return {
     loginKey: normalizeLoginKey(request.loginKey),
     displayName: normalizeStoreText(request.displayName),
     password: request.password,
-    ...(phone === '' ? {} : { phone }),
+    ...(phone === '' ? {} : { phone: phone ?? request.phone }),
   };
 }
 

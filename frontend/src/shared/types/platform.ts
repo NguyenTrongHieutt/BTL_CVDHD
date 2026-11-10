@@ -1,7 +1,8 @@
 /**
  * Kiểu dữ liệu của module `platform`: tài khoản, phiên đăng nhập, Cửa hàng.
  * Người giữ: Hiếu (B). Khớp với `platform/internal/auth/AuthController.java`, `StoreRegistrationController.java`,
- * `platform/internal/store/StoreController.java` và `platform/internal/user/StaffAccountController.java`.
+ * `platform/internal/store/StoreController.java`, `platform/internal/user/StaffAccountController.java` và
+ * `platform/internal/user/ProfileController.java`.
  */
 import type { IsoDateTime, Money, Uuid } from './common';
 
@@ -101,7 +102,8 @@ export interface StoreUser {
 /**
  * Body của `POST /api/v1/platform/users` (chỉ Chủ cửa hàng). Không có `Idempotency-Key`.
  * `loginKey`: 3–50 ký tự `a-z 0-9 . _ -`, bắt đầu bằng chữ cái hoặc chữ số, không được có dạng số điện thoại hay email;
- * `displayName`: tối đa 100 ký tự; `password`: 8–72 ký tự, tối đa 72 byte; `phone`: tùy chọn, tối đa 20 ký tự.
+ * `displayName`: tối đa 100 ký tự; `password`: 8–72 ký tự, tối đa 72 byte; `phone`: tùy chọn, số Việt Nam `0` + 9 chữ số
+ * hoặc `+84` + 9 chữ số, lưu dạng `0…`.
  */
 export interface CreateStaffRequest {
   loginKey: string;
@@ -113,4 +115,44 @@ export interface CreateStaffRequest {
 /** Body của `POST /api/v1/platform/users/{id}/reset-password`: mật khẩu mới, 8–72 ký tự; không gửi mật khẩu cũ. */
 export interface ResetPasswordRequest {
   password: string;
+}
+
+/**
+ * Thông tin cá nhân của người đang đăng nhập (FR-47, TK-04): phản hồi của `GET /api/v1/platform/me/profile` và
+ * `PUT /api/v1/platform/me`, cả hai vai trò. Khớp với `platform/internal/user/Profile.java`. Không có mật khẩu.
+ * Chỉ `displayName`, `phone` sửa được.
+ */
+export interface Profile {
+  userId: Uuid;
+  /** Tên đăng nhập (Nhân viên) hoặc số điện thoại, email (Chủ cửa hàng); không đổi được. */
+  loginKey: string;
+  displayName: string;
+  role: Role;
+  /**
+   * Số liên hệ; `null` khi không có. Số ghi từ TK-04 trở đi có dạng `0…`; số lưu trước đó (Nhân viên tạo ở TK-02 cũ)
+   * có thể còn nguyên như lúc nhập, ví dụ `028 1234 5678`, và gửi lại y nguyên thì được giữ.
+   */
+  phone: string | null;
+  /** `null` khi không có (Nhân viên luôn `null`); không đổi được. */
+  email: string | null;
+}
+
+/**
+ * Body của `PUT /api/v1/platform/me` (phản hồi là `Profile`, không phải `Me`): thay cả hai trường (`phone` rỗng hoặc
+ * `null` thì xóa số đang lưu). `displayName`: bắt buộc, tối đa 100 ký tự; `phone`: số Việt Nam `0` + 9 chữ số hoặc
+ * `+84` + 9 chữ số, hoặc đúng số cũ đang lưu.
+ */
+export interface UpdateProfileRequest {
+  displayName: string;
+  phone: string | null;
+}
+
+/**
+ * Body của `POST /api/v1/platform/me/password` (`204`). Mật khẩu hiện tại sai: `422
+ * /errors/platform/wrong-current-password` (không phải 401, phiên vẫn còn). `newPassword`: 8–72 ký tự, tối đa 72 byte,
+ * khác mật khẩu hiện tại.
+ */
+export interface ChangePasswordRequest {
+  currentPassword: string;
+  newPassword: string;
 }

@@ -5,6 +5,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 import org.hibernate.annotations.TenantId;
 
@@ -92,8 +93,31 @@ public class AppUserEntity {
         return phone;
     }
 
+    public String email() {
+        return email;
+    }
+
     public Instant createdAt() {
         return createdAt;
+    }
+
+    /** Băm mật khẩu đang lưu; chỉ để kiểm mật khẩu hiện tại khi đổi mật khẩu, không bao giờ trả ra ngoài. */
+    String passwordHash() {
+        return passwordHash;
+    }
+
+    /**
+     * Sửa tên hiển thị, số điện thoại liên hệ (TK-04); trả {@code false} (không đổi gì, kể cả {@code updated_at}) khi
+     * giống giá trị đang lưu.
+     */
+    boolean changeProfile(String nextDisplayName, String nextPhone, Instant now) {
+        if (nextDisplayName.equals(displayName) && Objects.equals(nextPhone, phone)) {
+            return false;
+        }
+        displayName = nextDisplayName;
+        phone = nextPhone;
+        updatedAt = now;
+        return true;
     }
 
     /** Đặt trạng thái; trả {@code false} (không đổi gì) khi đã ở trạng thái đó. */

@@ -216,12 +216,12 @@ describe('Tài khoản Nhân viên (FR-45, TK-02)', () => {
     await within(table()).findByText('nv.lan');
 
     await openCreateDialog();
-    fillCreateForm({ loginKey: 'nv.mai', displayName: 'Mai', password: 'matkhau1', phone: ' 0987 654 321 ' });
+    fillCreateForm({ loginKey: 'nv.mai', displayName: 'Mai', password: 'matkhau1', phone: ' +84 987.654-321 ' });
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Tạo tài khoản' }));
 
     expect(await within(table()).findByText('nv.mai')).toBeTruthy();
     const [post] = callsTo('POST', USERS_PATH);
-    expect(bodyOf(post)).toEqual({ loginKey: 'nv.mai', displayName: 'Mai', password: 'matkhau1', phone: '0987 654 321' });
+    expect(bodyOf(post)).toEqual({ loginKey: 'nv.mai', displayName: 'Mai', password: 'matkhau1', phone: '0987654321' });
   });
 
   it.each([
@@ -254,7 +254,7 @@ describe('Tài khoản Nhân viên (FR-45, TK-02)', () => {
     expect(await within(dialog()).findByText('Nhập tên Nhân viên')).toBeTruthy();
     expect(within(dialog()).getByText('Mật khẩu từ 8 đến 72 ký tự')).toBeTruthy();
     expect(within(dialog()).getByText('Mật khẩu nhập lại không khớp')).toBeTruthy();
-    expect(within(dialog()).getByText('Số điện thoại chỉ gồm chữ số, khoảng trắng và các dấu + . -')).toBeTruthy();
+    expect(within(dialog()).getByText('Số điện thoại phải là 0 và 9 chữ số, hoặc +84 và 9 chữ số')).toBeTruthy();
 
     // 37 chữ "ă" = 37 ký tự nhưng 74 byte
     fill('Mật khẩu', 'ă'.repeat(37));

@@ -1,8 +1,10 @@
 package vn.nhom17.banhang.platform.internal.user;
 
+import static vn.nhom17.banhang.platform.internal.user.AccountFields.addError;
+import static vn.nhom17.banhang.platform.internal.user.AccountFields.throwIfAny;
+
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceException;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -14,7 +16,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -42,11 +43,14 @@ import vn.nhom17.banhang.platform.internal.user.StaffAccountController.ResetPass
  *       bắt đầu bằng chữ cái hoặc chữ số, lưu chữ thường ({@link LoginKeys#normalize}, như khi đăng nhập); không được
  *       có dạng số điện thoại hay email (dành cho Chủ cửa hàng). Trùng toàn hệ thống do unique
  *       {@code app_user_login_key_uq} bắt, không SELECT kiểm trước (AD-9): {@code 409 /errors/platform/login-taken}.
- *       {@code displayName} chuẩn hóa như các tên khác ({@link StoreText}), bắt buộc, tối đa {@value #DISPLAY_NAME_MAX}.
- *       Mật khẩu {@value #PASSWORD_MIN}–{@value #PASSWORD_MAX} ký tự (code point) và tối đa
- *       {@value #PASSWORD_MAX_BYTES} byte UTF-8 (giới hạn của bcrypt); không được trống sau khi cắt khoảng trắng (đăng
- *       nhập chặn mật khẩu như vậy bằng {@code @NotBlank}) hay có surrogate lẻ (UTF-8 đổi nó thành {@code ?}). {@code phone} tùy chọn, như số điện thoại của
- *       Thông tin Cửa hàng. Mọi lỗi nhập liệu trả một lần ({@code 400 /errors/common/validation}).</li>
+ *       {@code displayName} chuẩn hóa như các tên khác ({@link StoreText}), bắt buộc, tối đa
+ *       {@value AccountFields#DISPLAY_NAME_MAX}. Mật khẩu {@value AccountFields#PASSWORD_MIN}–
+ *       {@value AccountFields#PASSWORD_MAX} ký tự (code point) và tối đa {@value AccountFields#PASSWORD_MAX_BYTES}
+ *       byte UTF-8 (giới hạn của bcrypt); không được trống sau khi cắt khoảng trắng (đăng nhập chặn mật khẩu như vậy bằng
+ *       {@code @NotBlank}) hay có surrogate lẻ (UTF-8 đổi nó thành {@code ?}). {@code phone} tùy chọn, số Việt Nam như
+ *       Thông tin cá nhân (TK-04) và Khách hàng (KH-01), lưu dạng {@code 0…}. Mọi lỗi nhập liệu trả một lần
+ *       ({@code 400 /errors/common/validation}). Tên, mật khẩu, số điện thoại kiểm ở {@link AccountFields}, dùng chung
+ *       với Thông tin cá nhân.</li>
  *   <li><b>Khóa, mở khóa, đặt lại mật khẩu:</b> chỉ trên Nhân viên ({@code role = STAFF}) của Cửa hàng mình. Chủ cửa
  *       hàng (kể cả chính mình): {@code 409 /errors/platform/owner-protected}; id của Cửa hàng khác hoặc không có:
  *       {@code 404 /errors/common/not-found} (AD-5). Dòng bị khóa ({@code FOR UPDATE}) nên hai lần cùng lúc chạy lần
@@ -67,19 +71,11 @@ class StaffAccountService {
 
     static final int LOGIN_KEY_MIN = 3;
     static final int LOGIN_KEY_MAX = 50;
-    static final int DISPLAY_NAME_MAX = 100;
-    static final int PASSWORD_MIN = 8;
-    static final int PASSWORD_MAX = 72;
-    /** Giới hạn của bcrypt tính theo byte; mật khẩu dài hơn sẽ bị bộ băm từ chối. */
-    static final int PASSWORD_MAX_BYTES = 72;
-    static final int PHONE_MAX = 20;
     static final String LOGIN_KEY_UNIQUE = "app_user_login_key_uq";
     static final String LOGIN_TAKEN = "/errors/platform/login-taken";
     static final String OWNER_PROTECTED = "/errors/platform/owner-protected";
 
     private static final Pattern LOGIN_KEY_CHARS = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
-    private static final Pattern PHONE_CHARS = Pattern.compile("[0-9 +.\\-]+");
-    private static final Pattern HAS_DIGIT = Pattern.compile(".*[0-9].*");
 
     private static final RowMapper<StoreUser> ROW = (rs, i) -> new StoreUser(rs.getObject("id", UUID.class),
             rs.getString("login_key"), rs.getString("display_name"), Role.valueOf(rs.getString("role")),
@@ -184,7 +180,7 @@ class StaffAccountService {
      */
     void resetPassword(UUID id, ResetPasswordRequest request) {
         List<Map<String, String>> errors = new ArrayList<>();
-        String password = checkPassword(request.password(), errors);
+        String password = AccountFields.password(request.password(), "password", "Mật khẩu", errors);
         throwIfAny(errors);
         String hash = passwords.encode(password);   // băm (chậm) trước khi mở transaction
         tx.executeWithoutResult(status -> {
@@ -227,30 +223,13 @@ class StaffAccountService {
         List<Map<String, String>> errors = new ArrayList<>();
         String loginKey = checkLoginKey(request.loginKey(), errors);
 
-        String displayName = StoreText.normalize(request.displayName());
-        if (StoreText.hasInvalidChars(displayName)) {
-            addError(errors, "displayName", "Tên Nhân viên có ký tự không hợp lệ");
-        } else if (displayName.isEmpty()) {
-            addError(errors, "displayName", "Nhập tên Nhân viên");
-        } else if (StoreText.length(displayName) > DISPLAY_NAME_MAX) {
-            addError(errors, "displayName", "Tên Nhân viên tối đa " + DISPLAY_NAME_MAX + " ký tự");
-        }
+        String displayName = AccountFields.displayName(request.displayName(), "Tên Nhân viên", errors);
+        String password = AccountFields.password(request.password(), "password", "Mật khẩu", errors);
 
-        String password = checkPassword(request.password(), errors);
-
-        String phone = StoreText.normalize(request.phone());
-        if (!phone.isEmpty()) {
-            if (!PHONE_CHARS.matcher(phone).matches()) {
-                addError(errors, "phone", "Số điện thoại chỉ gồm chữ số, khoảng trắng và các dấu + . -");
-            } else if (!HAS_DIGIT.matcher(phone).matches()) {
-                addError(errors, "phone", "Số điện thoại phải có chữ số");
-            } else if (StoreText.length(phone) > PHONE_MAX) {
-                addError(errors, "phone", "Số điện thoại tối đa " + PHONE_MAX + " ký tự");
-            }
-        }
+        String phone = AccountFields.vietnamPhone(request.phone(), errors);
 
         throwIfAny(errors);
-        return new NewStaff(loginKey, displayName, password, phone.isEmpty() ? null : phone);
+        return new NewStaff(loginKey, displayName, password, phone);
     }
 
     /** Tên đăng nhập đã chuẩn hóa (chữ thường), hoặc ghi lỗi trên {@code loginKey}. */
@@ -271,32 +250,6 @@ class StaffAccountService {
             return LoginKeys.normalize(trimmed);   // chỉ ASCII nên chữ thường không đổi độ dài
         }
         return null;
-    }
-
-    /**
-     * Mật khẩu (lưu nguyên, không cắt khoảng trắng), hoặc ghi lỗi trên {@code password}. Trống sau khi cắt như
-     * {@code String.trim()} là thiếu: {@code @NotBlank} của đăng nhập chặn mật khẩu như vậy, tài khoản sẽ không bao giờ
-     * đăng nhập được. Surrogate lẻ bị từ chối vì UTF-8 (bcrypt) đổi nó thành {@code ?}.
-     */
-    private static String checkPassword(String password, List<Map<String, String>> errors) {
-        if (password == null || password.trim().isEmpty()) {
-            addError(errors, "password", "Nhập mật khẩu");
-            return null;
-        }
-        if (password.codePoints().anyMatch(c -> Character.getType(c) == Character.SURROGATE)) {
-            addError(errors, "password", "Mật khẩu có ký tự không hợp lệ");
-            return null;
-        }
-        int length = password.codePointCount(0, password.length());
-        if (length < PASSWORD_MIN || length > PASSWORD_MAX) {
-            addError(errors, "password", "Mật khẩu từ " + PASSWORD_MIN + " đến " + PASSWORD_MAX + " ký tự");
-            return null;
-        }
-        if (password.getBytes(StandardCharsets.UTF_8).length > PASSWORD_MAX_BYTES) {
-            addError(errors, "password", "Mật khẩu quá dài, hãy dùng mật khẩu ngắn hơn");
-            return null;
-        }
-        return password;
     }
 
     /** Mốc giờ từ {@code Clock}, cắt tới micro giây như {@code timestamptz}. */
@@ -323,17 +276,6 @@ class StaffAccountService {
             }
         }
         return false;
-    }
-
-    private static void throwIfAny(List<Map<String, String>> errors) {
-        if (!errors.isEmpty()) {
-            throw new ProblemException(HttpStatus.BAD_REQUEST, "/errors/common/validation", "Dữ liệu không hợp lệ",
-                    "Vui lòng kiểm tra lại các trường được đánh dấu.", Map.of("errors", List.copyOf(errors)));
-        }
-    }
-
-    private static void addError(List<Map<String, String>> errors, String field, String message) {
-        errors.add(Map.of("field", field, "message", message));
     }
 
     private static ProblemException loginTaken() {

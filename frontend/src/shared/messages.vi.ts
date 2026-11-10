@@ -73,6 +73,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Không khóa, mở khóa hay đặt lại mật khẩu được cho tài khoản Chủ cửa hàng.',
     hint: 'Các thao tác này chỉ dành cho tài khoản Nhân viên. Tải lại trang để xem danh sách mới nhất.',
   },
+  '/errors/platform/wrong-current-password': {
+    message: 'Mật khẩu hiện tại không đúng.',
+    hint: 'Nhập lại mật khẩu đang dùng. Mật khẩu chưa được đổi. Nhân viên quên mật khẩu thì nhờ Chủ cửa hàng đặt lại.',
+  },
 
   // catalog
   '/errors/catalog/category-name-taken': {

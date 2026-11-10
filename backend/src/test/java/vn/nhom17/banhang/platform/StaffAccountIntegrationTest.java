@@ -189,8 +189,12 @@ class StaffAccountIntegrationTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.loginKey").value(key))
                 .andExpect(jsonPath("$.displayName").value("Lan Anh"))
-                .andExpect(jsonPath("$.phone").value("0912 345 678"));
+                .andExpect(jsonPath("$.phone").value("0912345678"));
         login(key, "matkhau1");
+        // Số Việt Nam như Thông tin cá nhân (TK-04): +84 thành 0, bỏ dấu cách, dấu chấm, gạch ngang
+        create(owner, body(uniqueKey(), "Mai", "matkhau1", "+84 987.654-321"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.phone").value("0987654321"));
     }
 
     // --- Trùng tên đăng nhập (AD-9: unique toàn hệ thống) ----------------------------------------------------------
@@ -319,13 +323,14 @@ class StaffAccountIntegrationTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.errors[0].field").value("password"))
                 .andExpect(jsonPath("$.errors[0].message").value("Mật khẩu có ký tự không hợp lệ"));
-        // Số điện thoại quá dài, không có chữ số
-        create(owner, body(uniqueKey(), "Minh", "matkhau1", "0".repeat(21)))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("phone"));
-        create(owner, body(uniqueKey(), "Minh", "matkhau1", "+ . -"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.errors[0].field").value("phone"));
+        // Số điện thoại không phải số Việt Nam 0/+84 + 9 chữ số (số bàn, quá dài, không có chữ số)
+        for (String phone : List.of("028 1234 5678", "0".repeat(21), "+ . -", "0912 345")) {
+            create(owner, body(uniqueKey(), "Minh", "matkhau1", phone))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.errors[0].field").value("phone"))
+                    .andExpect(jsonPath("$.errors[0].message")
+                            .value("Số điện thoại phải là 0 và 9 chữ số, hoặc +84 và 9 chữ số"));
+        }
         // Đúng giới hạn: tên 100 ký tự, mật khẩu 72 byte
         String key = uniqueKey();
         create(owner, body(key, "a".repeat(100), "ă".repeat(36), null)).andExpect(status().isCreated());

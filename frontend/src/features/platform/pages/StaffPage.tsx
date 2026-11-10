@@ -31,6 +31,7 @@ import {
   useSetUserLocked,
   usersQueryKey,
 } from '../api/users';
+import { checkWith, fieldErrorsOf, sameAs } from '../components/formRules';
 
 const EMPTY = '—';
 const LOGIN_TAKEN_MESSAGE = 'Tên đăng nhập này đã được dùng. Hãy chọn tên khác.';
@@ -47,47 +48,21 @@ const dateFormat = new Intl.DateTimeFormat('vi-VN', {
   year: 'numeric',
 });
 
-/** Rule antd từ một hàm kiểm trả câu lỗi (giống backend). */
-function checkWith(check: (value: string | undefined) => string | null) {
-  return {
-    validator: (_: unknown, value?: string) => {
-      const error = check(value);
-      return error ? Promise.reject(new Error(error)) : Promise.resolve();
-    },
-  };
-}
-
-/** Ô "Nhập lại mật khẩu" phải khớp ô `field`. */
-function sameAs(field: string) {
-  return ({ getFieldValue }: { getFieldValue: (name: string) => unknown }) => ({
-    validator: (_: unknown, value?: string) =>
-      !value || getFieldValue(field) === value
-        ? Promise.resolve()
-        : Promise.reject(new Error('Mật khẩu nhập lại không khớp')),
-  });
-}
-
 /**
- * Lỗi của backend đặt được hết dưới các ô có tên trong `fields`; `null` nếu có phần không thuộc ô nào (khi đó hiện
- * khung báo lỗi chung).
+ * Lỗi của backend đặt được hết dưới các ô có tên trong `fields` (`fieldErrorsOf`), cộng trường hợp tên đăng nhập đã
+ * dùng (`409 login-taken`, hiện dưới ô tên đăng nhập); `null` thì hiện khung báo lỗi chung.
  */
 function formErrorsOf<F extends string>(
   error: unknown,
   fields: readonly F[],
   loginTakenMessage = LOGIN_TAKEN_MESSAGE,
 ): { name: F; errors: string[] }[] | null {
-  if (!isApiError(error)) return null;
   const isField = (field: string): field is F => (fields as readonly string[]).includes(field);
   const loginKey = 'loginKey';
-  if (error.type === LOGIN_TAKEN && isField(loginKey)) {
+  if (isApiError(error) && error.type === LOGIN_TAKEN && isField(loginKey)) {
     return [{ name: loginKey, errors: [loginTakenMessage] }];
   }
-  if (error.errors.length === 0 || !error.errors.every((e) => isField(e.field))) return null;
-  const byField = new Map<F, string[]>();
-  for (const { field, message } of error.errors) {
-    if (isField(field)) byField.set(field, [...(byField.get(field) ?? []), message]);
-  }
-  return [...byField].map(([name, errors]) => ({ name, errors }));
+  return fieldErrorsOf(error, fields);
 }
 
 /** Số cột của bảng (`columns` trong `StaffPage`), cho ô gợi ý trải hết chiều ngang. */

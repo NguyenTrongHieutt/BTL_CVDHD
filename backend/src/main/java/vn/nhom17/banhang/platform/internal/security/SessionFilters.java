@@ -6,18 +6,12 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.time.Clock;
-import java.time.Instant;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.http.HttpHeaders;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
-import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.filter.OncePerRequestFilter;
 import vn.nhom17.banhang.platform.Role;
 
@@ -30,25 +24,17 @@ final class SessionFilters {
     private SessionFilters() {
     }
 
-    /** Mỗi request kiểm tra tài khoản còn hoạt động, cache tối đa {@code accountStatusCache}. */
+    /**
+     * Mỗi request kiểm tra tài khoản còn hoạt động qua {@link AccountStatusCache} (AD-9): tài khoản đã khóa bị chặn
+     * bằng {@code 401 account-locked} và xóa cookie.
+     */
     static final class AccountStatusFilter extends OncePerRequestFilter {
 
-        private record Entry(boolean active, Instant checkedAt) {
-        }
-
-        private final Map<UUID, Entry> cache = new ConcurrentHashMap<>();
-        private final JdbcTemplate jdbc;
-        private final TransactionTemplate tx;
-        private final Clock clock;
-        private final SecurityProperties props;
+        private final AccountStatusCache statuses;
         private final ProblemSecurityHandlers handlers;
 
-        AccountStatusFilter(JdbcTemplate jdbc, TransactionTemplate tx, Clock clock, SecurityProperties props,
-                            ProblemSecurityHandlers handlers) {
-            this.jdbc = jdbc;
-            this.tx = tx;
-            this.clock = clock;
-            this.props = props;
+        AccountStatusFilter(AccountStatusCache statuses, ProblemSecurityHandlers handlers) {
+            this.statuses = statuses;
             this.handlers = handlers;
         }
 
@@ -56,31 +42,13 @@ final class SessionFilters {
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
                 throws ServletException, IOException {
             Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-            if (auth instanceof JwtAuthenticationToken token && !isActive(UUID.fromString(token.getToken().getSubject()))) {
+            if (auth instanceof JwtAuthenticationToken token
+                    && !statuses.isActive(UUID.fromString(token.getToken().getSubject()))) {
                 SecurityContextHolder.clearContext();
                 handlers.commence(request, response, new ProblemSecurityHandlers.AccountLockedException());
                 return;
             }
             chain.doFilter(request, response);
-        }
-
-        private boolean isActive(UUID userId) {
-            Instant now = clock.instant();
-            Entry cached = cache.get(userId);
-            if (cached != null && cached.checkedAt().plus(props.accountStatusCache()).isAfter(now)) {
-                return cached.active();
-            }
-            Boolean active = tx.execute(status -> jdbc.query(
-                    "select status from app.app_user where id = ?",
-                    rs -> rs.next() && "ACTIVE".equals(rs.getString(1)), userId));
-            boolean result = Boolean.TRUE.equals(active);
-            cache.put(userId, new Entry(result, now));
-            return result;
-        }
-
-        /** Dùng khi khóa tài khoản để có hiệu lực ngay trên máy chủ này. */
-        void evict(UUID userId) {
-            cache.remove(userId);
         }
     }
 

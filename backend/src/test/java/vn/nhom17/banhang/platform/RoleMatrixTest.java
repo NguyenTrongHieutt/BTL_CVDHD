@@ -119,6 +119,7 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/platform/users", U, F, A),
                 row("POST", "/api/v1/platform/users", U, F, A),
                 row("POST", "/api/v1/platform/users/{id}/lock", U, F, A),
+                row("POST", "/api/v1/platform/users/{id}/unlock", U, F, A),
                 row("POST", "/api/v1/platform/users/{id}/reset-password", U, F, A),
                 row("GET", "/api/v1/platform/audit-log", U, F, A),
                 // catalog: xem cả hai vai trò; thêm, sửa Sản phẩm (cả giá), Danh mục, Nhà cung cấp chỉ Chủ cửa hàng

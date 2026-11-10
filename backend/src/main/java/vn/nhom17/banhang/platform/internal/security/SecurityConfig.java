@@ -3,13 +3,11 @@ package vn.nhom17.banhang.platform.internal.security;
 import jakarta.servlet.http.HttpServletRequest;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.time.Clock;
 import java.util.function.Supplier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.authorization.AuthorizationResult;
@@ -22,8 +20,6 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
-import org.springframework.transaction.PlatformTransactionManager;
-import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Phân quyền MẶC ĐỊNH LÀ CẤM (AD-16). Mọi nhóm route khai báo vai trò được phép tại đây; route chưa khai báo bị
@@ -39,11 +35,8 @@ class SecurityConfig {
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, JwtService jwt, ProblemSecurityHandlers handlers,
-                                    SecurityProperties props, JdbcTemplate jdbc, PlatformTransactionManager txManager,
-                                    Clock clock) throws Exception {
-        TransactionTemplate readOnlyTx = new TransactionTemplate(txManager);
-        readOnlyTx.setReadOnly(true);
-        var accountStatus = new SessionFilters.AccountStatusFilter(jdbc, readOnlyTx, clock, props, handlers);
+                                    SecurityProperties props, AccountStatusCache accountStatuses) throws Exception {
+        var accountStatus = new SessionFilters.AccountStatusFilter(accountStatuses, handlers);
         var renewal = new SessionFilters.TokenRenewalFilter(jwt);
 
         http.csrf(csrf -> csrf.disable())   // cookie SameSite=Strict, cùng một địa chỉ sau nginx (AD-1, AD-9)

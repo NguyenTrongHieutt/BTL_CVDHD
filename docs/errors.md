@@ -14,8 +14,9 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/common/idempotency-key-reuse` | 409 | Cùng `Idempotency-Key` nhưng nội dung khác (AD-7) | common |
 | `/errors/common/internal` | 500 | Lỗi không mong đợi; báo kèm `requestId` | common |
 | `/errors/platform/invalid-credentials` | 401 | Sai tên đăng nhập hoặc mật khẩu, hoặc tài khoản đã bị khóa khi đăng nhập (một thông báo chung, không lộ tài khoản có tồn tại hay bị khóa, FR-44) | platform |
-| `/errors/platform/account-locked` | 401 | Tài khoản bị khóa khi đang dùng (AD-9) | platform |
+| `/errors/platform/account-locked` | 401 | Tài khoản bị khóa khi đang dùng (AD-9), kèm xóa cookie. Khóa qua `POST /api/v1/platform/users/{id}/lock` thì có hiệu lực ngay ở request kế tiếp; thay đổi trạng thái không qua API đó thì chậm nhất khi cache trạng thái (60 giây) hết hạn. Giới hạn đã biết: mở khóa lại thì token cũ dùng tiếp được (khóa, đặt lại mật khẩu không thu hồi token, phiên đã mở không kết thúc); `ai-service` chỉ kiểm chữ ký và hạn của token, không kiểm trạng thái tài khoản, nên không trả mã này | platform |
 | `/errors/platform/login-taken` | 409 | Tên đăng nhập, số điện thoại hoặc email đã dùng (AD-9) | platform |
+| `/errors/platform/owner-protected` | 409 | Khóa, mở khóa hoặc đặt lại mật khẩu cho tài khoản Chủ cửa hàng (kể cả chính mình) qua `/api/v1/platform/users/{id}/…` (FR-45, TK-02). Các thao tác này chỉ dành cho Nhân viên | platform |
 | `/errors/catalog/category-name-taken` | 409 | Cửa hàng đã có Danh mục cùng tên, không phân biệt hoa thường (unique `category_name_uq`, FR-4) | catalog |
 | `/errors/catalog/category-in-use` | 409 | Xóa Danh mục còn Sản phẩm: mọi Sản phẩm thuộc Danh mục đều tính, kể cả Sản phẩm đã ngừng kinh doanh (khóa ngoại `RESTRICT`, FR-4) | catalog |
 | `/errors/catalog/barcode-taken` | 409 | Cửa hàng đã có Biến thể (chưa xóa mềm) dùng mã vạch này (unique `product_variant_barcode_uq`, FR-1). Mã vạch lưu chữ HOA nên khác hoa thường vẫn là trùng. Cửa hàng khác dùng cùng mã vạch thì được | catalog |

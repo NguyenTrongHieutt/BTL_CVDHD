@@ -69,6 +69,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Tài khoản này đã bị khóa.',
     hint: 'Liên hệ Chủ cửa hàng để mở lại tài khoản.',
   },
+  '/errors/platform/owner-protected': {
+    message: 'Không khóa, mở khóa hay đặt lại mật khẩu được cho tài khoản Chủ cửa hàng.',
+    hint: 'Các thao tác này chỉ dành cho tài khoản Nhân viên. Tải lại trang để xem danh sách mới nhất.',
+  },
 
   // catalog
   '/errors/catalog/category-name-taken': {

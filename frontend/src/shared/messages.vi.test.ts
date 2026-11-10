@@ -10,6 +10,7 @@ describe('messages.vi', () => {
     '/errors/common/idempotency-key-reuse',
     '/errors/common/payload-too-large',
     '/errors/platform/login-taken',
+    '/errors/platform/owner-protected',
     '/errors/catalog/category-name-taken',
     '/errors/catalog/category-in-use',
     '/errors/catalog/barcode-taken',

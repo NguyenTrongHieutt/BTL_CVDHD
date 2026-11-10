@@ -1,9 +1,9 @@
 /**
  * Kiểu dữ liệu của module `platform`: tài khoản, phiên đăng nhập, Cửa hàng.
- * Người giữ: Hiếu (B). Khớp với `platform/internal/auth/AuthController.java`, `StoreRegistrationController.java` và
- * `platform/internal/store/StoreController.java`.
+ * Người giữ: Hiếu (B). Khớp với `platform/internal/auth/AuthController.java`, `StoreRegistrationController.java`,
+ * `platform/internal/store/StoreController.java` và `platform/internal/user/StaffAccountController.java`.
  */
-import type { Money, Uuid } from './common';
+import type { IsoDateTime, Money, Uuid } from './common';
 
 /** Vai trò trong một Cửa hàng (PRD 4.7). Frontend chỉ dùng để ẩn menu và route; backend mới là nơi kiểm quyền (AD-16). */
 export type Role = 'OWNER' | 'STAFF';
@@ -73,3 +73,44 @@ export interface StoreInfo {
  * trống (tắt chuyển khoản) hoặc cùng có. Không có `Idempotency-Key` (ghi đè, gửi lại không đổi gì).
  */
 export type UpdateStoreRequest = StoreInfo;
+
+/** Trạng thái tài khoản: `LOCKED` thì không đăng nhập được, phiên đang mở bị chặn ở request kế tiếp (AD-9). */
+export type UserStatus = 'ACTIVE' | 'LOCKED';
+
+export const USER_STATUS_LABELS: Readonly<Record<UserStatus, string>> = {
+  ACTIVE: 'Đang hoạt động',
+  LOCKED: 'Đã khóa',
+};
+
+/**
+ * Một tài khoản của Cửa hàng (FR-45, TK-02): dòng của `GET /api/v1/platform/users`, phản hồi của `POST` tạo Nhân viên
+ * và của khóa, mở khóa. Khớp với `platform/internal/user/StoreUser.java`. Không có mật khẩu.
+ */
+export interface StoreUser {
+  userId: Uuid;
+  /** Tên đăng nhập (Nhân viên) hoặc số điện thoại, email (Chủ cửa hàng), chữ thường. */
+  loginKey: string;
+  displayName: string;
+  role: Role;
+  status: UserStatus;
+  /** `null` khi bỏ trống. */
+  phone: string | null;
+  createdAt: IsoDateTime;
+}
+
+/**
+ * Body của `POST /api/v1/platform/users` (chỉ Chủ cửa hàng). Không có `Idempotency-Key`.
+ * `loginKey`: 3–50 ký tự `a-z 0-9 . _ -`, bắt đầu bằng chữ cái hoặc chữ số, không được có dạng số điện thoại hay email;
+ * `displayName`: tối đa 100 ký tự; `password`: 8–72 ký tự, tối đa 72 byte; `phone`: tùy chọn, tối đa 20 ký tự.
+ */
+export interface CreateStaffRequest {
+  loginKey: string;
+  displayName: string;
+  password: string;
+  phone?: string;
+}
+
+/** Body của `POST /api/v1/platform/users/{id}/reset-password`: mật khẩu mới, 8–72 ký tự; không gửi mật khẩu cũ. */
+export interface ResetPasswordRequest {
+  password: string;
+}

@@ -48,12 +48,18 @@ public class AppUserEntity {
     }
 
     public AppUserEntity(UUID id, String loginKey, String displayName, String passwordHash, String role, Instant now) {
+        this(id, loginKey, displayName, passwordHash, role, null, now);
+    }
+
+    public AppUserEntity(UUID id, String loginKey, String displayName, String passwordHash, String role, String phone,
+                         Instant now) {
         this.id = id;
         this.loginKey = loginKey;
         this.displayName = displayName;
         this.passwordHash = passwordHash;
         this.role = role;
-        this.status = "ACTIVE";
+        this.phone = phone;
+        this.status = UserStatus.ACTIVE.name();
         this.createdAt = now;
         this.updatedAt = now;
     }
@@ -80,5 +86,28 @@ public class AppUserEntity {
 
     public String status() {
         return status;
+    }
+
+    public String phone() {
+        return phone;
+    }
+
+    public Instant createdAt() {
+        return createdAt;
+    }
+
+    /** Đặt trạng thái; trả {@code false} (không đổi gì) khi đã ở trạng thái đó. */
+    boolean changeStatus(UserStatus next, Instant now) {
+        if (next.name().equals(status)) {
+            return false;
+        }
+        status = next.name();
+        updatedAt = now;
+        return true;
+    }
+
+    void changePassword(String newHash, Instant now) {
+        passwordHash = newHash;
+        updatedAt = now;
     }
 }

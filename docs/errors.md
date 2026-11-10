@@ -12,7 +12,7 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/common/idempotency-key-missing` | 422 | Tạo chứng từ mà thiếu `Idempotency-Key`, hoặc khóa không phải UUID hợp lệ | common |
 | `/errors/common/idempotency-key-reuse` | 409 | Cùng `Idempotency-Key` nhưng nội dung khác (AD-7) | common |
 | `/errors/common/internal` | 500 | Lỗi không mong đợi; báo kèm `requestId` | common |
-| `/errors/platform/invalid-credentials` | 401 | Sai tên đăng nhập hoặc mật khẩu (một thông báo chung, FR-44) | platform |
+| `/errors/platform/invalid-credentials` | 401 | Sai tên đăng nhập hoặc mật khẩu, hoặc tài khoản đã bị khóa khi đăng nhập (một thông báo chung, không lộ tài khoản có tồn tại hay bị khóa, FR-44) | platform |
 | `/errors/platform/account-locked` | 401 | Tài khoản bị khóa khi đang dùng (AD-9) | platform |
 | `/errors/platform/login-taken` | 409 | Tên đăng nhập, số điện thoại hoặc email đã dùng (AD-9) | platform |
 | `/errors/inventory/insufficient-stock` | 422 | Không đủ hàng; cả chứng từ rollback (AD-6) | inventory |

@@ -8,9 +8,11 @@ import { describeError } from '../messages.vi';
 export interface ErrorAlertProps {
   error: unknown;
   style?: CSSProperties;
+  /** Có thì hiện nút đóng; màn hình thường xóa lỗi (ví dụ `mutation.reset()`) trong hàm này. */
+  onClose?: () => void;
 }
 
-export function ErrorAlert({ error, style }: ErrorAlertProps) {
+export function ErrorAlert({ error, style, onClose }: ErrorAlertProps) {
   const described = describeError(error);
   const lines = [
     described.hint,
@@ -24,6 +26,7 @@ export function ErrorAlert({ error, style }: ErrorAlertProps) {
       title={described.message}
       description={lines.length > 0 ? lines.map((line) => <div key={line}>{line}</div>) : undefined}
       style={{ marginBottom: 16, ...style }}
+      closable={onClose ? { onClose } : false}
     />
   );
 }

@@ -53,15 +53,25 @@ class AuthService {
                 "select user_id, store_id, password_hash, role, status, display_name from app.auth_lookup(?)",
                 (rs, i) -> new Lookup(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3),
                         Role.valueOf(rs.getString(4)), rs.getString(5), rs.getString(6)),
-                loginKey.trim().toLowerCase()));
+                LoginKeys.normalize(loginKey)));
         Lookup user = found == null || found.isEmpty() ? null : found.getFirst();
         boolean ok = passwords.matches(password, user == null ? DUMMY_HASH : user.passwordHash());
         if (user == null || !ok || !"ACTIVE".equals(user.status())) {
-            throw new ProblemException(HttpStatus.UNAUTHORIZED, "/errors/platform/invalid-credentials",
-                    "Đăng nhập không thành công", "Sai tên đăng nhập hoặc mật khẩu.");
+            throw invalidCredentials();
         }
-        String token = jwt.issue(user.userId(), user.storeId(), user.role());
-        Me me = TenantScope.runAs(user.storeId(), user.userId(), user.role(), this::loadMe);
+        return startSession(user.storeId(), user.userId(), user.role());
+    }
+
+    /** Một lỗi chung cho sai tên, sai mật khẩu và tài khoản bị khóa: không lộ tài khoản có tồn tại hay không (FR-44). */
+    static ProblemException invalidCredentials() {
+        return new ProblemException(HttpStatus.UNAUTHORIZED, "/errors/platform/invalid-credentials",
+                "Đăng nhập không thành công", "Sai tên đăng nhập hoặc mật khẩu.");
+    }
+
+    /** Cấp token và đọc {@code Me} cho một người dùng đã xác thực (đăng nhập, đăng ký Cửa hàng). Gọi ngoài transaction. */
+    LoginResult startSession(UUID storeId, UUID userId, Role role) {
+        String token = jwt.issue(userId, storeId, role);
+        Me me = TenantScope.runAs(storeId, userId, role, this::loadMe);
         return new LoginResult(token, me);
     }
 

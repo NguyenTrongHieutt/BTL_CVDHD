@@ -20,6 +20,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.transaction.IllegalTransactionStateException;
@@ -46,6 +47,7 @@ class PlatformIntegrationTest {
     @Autowired IdempotencyService idempotency;
     @Autowired AuditLog auditLog;
     @Autowired AppUserRepository users;
+    @Autowired PasswordEncoder passwords;
 
     <T> T inTx(java.util.function.Supplier<T> work) {
         return new TransactionTemplate(txManager).execute(s -> work.get());
@@ -99,6 +101,60 @@ class PlatformIntegrationTest {
     }
 
     @Test
+    void lockedAccountGetsTheSameGenericProblemAsAWrongPassword() throws Exception {
+        String loginKey = "nv.khoa." + UUID.randomUUID();
+        Integer inserted = TenantScope.runAs(STORE_A, () -> inTx(() -> jdbc.update("""
+                insert into app.app_user (store_id, login_key, display_name, password_hash, role, status)
+                values (?, ?, 'Nhân viên bị khóa', ?, 'STAFF', 'LOCKED')
+                """, STORE_A, loginKey, passwords.encode("demo1234"))));
+        assertThat(inserted).isEqualTo(1);
+
+        MvcResult locked = mvc.perform(post("/api/v1/platform/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"loginKey\":\"" + loginKey + "\",\"password\":\"demo1234\"}"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().doesNotExist("Set-Cookie"))
+                .andReturn();
+        MvcResult wrongPassword = mvc.perform(post("/api/v1/platform/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"loginKey\":\"dev.chu.a\",\"password\":\"sai-mat-khau\"}"))
+                .andExpect(status().isUnauthorized())
+                .andReturn();
+        // Cùng một Problem (trừ requestId): không lộ tài khoản có tồn tại, có bị khóa hay không (FR-44)
+        for (String field : new String[] {"type", "title", "status", "detail"}) {
+            assertThat(com.jayway.jsonpath.JsonPath.<Object>read(locked.getResponse().getContentAsString(), "$." + field))
+                    .isEqualTo(com.jayway.jsonpath.JsonPath.<Object>read(
+                            wrongPassword.getResponse().getContentAsString(), "$." + field));
+        }
+        assertThat(locked.getResponse().getContentType()).isEqualTo(wrongPassword.getResponse().getContentType());
+
+        // Đối chứng: cùng thông tin, mở khóa thì đăng nhập được, nên 401 ở trên là do status = LOCKED
+        TenantScope.runAs(STORE_A, () -> inTx(() -> jdbc.update(
+                "update app.app_user set status = 'ACTIVE' where login_key = ?", loginKey)));
+        mvc.perform(post("/api/v1/platform/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"loginKey\":\"" + loginKey + "\",\"password\":\"demo1234\"}"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void loginKeyIsTrimmedAndCaseInsensitive() throws Exception {
+        Cookie cookie = login("  DEV.Chu.A ");
+        mvc.perform(get("/api/v1/platform/me").cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.storeId").value(STORE_A.toString()))
+                .andExpect(jsonPath("$.role").value("OWNER"))
+                .andExpect(jsonPath("$.displayName").value("Chủ cửa hàng A"));
+    }
+
+    @Test
+    void logoutClearsTheCookie() throws Exception {
+        mvc.perform(post("/api/v1/platform/auth/logout").cookie(login("dev.chu.a")))
+                .andExpect(status().isNoContent())
+                .andExpect(header().string("Set-Cookie",
+                        org.hamcrest.Matchers.allOf(org.hamcrest.Matchers.containsString("access_token="),
+                                org.hamcrest.Matchers.containsString("Max-Age=0"))));
+    }
+
+    @Test
     void missingFieldsGiveValidationProblemWithErrors() throws Exception {
         mvc.perform(post("/api/v1/platform/auth/login").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isBadRequest())
@@ -130,9 +186,8 @@ class PlatformIntegrationTest {
     @Test
     void internalRoutesNeedTheServiceKey() throws Exception {
         mvc.perform(get("/internal/catalog/product-changes")).andExpect(status().isUnauthorized());
-        MvcResult withKey = mvc.perform(get("/internal/catalog/product-changes")
-                .header("X-Service-Key", TestcontainersConfiguration.SERVICE_KEY)).andReturn();
-        assertThat(withKey.getResponse().getStatus()).isNotIn(401, 403); // endpoint làm ở GĐ1 (Hiếu)
+        mvc.perform(get("/internal/catalog/product-changes")
+                .header("X-Service-Key", TestcontainersConfiguration.SERVICE_KEY)).andExpect(status().isOk());
     }
 
     // --- Tách dữ liệu hai lớp (AD-5) --------------------------------------------------------------------------

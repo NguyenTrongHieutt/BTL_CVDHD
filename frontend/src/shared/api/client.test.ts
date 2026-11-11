@@ -80,6 +80,21 @@ describe('headers và body', () => {
     expect(data).toEqual({ total: 1234000 });
   });
 
+  it('body FormData gửi nguyên (multipart), không tự đặt Content-Type JSON', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ id: 'p-1' }));
+    const form = new FormData();
+    form.append('file', new File([new Uint8Array([0x89, 0x50])], 'anh.png', { type: 'image/png' }));
+
+    const data = await api.put<{ id: string }>('/api/v1/catalog/products/p-1/image', form);
+
+    const { init, headers } = lastCall();
+    expect(init.method).toBe('PUT');
+    expect(init.body).toBe(form);
+    // Trình duyệt tự đặt multipart/form-data kèm boundary
+    expect(headers.has('Content-Type')).toBe(false);
+    expect(data).toEqual({ id: 'p-1' });
+  });
+
   it('không gửi Content-Type khi không có body; 204 trả undefined', async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
 

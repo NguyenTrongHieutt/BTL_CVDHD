@@ -3,8 +3,9 @@
  *
  * Khung đã chạy được theo AD-9: gọi `POST /api/v1/platform/auth/login`, backend đặt cookie HttpOnly
  * và trả `Me`; xong thì về trang đã định mở (hoặc trang chính theo vai trò).
- * Sai thông tin thì báo lỗi chung, không nói tài khoản có tồn tại hay không (FR-44).
- * TODO(Hiếu, TK-01, GĐ1): hoàn thiện giao diện; liên kết Đăng ký sang màn TK-00.
+ * Sai thông tin hoặc tài khoản bị khóa thì báo lỗi chung, không nói tài khoản có tồn tại hay không (FR-44).
+ * Chủ cửa hàng dùng số điện thoại hoặc email, Nhân viên dùng tên đăng nhập. `useLogin` cắt khoảng trắng; backend
+ * cắt khoảng trắng, đổi chữ thường và `+84` → `0`.
  */
 import { Button, Card, Form, Input, Typography } from 'antd';
 import { Link, useLocation, useNavigate } from 'react-router';
@@ -15,7 +16,8 @@ import type { LoginRequest } from '../../../shared/types/platform';
 function redirectTarget(state: unknown): string {
   if (typeof state === 'object' && state !== null && 'from' in state && typeof state.from === 'string') {
     const from = state.from;
-    if (from.startsWith('/') && !from.startsWith('//') && from !== '/login') return from;
+    // Chỉ đường dẫn nội bộ: "//host" và "/\host" đều bị trình duyệt hiểu là địa chỉ ngoài
+    if (from.startsWith('/') && !from.startsWith('//') && !from.startsWith('/\\') && from !== '/login') return from;
   }
   return '/';
 }

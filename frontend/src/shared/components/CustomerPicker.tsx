@@ -27,7 +27,7 @@ export function CustomerPicker({ value, disabled, placeholder = 'Khách lẻ (g�
       disabled={disabled ?? true}
       placeholder={placeholder}
       value={value ? value.customerId : undefined}
-      options={value ? [{ value: value.customerId, label: `${value.name} · ${value.phone}` }] : []}
+      options={value ? [{ value: value.customerId, label: value.name === null ? value.phone.replace(/^(\d{4})(\d{3})(\d{3})$/, '$1 $2 $3') : `${value.name} · ${value.phone}` }] : []}
       notFoundContent="Sẽ làm ở GĐ2 — Anh (DH-06)"
     />
   );

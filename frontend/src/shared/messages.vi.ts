@@ -47,6 +47,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Yêu cầu này trùng mã với một yêu cầu trước đó nhưng nội dung khác.',
     hint: 'Tải lại trang rồi thao tác lại. Chứng từ trước đó (nếu có) đã được ghi.',
   },
+  '/errors/common/payload-too-large': {
+    message: 'Tệp gửi lên quá lớn.',
+    hint: 'Chọn tệp nhỏ hơn rồi gửi lại.',
+  },
   '/errors/common/internal': {
     message: 'Máy chủ gặp lỗi.',
     hint: 'Thử lại sau ít phút. Nếu vẫn lỗi, báo mã yêu cầu cho nhóm hỗ trợ.',
@@ -64,6 +68,52 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
   '/errors/platform/account-locked': {
     message: 'Tài khoản này đã bị khóa.',
     hint: 'Liên hệ Chủ cửa hàng để mở lại tài khoản.',
+  },
+  '/errors/platform/owner-protected': {
+    message: 'Không khóa, mở khóa hay đặt lại mật khẩu được cho tài khoản Chủ cửa hàng.',
+    hint: 'Các thao tác này chỉ dành cho tài khoản Nhân viên. Tải lại trang để xem danh sách mới nhất.',
+  },
+  '/errors/platform/wrong-current-password': {
+    message: 'Mật khẩu hiện tại không đúng.',
+    hint: 'Nhập lại mật khẩu đang dùng. Mật khẩu chưa được đổi. Nhân viên quên mật khẩu thì nhờ Chủ cửa hàng đặt lại.',
+  },
+
+  // catalog
+  '/errors/catalog/category-name-taken': {
+    message: 'Cửa hàng đã có Danh mục tên này.',
+    hint: 'Tên Danh mục không phân biệt chữ hoa, chữ thường. Hãy chọn tên khác.',
+  },
+  '/errors/catalog/category-in-use': {
+    message: 'Danh mục này còn Sản phẩm nên không xóa được.',
+    hint: 'Mọi Sản phẩm thuộc Danh mục đều tính, kể cả Sản phẩm đã ngừng kinh doanh. Chuyển các Sản phẩm sang Danh mục khác rồi xóa lại.',
+  },
+  '/errors/catalog/barcode-taken': {
+    message: 'Cửa hàng đã có Sản phẩm dùng mã vạch này.',
+    hint: 'Kiểm tra lại mã vạch, hoặc tìm Sản phẩm đã có mã vạch này thay vì thêm mới.',
+  },
+  '/errors/catalog/sku-taken': {
+    message: 'Cửa hàng đã có Sản phẩm dùng SKU này.',
+    hint: 'Nhập SKU khác, hoặc để trống để hệ thống tự sinh.',
+  },
+  '/errors/catalog/product-inactive': {
+    message: 'Sản phẩm này đã ngừng kinh doanh nên không sửa được.',
+    hint: 'Ngừng kinh doanh không hoàn tác được. Bảng Sản phẩm đã được tải lại để hiện trạng thái mới nhất.',
+  },
+  '/errors/catalog/image-type': {
+    message: 'Tệp này không phải ảnh JPEG, PNG hay WebP.',
+    hint: 'Chọn ảnh khác. Hệ thống kiểm theo nội dung tệp, nên đổi đuôi tên tệp không có tác dụng.',
+  },
+  '/errors/catalog/image-too-large': {
+    message: 'Ảnh lớn hơn 1 MB.',
+    hint: 'Chọn ảnh nhỏ hơn, hoặc giảm kích thước ảnh rồi tải lại.',
+  },
+  '/errors/catalog/customer-phone-taken': {
+    message: 'Cửa hàng đã có Khách hàng dùng số điện thoại này.',
+    hint: 'Mở Khách hàng đã có để xem hoặc sửa, thay vì thêm mới.',
+  },
+  '/errors/catalog/supplier-code-taken': {
+    message: 'Cửa hàng đã có Nhà cung cấp dùng mã này.',
+    hint: 'Mã không phân biệt chữ hoa, chữ thường. Nhập mã khác, hoặc để trống.',
   },
 
   // sales

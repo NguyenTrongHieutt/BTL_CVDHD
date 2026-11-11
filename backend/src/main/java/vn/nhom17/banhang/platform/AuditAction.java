@@ -7,6 +7,7 @@ package vn.nhom17.banhang.platform;
 public enum AuditAction {
     PLATFORM_USER_CREATE("platform.user.create", "app_user"),
     PLATFORM_USER_LOCK("platform.user.lock", "app_user"),
+    PLATFORM_USER_UNLOCK("platform.user.unlock", "app_user"),
     PLATFORM_USER_RESET_PASSWORD("platform.user.reset_password", "app_user"),
     PLATFORM_STORE_UPDATE("platform.store.update", "store"),
     CATALOG_VARIANT_PRICE_CHANGE("catalog.variant.price_change", "product_variant"),

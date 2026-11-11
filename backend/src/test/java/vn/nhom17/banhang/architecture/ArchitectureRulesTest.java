@@ -33,7 +33,7 @@ class ArchitectureRulesTest {
             Map.entry("store", "platform"), Map.entry("app_user", "platform"), Map.entry("audit_log", "platform"),
             Map.entry("order_counter", "platform"), Map.entry("idempotency_record", "platform"),
             Map.entry("category", "catalog"), Map.entry("product", "catalog"), Map.entry("product_variant", "catalog"),
-            Map.entry("customer", "catalog"), Map.entry("supplier", "catalog"),
+            Map.entry("product_image", "catalog"), Map.entry("customer", "catalog"), Map.entry("supplier", "catalog"),
             Map.entry("stock", "inventory"), Map.entry("stock_ledger", "inventory"), Map.entry("lot", "inventory"),
             Map.entry("purchase_receipt", "inventory"), Map.entry("purchase_receipt_line", "inventory"),
             Map.entry("stocktake", "inventory"), Map.entry("stocktake_line", "inventory"),

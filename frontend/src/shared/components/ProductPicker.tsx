@@ -1,41 +1,97 @@
-/**
- * Chọn hàng cho giỏ ở màn bán hàng (FR-9, FR-35). Người giữ: Anh. CHƯA LÀM: đây là khung giữ chỗ.
- *
- * Hợp đồng props đã chốt để các màn khác (bán hàng, Phiếu nhập, kiểm kho) dùng chung.
- *
- * TODO(Anh, DH-01/FR-9, GĐ1):
- *   - Quét mã vạch (máy quét gõ mã + Enter) → thêm thẳng vào giỏ, không cần bấm thêm.
- *   - Gõ tên → Tìm kiếm thường (SP-05 của Hiếu).
- *   - Lấy tên, giá, Tồn kho bằng `GET /api/v1/sales/sellable?ids=`; hiện dấu cảnh báo tồn thấp (FR-26).
- *   - Sản phẩm có Biến thể thì bắt chọn Biến thể (FR-7).
- * TODO(Anh, TH-01, GĐ2): chuyển sang `searchProducts()` trong `shared/api/aiSearch.ts` (Lân):
- *   chờ tối đa 1,5 giây, quá giờ tự về Tìm kiếm thường (AD-12); hiện chế độ đang dùng.
- */
-import { Space, Typography } from 'antd';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Button, Input, Pagination, Space, Table, Tag } from 'antd';
+import { api } from '../api/client';
+import type { PageResponse } from '../api/client';
 import type { SellableItem } from '../types/sales';
-import { SearchInput } from './SearchInput';
+import { ErrorAlert } from './ErrorAlert';
+import { MoneyText } from './MoneyText';
 
 export interface ProductPickerProps {
-  /** Gọi khi người bán chọn một Biến thể (quét mã, Tìm kiếm thường hoặc Tìm kiếm ngữ nghĩa). */
   onPick: (item: SellableItem) => void;
-  /** Có cho chọn hàng đã hết tồn không (Phiếu nhập: có; bán hàng: không, FR-9). */
   allowOutOfStock?: boolean;
-  /** Bật Tìm kiếm ngữ nghĩa (chỉ màn bán hàng, FR-35). */
   semantic?: boolean;
   autoFocus?: boolean;
   disabled?: boolean;
   placeholder?: string;
 }
 
+interface SellableResponse {
+  productId: string;
+  variantId: string;
+  productName: string;
+  variantName: string | null;
+  barcode: string | null;
+  salePrice: number;
+  quantity: number;
+  belowMin: boolean;
+}
+
+const pageSize = 20;
+
 export function ProductPicker({
-  autoFocus,
-  disabled,
-  placeholder = 'Quét mã vạch hoặc gõ tên sản phẩm',
+  onPick, allowOutOfStock, autoFocus, disabled,
+  placeholder = 'Tìm theo tên, SKU hoặc mã vạch',
 }: ProductPickerProps) {
+  const [q, setQuery] = useState('');
+  const [page, setPage] = useState(0);
+  const products = useQuery({
+    queryKey: ['sales', 'sellable', { q, page, size: pageSize }],
+    queryFn: ({ signal }) => api.get<PageResponse<SellableResponse>>('/api/v1/sales/sellable', {
+      signal, query: { q, page, size: pageSize },
+    }),
+    enabled: Boolean(q) && !disabled,
+  });
+
   return (
     <Space orientation="vertical" style={{ width: '100%' }}>
-      <SearchInput autoFocus={autoFocus} disabled={disabled ?? true} placeholder={placeholder} onSearch={() => {}} />
-      <Typography.Text type="secondary">Ô chọn hàng sẽ làm ở GĐ1 — Anh (DH-01); Tìm kiếm ngữ nghĩa gắn ở TH-01.</Typography.Text>
+      <Input.Search
+        aria-label="Tìm hàng"
+        allowClear
+        autoFocus={autoFocus}
+        disabled={disabled}
+        placeholder={placeholder}
+        enterButton="Tìm"
+        onSearch={(value) => {
+          setPage(0);
+          setQuery(value.trim());
+        }}
+      />
+      {q && products.isError && <ErrorAlert error={products.error} />}
+      {q && !products.isError && (
+        <Table<SellableResponse>
+          rowKey="variantId"
+          size="small"
+          loading={products.isFetching}
+          dataSource={products.data?.items ?? []}
+          pagination={false}
+          scroll={{ x: true }}
+          locale={{ emptyText: products.isFetching ? 'Đang tìm…' : 'Không tìm thấy sản phẩm.' }}
+          columns={[
+            { title: 'Sản phẩm', render: (_, row) => [row.productName, row.variantName].filter(Boolean).join(' · ') },
+            { title: 'Giá bán', render: (_, row) => <MoneyText value={row.salePrice} /> },
+            { title: 'Tồn', render: (_, row) => (
+              <Space>{row.quantity}{row.belowMin && <Tag color="warning">Tồn thấp</Tag>}</Space>
+            ) },
+            { title: 'Thao tác', render: (_, row) => (
+              <Button disabled={disabled || (!allowOutOfStock && row.quantity <= 0)} onClick={() => onPick({
+                productId: row.productId,
+                variantId: row.variantId,
+                name: row.productName,
+                variantName: row.variantName,
+                barcode: row.barcode,
+                unitPrice: row.salePrice,
+                stockQuantity: row.quantity,
+                lowStock: row.belowMin,
+              })}>Thêm</Button>
+            ) },
+          ]}
+        />
+      )}
+      {q && products.data && products.data.total > pageSize && (
+        <Pagination current={page + 1} pageSize={pageSize} total={products.data.total}
+          showSizeChanger={false} onChange={(value) => setPage(value - 1)} />
+      )}
     </Space>
   );
 }

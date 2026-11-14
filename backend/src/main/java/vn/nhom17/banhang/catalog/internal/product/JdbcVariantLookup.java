@@ -44,6 +44,15 @@ class JdbcVariantLookup implements VariantLookup {
             rs.getString("product_name"), rs.getString("variant_name"), rs.getString("sku"), rs.getString("barcode"),
             rs.getString("unit"), rs.getLong("sale_price"));
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<SellableVariant> findForInventory(String query, UUID categoryId, boolean includeInactive) {
+        var criteria = ProductSearch.forSale(query, categoryId, null, null);
+        var scope = includeInactive ? ProductSearch.Scope.INVENTORY : ProductSearch.Scope.SELLABLE;
+        var matching = ProductSearch.from(scope, context.storeId(), criteria);
+        return jdbc.query(COLUMNS + matching.text(), ROW, matching.args().toArray());
+    }
+
     private final JdbcTemplate jdbc;
     private final CurrentContext context;
 

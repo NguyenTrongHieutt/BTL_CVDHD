@@ -25,6 +25,9 @@ public interface VariantLookup {
      */
     List<SellableVariant> getForSale(Collection<UUID> variantIds);
 
+    /** Biến thể chưa xóa mềm khớp bộ lọc của màn Tồn kho. */
+    List<SellableVariant> findForInventory(String query, UUID categoryId, boolean includeInactive);
+
     /**
      * Tìm kiếm thường (FR-5) trên Biến thể còn bán, cùng quy tắc với {@code GET /api/v1/catalog/products}:
      * {@code query} (chuẩn NFC, cắt khoảng trắng; rỗng hoặc {@code null} thì bỏ qua) khớp khi tên Sản phẩm chứa nó,

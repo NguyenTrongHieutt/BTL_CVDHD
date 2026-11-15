@@ -9,7 +9,7 @@ from functools import lru_cache
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
+DEFAULT_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite"
 
 
@@ -29,6 +29,7 @@ class Settings(BaseSettings):
 
     sync_enabled: bool = False
     sync_interval_seconds: int = Field(default=60, ge=5, le=3600)
+    preload_embedding_model: bool = True
 
     log_level: str = "INFO"
 

@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 # Image của ai-service (AD-1, AD-12): Python 3.14, torch CPU, model nhúng đóng gói sẵn để chạy offline.
 
-ARG EMBEDDING_MODEL=intfloat/multilingual-e5-small
+ARG EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
 
 FROM ghcr.io/astral-sh/uv:0.13.7 AS uv
 
@@ -25,7 +25,7 @@ ENV HF_HOME=/models
 RUN /app/.venv/bin/python -c "\
 from sentence_transformers import SentenceTransformer; \
 m = SentenceTransformer('${EMBEDDING_MODEL}', device='cpu'); \
-dim = m.encode(['query: kiem tra']).shape[-1]; \
+dim = m.encode(['kiem tra']).shape[-1]; \
 assert dim == 384, dim; print('model ok, dim', dim)" \
  && rm -rf /models/xet
 

@@ -24,9 +24,8 @@ và mục 4 (Gemini function calling với 9 công cụ). Thêm một spike ph�
   - Chạy bằng user `app` (uid 10001); `HEALTHCHECK` báo `healthy`; `zoneinfo("Asia/Ho_Chi_Minh")` có sẵn.
   - Các container thử đã dừng và xóa.
 
-**Lưu ý cho GĐ1:** lần nạp model đầu ~13 s, lâu hơn hạn chờ 1,5 s của frontend (AD-12). Khi làm AI-01,
-nạp model ngay lúc khởi động (job đồng bộ đánh chỉ mục lại toàn bộ lúc khởi động nên sẽ nạp model;
-khi `SYNC_ENABLED=false` thì cần một bước warm-up riêng). `/ai/health` vẫn không ép nạp.
+**Lưu ý:** lần nạp model đầu ~13 s, lâu hơn hạn chờ 1,5 s của frontend (AD-12). ai-service nạp model
+trong lifespan (`PRELOAD_EMBEDDING_MODEL=true` theo mặc định); `/ai/health` vẫn không tự ép nạp model.
 
 ## Spike phụ — Model nhúng e5-small với tên Sản phẩm tiếng Việt
 
@@ -55,12 +54,21 @@ Top-3 đầy đủ kèm điểm: chạy lại script (kết quả ổn định, 
   vào passage (B) đưa cả hai câu không dấu lên hạng 1 mà không làm hỏng câu có dấu.
 - Từ đồng nghĩa/khái niệm ("nước giải khát có ga", "đồ ăn liền") còn yếu: đúng Sản phẩm chỉ ở hạng 2–3 trên 10.
 
-**Khuyến nghị cho AI-01 (C quyết, chưa làm ở GĐ0):**
-1. Khi nhúng trong job đồng bộ, dùng passage = `searchText + " | " + bỏ_dấu(searchText)`. Việc này nằm trong
-   ai-service, không đổi hợp đồng change-feed của `catalog`. `embed_passage` vẫn chỉ thêm tiền tố.
-2. Đo lại bằng bộ truy vấn SM-4 trong `eval/` trên dữ liệu mẫu thật trước khi chốt. Nếu chưa đạt, cân nhắc
-   kết hợp so khớp trigram trên một cột `search_text` lưu trong `ai.product_embedding` (cần migration), hoặc thử
-   model lớn hơn (đổi `EMBEDDING_MODEL`, đánh chỉ mục lại; cần sửa `vector(384)` nếu khác số chiều).
+Kết quả trên chỉ đánh giá E5-small; model này không còn là model mặc định của dịch vụ.
+
+## Quyết định AI-01 — MiniLM và Hybrid Search
+
+- Model mặc định: `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`. Vector 384 chiều nên
+  tương thích với `vector(384)` hiện có; model được nạp trước khi nhận request.
+- MiniLM nhận câu nguyên bản, không dùng tiền tố `query:` / `passage:` của E5.
+- Hybrid Search lấy danh sách semantic từ `ai.product_embedding` và danh sách lexical từ
+  `GET /api/v1/catalog/products?q=&status=ACTIVE&page=0&size=100&sort=name,asc`, chuyển tiếp JWT người dùng.
+- Hai thứ hạng được hợp nhất bằng Reciprocal Rank Fusion (RRF, k=60), không so sánh trực tiếp điểm cosine
+  với thứ hạng lexical. Request lexical có timeout 0,8 giây.
+- Vì đổi model, embedding E5 cũ không được dùng chung; cần chạy đồng bộ catalog để tạo lại embedding với
+  `model_version` mới. Cần đo chất lượng RRF trên bộ truy vấn SM-4 trước khi chốt production.
+- Khi triển khai, bật `SYNC_ENABLED=true` (Compose nhận qua `AI_SYNC_ENABLED=true`) để có dữ liệu cho nhánh
+  semantic; nếu tắt, nhánh lexical vẫn hoạt động nhưng index vector cũ không được dùng.
 
 ## Spike 4 — Gemini function calling với 9 công cụ Q1–Q9
 

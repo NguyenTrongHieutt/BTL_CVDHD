@@ -31,14 +31,12 @@ def test_body_validation_error_names_body_field(client, make_token):
     assert [e["field"] for e in response.json()["errors"]] == ["question"]
 
 
-def test_not_implemented_stubs_return_501_problem(client, make_token):
-    search = client.get("/ai/search", params={"q": "nước ngọt"}, headers=_auth(make_token))
+def test_not_implemented_stub_returns_501_problem(client, make_token):
     ask = client.post("/ai/ask", json={"question": "Doanh thu hôm nay?"}, headers=_auth(make_token))
-    for response in (search, ask):
-        assert response.status_code == 501
-        body = response.json()
-        assert body["type"] == "/errors/ai/not-implemented"
-        assert PROBLEM_FIELDS == set(body)
+    assert ask.status_code == 501
+    body = ask.json()
+    assert body["type"] == "/errors/ai/not-implemented"
+    assert PROBLEM_FIELDS == set(body)
 
 
 def test_unknown_route_is_404_problem(client):

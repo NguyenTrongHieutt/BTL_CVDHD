@@ -1,4 +1,4 @@
-"""`app.embedding` với model giả: tiền tố E5, chuẩn hóa, nạp lười. Không tải model thật."""
+"""`app.embedding` với model giả: văn bản nguyên bản, chuẩn hóa, nạp lười."""
 
 import numpy as np
 import pytest
@@ -38,17 +38,17 @@ def test_model_is_loaded_lazily_and_once(fake_model):
     embedding.embed_query("a")
     embedding.embed_passage(["b", "c"])
     assert embedding.is_loaded()
-    assert fake_model.loads == ["intfloat/multilingual-e5-small"]
+    assert fake_model.loads == ["sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"]
 
 
-def test_embed_passage_adds_passage_prefix(fake_model):
+def test_embed_passage_encodes_product_text_without_prefix(fake_model):
     embedding.embed_passage(["Nước ngọt Coca-Cola lon 330ml", "Dầu gội Clear"])
-    assert fake_model.calls == [["passage: Nước ngọt Coca-Cola lon 330ml", "passage: Dầu gội Clear"]]
+    assert fake_model.calls == [["Nước ngọt Coca-Cola lon 330ml", "Dầu gội Clear"]]
 
 
-def test_embed_query_adds_query_prefix(fake_model):
+def test_embed_query_encodes_query_without_prefix(fake_model):
     embedding.embed_query("nước giải khát có ga")
-    assert fake_model.calls == [["query: nước giải khát có ga"]]
+    assert fake_model.calls == [["nước giải khát có ga"]]
 
 
 def test_vectors_are_normalized_with_384_dims(fake_model):

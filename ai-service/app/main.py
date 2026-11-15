@@ -6,6 +6,7 @@ Mọi route nằm dưới `/ai` (nginx chuyển nguyên đường dẫn, AD-1):
     POST /ai/ask
 """
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -31,6 +32,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if settings.preload_embedding_model:
+            await asyncio.to_thread(embedding.get_model)
         runner = SyncRunner(settings)
         app.state.sync_runner = runner
         runner.start()

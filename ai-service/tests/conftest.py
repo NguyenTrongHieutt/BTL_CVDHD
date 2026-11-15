@@ -34,7 +34,7 @@ def _fresh_embedding_state() -> Iterator[None]:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(jwt_secret=TEST_JWT_SECRET)  # type: ignore[arg-type]
+    return Settings(jwt_secret=TEST_JWT_SECRET, preload_embedding_model=False)  # type: ignore[arg-type]
 
 
 @pytest.fixture

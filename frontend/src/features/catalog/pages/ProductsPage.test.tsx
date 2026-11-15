@@ -854,6 +854,23 @@ describe('ProductsPage', () => {
     expect(within(rowOf('Sản phẩm 02')).getByRole('button', { name: 'Sửa Sản phẩm 02' })).toBeTruthy();
   });
 
+  it('Chủ cửa hàng có "Lịch sử kho" ở mọi dòng, cả hàng đã ngừng: link lọc sẵn theo Biến thể mặc định', async () => {
+    products = [product(2), product(1, { status: 'INACTIVE' })];
+    renderPage();
+    await within(table()).findByText('Sản phẩm 01');
+
+    const stopped = within(rowOf('Sản phẩm 01')).getByRole('link', { name: 'Lịch sử kho Sản phẩm 01' });
+    expect(stopped.getAttribute('href')).toBe('/catalog/stock-ledger?productId=p-1&variantId=v-1');
+    const selling = within(rowOf('Sản phẩm 02')).getByRole('link', { name: 'Lịch sử kho Sản phẩm 02' });
+    expect(selling.getAttribute('href')).toBe('/catalog/stock-ledger?productId=p-2&variantId=v-2');
+  });
+
+  it('Nhân viên không thấy "Lịch sử kho" (màn chỉ dành cho Chủ cửa hàng)', async () => {
+    renderPage('STAFF');
+    await within(table()).findByText('Sản phẩm 01');
+    expect(screen.queryByRole('link', { name: /Lịch sử kho/ })).toBeNull();
+  });
+
   it('mất mạng khi ngừng kinh doanh: báo ở khung lỗi, đóng được, dòng vẫn "Đang bán"', async () => {
     failNextDeactivateWithNetworkError = true;
     renderPage();

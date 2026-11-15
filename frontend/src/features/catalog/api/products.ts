@@ -8,7 +8,8 @@
  * ngay), `['catalog', 'categories']`, `['inventory', 'stock']` và `['sales', 'sellable']` (giá, tên, mã ở màn bán
  * hàng). Ngừng kinh doanh xong (thành công hay lỗi) thì invalidate `['catalog', 'products']`, `['inventory', 'stock']`
  * và `['sales', 'sellable']` (Sản phẩm ẩn khỏi màn bán hàng). Tải lên, gỡ ảnh (SP-01b) xong (thành công hay lỗi) thì
- * invalidate `['catalog', 'products']` (ảnh thu nhỏ ở bảng đổi theo `imageUrl`).
+ * invalidate `['catalog', 'products']` (ảnh thu nhỏ ở bảng đổi theo `imageUrl`). Thêm, sửa, ngừng kinh doanh, tải lên, gỡ
+ * ảnh cũng invalidate `['inventory', 'ledger']` (KHO-07: thêm có thể ghi dòng Tồn đầu kỳ; sổ kho hiện tên Sản phẩm).
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
@@ -24,6 +25,7 @@ import type {
 } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { categoriesQueryKey } from './categories';
+import { stockLedgerQueryKey } from './stockLedger';
 
 export const PRODUCTS_PATH = '/api/v1/catalog/products';
 
@@ -75,6 +77,7 @@ export function useCreateProduct() {
       queryClient.invalidateQueries({ queryKey: productsQueryKey }),
       queryClient.invalidateQueries({ queryKey: stockQueryKey }),
       queryClient.invalidateQueries({ queryKey: categoriesQueryKey }),
+      queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
     ]);
   return useMutation({
     mutationFn: (request: CreateProductRequest) => {
@@ -97,6 +100,14 @@ function productPath(id: Uuid): string {
 }
 
 /**
+ * Chi tiết một Sản phẩm, cả hàng đã ngừng kinh doanh (`GET /api/v1/catalog/products/{id}`): ô chọn Sản phẩm của màn
+ * Lịch sử xuất nhập kho dùng khi mở từ link có `productId`. Khóa `['catalog', 'products', { id }]`.
+ */
+export function fetchProduct(id: Uuid, signal?: AbortSignal): Promise<Product> {
+  return api.get<Product>(productPath(id), { signal });
+}
+
+/**
  * Sửa Sản phẩm (FR-2, SP-02), chỉ Chủ cửa hàng: `PUT /api/v1/catalog/products/{id}`, thay toàn bộ (trường tùy chọn
  * không gửi thì xóa, trừ SKU là giữ nguyên), trả chi tiết Sản phẩm. Không có `Idempotency-Key`: gửi lại cùng nội dung
  * ra cùng kết quả. Xong, kể cả khi lỗi, thì tải lại bảng Sản phẩm (giá mới hiện ngay; `404`, `409 product-inactive`
@@ -114,6 +125,7 @@ export function useUpdateProduct() {
         queryClient.invalidateQueries({ queryKey: categoriesQueryKey }),
         queryClient.invalidateQueries({ queryKey: stockQueryKey }),
         queryClient.invalidateQueries({ queryKey: sellableQueryKey }),
+        queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
       ]),
   });
 }
@@ -137,6 +149,7 @@ export function useDeactivateProduct() {
         queryClient.invalidateQueries({ queryKey: productsQueryKey }),
         queryClient.invalidateQueries({ queryKey: stockQueryKey }),
         queryClient.invalidateQueries({ queryKey: sellableQueryKey }),
+        queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
       ]),
   });
 }
@@ -164,7 +177,11 @@ export function useUploadProductImage() {
       form.append('file', file);
       return api.put<Product>(productImagePath(id), form);
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
+      ]),
   });
 }
 
@@ -176,6 +193,10 @@ export function useRemoveProductImage() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: Uuid) => api.delete<void>(productImagePath(id)),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
+      ]),
   });
 }

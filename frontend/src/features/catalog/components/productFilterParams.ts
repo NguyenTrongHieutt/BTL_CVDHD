@@ -11,7 +11,8 @@ import type { ProductSearchParams, ProductStatus } from '../../../shared/types/c
 export const PRODUCT_FILTER_KEYS = ['q', 'categoryId', 'status', 'minPrice', 'maxPrice'] as const;
 
 const STATUSES: readonly ProductStatus[] = ['ACTIVE', 'INACTIVE'];
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** UUID như backend trả (bộ lọc trên URL chỉ nhận id dạng này; cũng dùng cho bộ lọc Lịch sử xuất nhập kho). */
+export const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function price(raw: string | null): number | undefined {
   if (raw === null || !/^\d+$/.test(raw.trim())) return undefined;

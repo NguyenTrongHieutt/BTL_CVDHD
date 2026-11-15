@@ -38,6 +38,8 @@ Hợp đồng chạy thật là **OpenAPI do springdoc sinh** (`/v3/api-docs`, g
 
 **Thay đổi ở file dùng chung của Anh (SP-01b, Hiếu sửa, Anh duyệt):** `frontend/src/shared/api/client.ts` nhận body là `FormData` và gửi nguyên dạng (`multipart/form-data`, trình duyệt tự đặt `Content-Type` kèm boundary); body khác vẫn là JSON như cũ. `shared/types/catalog.ts` có thêm `Product.imageUrl`; `shared/messages.vi.ts` có thêm `/errors/common/payload-too-large`, `/errors/catalog/image-type`, `/errors/catalog/image-too-large`.
 
+**Thay đổi ở file dùng chung của Anh (KHO-07, Hiếu sửa, Anh duyệt):** `frontend/src/shared/types/inventory.ts`: `StockLedgerEntry` sửa cho khớp phản hồi thật của `GET /api/v1/inventory/ledger` (`createdAt`, `documentType`, `documentId`, `variantId`, `productName`, `variantName`, `delta`, `quantityAfter`, `actorName`; bỏ các tên tạm `occurredAt`, `quantityChange`, `performedBy` chưa nơi nào dùng); thêm `StockDocumentType` (sáu loại như enum `StockDocumentType` của backend) và `StockLedgerSearchParams` (tham số lọc). Phần khác của file giữ nguyên.
+
 ## 3. Chi tiết
 
 ### 3.1 platform (Hiếu) — GĐ0 (đăng nhập, `/me`, API Java); GĐ1 (đăng ký Cửa hàng, Thông tin Cửa hàng); GĐ2 (tài khoản Nhân viên, Thông tin cá nhân)
@@ -101,6 +103,7 @@ Hợp đồng chạy thật là **OpenAPI do springdoc sinh** (`/v3/api-docs`, g
 
 - `['inventory', 'stock']`: sau khi thêm Sản phẩm (dòng Tồn kho mới, Tồn kho đầu kỳ), sau khi sửa Sản phẩm (tên, Danh mục, SKU, mã vạch hiện ở màn Tồn kho) và sau khi ngừng kinh doanh (`stock.is_active = false`).
 - `['sales', 'sellable']`: sau khi sửa Sản phẩm (giá bán, tên, SKU, mã vạch ở màn bán hàng) và sau khi ngừng kinh doanh (Sản phẩm ẩn khỏi màn bán hàng và tìm kiếm).
+- `['inventory', 'ledger']` (sổ kho, màn KHO-07): sau khi thêm Sản phẩm (dòng Tồn đầu kỳ `OPENING`), sửa, ngừng kinh doanh, tải lên hoặc gỡ ảnh (tên Sản phẩm hiện trong sổ kho).
 
 Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mất phản hồi có thể là máy chủ đã ghi rồi.
 
@@ -117,6 +120,13 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 | `GET /api/v1/inventory/stock?q=&categoryId=&belowMin=&includeInactive=&page=&size=` | Cả hai vai trò; `avgUnitCost` chỉ có khi là Chủ cửa hàng (AD-16) |
 | `GET /api/v1/inventory/low-stock` | Cả hai vai trò: `[{variantId, productName, variantName, quantity, minQuantity}]` |
 | `GET /api/v1/inventory/ledger?variantId=&documentType=&fromDate=&toDate=&page=&size=` | Chủ cửa hàng (màn KHO-07 của Hiếu): `PageResponse<{createdAt, documentType, documentId, variantId, productName, variantName, delta, quantityAfter, actorName}>` |
+
+**Màn KHO-07 (Hiếu, `features/catalog`, route `/catalog/stock-ledger`, chỉ Chủ cửa hàng) dùng:** `GET /api/v1/inventory/ledger` với `variantId`, `documentType`, `fromDate`, `toDate`, `page`, `size` (tham số trống không gửi), khóa TanStack Query `['inventory', 'ledger', params]`: mutation nào làm đổi Tồn kho mà invalidate `['inventory']` (hoặc `['inventory', 'ledger']`) thì bảng tự tải lại; mở lại màn cũng luôn tải lại (`staleTime: 0`). Ô chọn Sản phẩm dùng `GET /api/v1/catalog/products?q=` (không gửi `status`, nên có cả hàng đã ngừng kinh doanh) và `GET /api/v1/catalog/products/{id}` (khi mở từ link có `productId`). Khoảng ngày kiểm ở client như `StockLedgerQuery` (`fromDate ≤ toDate`, `toDate − fromDate` ≤ 365, tức tối đa 366 ngày tính cả hai đầu), sai thì không gửi; lỗi `400` có `errors[]` trên `fromDate`/`toDate` hiện dưới ô ngày. Bộ lọc nằm trên URL: `?type=<documentType>&productId=&variantId=&from=<yyyy-MM-dd>&to=<yyyy-MM-dd>`; màn khác muốn mở sẵn lịch sử của một Biến thể chỉ cần link `/catalog/stock-ledger?variantId=<id>` (tên Sản phẩm lấy từ dòng sổ kho).
+
+**Cần Anh (KHO-07):**
+
+- `GET /api/v1/inventory/ledger` chưa lọc được theo người thực hiện (FR-28). Đề xuất thêm tham số `actorId` (UUID tài khoản, cột `stock_ledger.created_by`), cùng kiểu với các tham số lọc khác (bỏ trống thì không lọc). Khi có, màn KHO-07 thêm ô chọn người thực hiện (danh sách từ `GET /api/v1/platform/users`; chỗ cần sửa có ghi `TODO(Anh, KHO-07)`).
+- Sau mỗi lần bán hàng, hủy Đơn hàng, trả hàng, lưu Phiếu nhập, Phiếu kiểm kho (thành công hay lỗi, vì mất phản hồi có thể là máy chủ đã ghi), invalidate `['inventory', 'ledger']` (hoặc cả `['inventory']`) để sổ kho đang mở tải lại ngay.
 
 ### 3.4 sales (Anh) — GĐ1–GĐ2
 

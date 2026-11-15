@@ -14,13 +14,14 @@
  * và hiện giá mới ngay. Ngừng kinh doanh có hộp xác nhận; xong thì bảng tải lại tại chỗ, dòng đổi sang "Ngừng kinh
  * doanh" và cả hai nút biến mất (một chiều, không sửa, không mở bán lại, AD-14). Bảng không có Giá vốn (Nhân viên
  * cũng xem). Cột tên có ảnh thu nhỏ của Sản phẩm (SP-01b; chưa có ảnh thì hiện biểu tượng), cả hai vai trò đều thấy;
- * ảnh tải lên, đổi, gỡ trong form thêm và sửa.
+ * ảnh tải lên, đổi, gỡ trong form thêm và sửa. Chủ cửa hàng có thêm liên kết "Lịch sử kho" ở mọi dòng (cả Sản phẩm đã
+ * ngừng kinh doanh) mở màn Lịch sử xuất nhập kho (KHO-07) lọc sẵn theo Biến thể mặc định.
  */
 import { PlusOutlined } from '@ant-design/icons';
 import { App, Button, Flex, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useCurrentUser } from '../../../shared/api/session';
 import { DataTable, ErrorAlert, MoneyText, useConfirm, useDocumentTitle } from '../../../shared/components';
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
@@ -39,6 +40,15 @@ import {
 const EMPTY = '—';
 /** Thứ tự của bảng ngay sau khi thêm Sản phẩm (SP-01: Sản phẩm mới nằm đầu bảng). */
 const NEWEST_FIRST = 'createdAt,desc';
+const STOCK_LEDGER_PATH = '/catalog/stock-ledger';
+
+/** Màn Lịch sử xuất nhập kho (KHO-07) lọc sẵn theo Biến thể mặc định của Sản phẩm. */
+function stockLedgerLink(product: Product): string {
+  const params = new URLSearchParams({ productId: product.id });
+  const variant = defaultVariant(product);
+  if (variant) params.set('variantId', variant.id);
+  return `${STOCK_LEDGER_PATH}?${params.toString()}`;
+}
 
 /** Ngày theo lịch Việt Nam, "dd/MM/yyyy", dù máy đặt múi giờ nào. */
 const createdDateFormatter = new Intl.DateTimeFormat('vi-VN', {
@@ -156,32 +166,43 @@ export function ProductsPage() {
   const actionsColumn: TableColumnsType<Product>[number] = {
     title: 'Thao tác',
     key: 'actions',
-    // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại
-    render: (_, product) =>
-      product.status === 'ACTIVE' ? (
-        <Flex wrap>
-          <Button
-            type="link"
-            size="small"
-            aria-label={`Sửa ${product.name}`}
-            disabled={deactivate.isPending && deactivate.variables === product.id}
-            onClick={() => setEditing({ mode: 'edit', product })}
-          >
-            Sửa
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            aria-label={`Ngừng kinh doanh ${product.name}`}
-            disabled={deactivate.isPending}
-            loading={deactivate.isPending && deactivate.variables === product.id}
-            onClick={() => void onDeactivate(product)}
-          >
-            Ngừng kinh doanh
-          </Button>
-        </Flex>
-      ) : null,
+    // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại; lịch sử kho
+    // vẫn xem được
+    render: (_, product) => (
+      <Flex wrap align="center">
+        <Link
+          to={stockLedgerLink(product)}
+          aria-label={`Lịch sử kho ${product.name}`}
+          style={{ padding: '0 7px', whiteSpace: 'nowrap' }}
+        >
+          Lịch sử kho
+        </Link>
+        {product.status === 'ACTIVE' ? (
+          <>
+            <Button
+              type="link"
+              size="small"
+              aria-label={`Sửa ${product.name}`}
+              disabled={deactivate.isPending && deactivate.variables === product.id}
+              onClick={() => setEditing({ mode: 'edit', product })}
+            >
+              Sửa
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              danger
+              aria-label={`Ngừng kinh doanh ${product.name}`}
+              disabled={deactivate.isPending}
+              loading={deactivate.isPending && deactivate.variables === product.id}
+              onClick={() => void onDeactivate(product)}
+            >
+              Ngừng kinh doanh
+            </Button>
+          </>
+        ) : null}
+      </Flex>
+    ),
   };
 
   return (

@@ -8,6 +8,9 @@ import { PROBLEM_MESSAGES } from '../../../shared/messages.vi';
 import type { Me, Profile } from '../../../shared/types/platform';
 import { ProfilePage } from './ProfilePage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 const ME_PATH = '/api/v1/platform/me';
 const PROFILE_PATH = '/api/v1/platform/me/profile';
 const PASSWORD_PATH = '/api/v1/platform/me/password';

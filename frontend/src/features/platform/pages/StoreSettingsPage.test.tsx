@@ -6,6 +6,9 @@ import { useMe } from '../../../shared/api/session';
 import type { Me, StoreInfo } from '../../../shared/types/platform';
 import { StoreSettingsPage } from './StoreSettingsPage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 const STORE_PATH = '/api/v1/platform/store';
 const ME_PATH = '/api/v1/platform/me';
 

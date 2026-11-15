@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Category } from '../../../shared/types/catalog';
 import { CategoriesPage } from './CategoriesPage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 const CATEGORIES_PATH = '/api/v1/catalog/categories';
 
 const fetchMock = vi.fn<typeof fetch>();

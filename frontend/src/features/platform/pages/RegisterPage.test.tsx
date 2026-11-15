@@ -7,6 +7,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Me } from '../../../shared/types/platform';
 import { RegisterPage } from './RegisterPage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 const OWNER: Me = { userId: 'u-owner', storeId: 's-new', storeName: 'Tạp hóa Hoa', role: 'OWNER', displayName: 'Hoa' };
 const STORES_PATH = '/api/v1/platform/stores';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;

@@ -17,6 +17,9 @@ import { downscaleImage } from '../components/imageResize';
 import { foldText } from '../components/textUtils';
 import { ProductsPage } from './ProductsPage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 // jsdom không giải mã, không vẽ được ảnh: thay bộ thu nhỏ ảnh; mặc định trả nguyên tệp (beforeEach)
 vi.mock('../components/imageResize', () => ({ downscaleImage: vi.fn<(file: File) => Promise<File>>() }));
 

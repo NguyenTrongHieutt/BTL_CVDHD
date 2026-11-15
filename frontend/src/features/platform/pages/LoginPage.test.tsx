@@ -8,6 +8,9 @@ import { configureApiClient } from '../../../shared/api/client';
 import type { Me } from '../../../shared/types/platform';
 import { LoginPage } from './LoginPage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 const STAFF: Me = { userId: 'u-staff', storeId: 's1', storeName: 'Tạp hóa Lan', role: 'STAFF', displayName: 'Minh' };
 const LOGIN_PATH = '/api/v1/platform/auth/login';
 

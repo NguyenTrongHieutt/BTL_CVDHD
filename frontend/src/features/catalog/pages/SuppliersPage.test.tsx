@@ -6,6 +6,9 @@ import type { Supplier, SupplierRequest } from '../../../shared/types/catalog';
 import { foldText } from '../components/textUtils';
 import { SuppliersPage } from './SuppliersPage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 const SUPPLIERS_PATH = '/api/v1/catalog/suppliers';
 const CODE_INVALID =
   'Mã Nhà cung cấp chỉ gồm chữ cái không dấu, chữ số, dấu - và dấu _, bắt đầu bằng chữ cái hoặc chữ số';

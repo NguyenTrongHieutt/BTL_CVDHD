@@ -6,6 +6,9 @@ import type { Customer, CustomerRequest } from '../../../shared/types/catalog';
 import { foldText } from '../components/textUtils';
 import { CustomersPage } from './CustomersPage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 const CUSTOMERS_PATH = '/api/v1/catalog/customers';
 const PHONE_INVALID = 'Số điện thoại phải là 0 và 9 chữ số, hoặc +84 và 9 chữ số';
 

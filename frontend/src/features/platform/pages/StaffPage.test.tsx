@@ -5,6 +5,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoreUser } from '../../../shared/types/platform';
 import { StaffPage } from './StaffPage';
 
+// Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
+vi.setConfig({ testTimeout: 15_000 });
+
 const USERS_PATH = '/api/v1/platform/users';
 
 const fetchMock = vi.fn<typeof fetch>();

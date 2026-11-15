@@ -15,6 +15,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import vn.nhom17.banhang.catalog.VariantCreated;
 import vn.nhom17.banhang.catalog.VariantDeactivated;
@@ -63,6 +65,9 @@ import vn.nhom17.banhang.platform.ProblemException;
  *       {@code sales_order_line}, catalog không đụng tới. Xem {@link #update}.</li>
  *   <li>Ngừng kinh doanh là một chiều (AD-14), không xóa hẳn, không đặt {@code deleted_at}: Sản phẩm đã ngừng vẫn
  *       đọc được qua chi tiết và danh sách (lịch sử Đơn hàng, báo cáo). Xem {@link #deactivate}.</li>
+ *   <li>Nhập từ Excel (FR-6, SP-06, {@link ProductImportService}) kiểm từng dòng bằng {@link #check} và tạo từng dòng
+ *       bằng {@link #insertInCurrentTransaction}: cùng quy tắc trường, cùng SKU tự sinh, cùng {@link VariantCreated}
+ *       như thêm một Sản phẩm.</li>
  * </ul>
  */
 @Service
@@ -173,6 +178,12 @@ class ProductService {
      */
     record NewProduct(String name, UUID categoryId, String unit, String description, long salePrice, String sku,
                       String barcode, int openingQuantity, long openingUnitCost) {
+
+        /** Như Sản phẩm này nhưng thuộc Danh mục {@code id} (nhập Excel: Danh mục tìm theo tên, có thể vừa tạo). */
+        NewProduct withCategory(UUID id) {
+            return new NewProduct(name, id, unit, description, salePrice, sku, barcode, openingQuantity,
+                    openingUnitCost);
+        }
     }
 
     record Created(ProductView product, boolean replayed) {
@@ -364,6 +375,21 @@ class ProductService {
 
     /** Chạy trong transaction của {@link IdempotencyService}; trả id Sản phẩm (định danh chứng từ). */
     private UUID insert(NewProduct p) {
+        return insertInCurrentTransaction(p, sku -> false);
+    }
+
+    /**
+     * Tạo một Sản phẩm đã kiểm ({@link #validate} hoặc {@link #check}) cùng Biến thể mặc định và phát
+     * {@link VariantCreated}, trong transaction ĐANG MỞ của bên gọi; trả id Sản phẩm. Thêm một Sản phẩm (SP-01,
+     * transaction của {@link IdempotencyService}) và từng dòng của nhập Excel (SP-06, cả lần nhập một transaction)
+     * dùng chung đúng logic này.
+     *
+     * <p>SKU trống thì sinh, tránh cả SKU đã có trong Cửa hàng lẫn SKU mà {@code reservedSku} nhận (SKU người dùng
+     * nhập ở các dòng chưa ghi của cùng file). Trùng mã vạch, SKU (unique bắt): ném {@code 409 barcode-taken} /
+     * {@code 409 sku-taken}; khi đó PostgreSQL đã hủy transaction, bên gọi phải để nó rollback.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    UUID insertInCurrentTransaction(NewProduct p, Predicate<String> reservedSku) {
         Instant now = clock.instant();
         UUID productId = ids.get();
         UUID variantId = ids.get();
@@ -372,7 +398,8 @@ class ProductService {
             // 8 ký tự hex có thể trùng SKU đã sinh hoặc đã gõ tay ("SP-…"): đổi id Biến thể tới khi SKU còn trống.
             // Người để trống SKU không được nhận lỗi "SKU đã có".
             sku = generatedSku(variantId);
-            for (int attempt = 1; attempt < GENERATED_SKU_ATTEMPTS && skuInUse(sku); attempt++) {
+            for (int attempt = 1; attempt < GENERATED_SKU_ATTEMPTS && (reservedSku.test(sku) || skuInUse(sku));
+                 attempt++) {
                 variantId = ids.get();
                 sku = generatedSku(variantId);
             }
@@ -461,6 +488,16 @@ class ProductService {
      */
     NewProduct validate(CreateProductRequest request) {
         FieldErrors errors = new FieldErrors();
+        NewProduct product = check(request, errors);
+        errors.throwIfAny();
+        return product;
+    }
+
+    /**
+     * Như {@link #validate} nhưng ghi lỗi vào {@code errors} (phải còn rỗng) thay vì ném, và trả {@code null} khi có
+     * lỗi: nhập Excel (SP-06) kiểm từng dòng bằng đúng các quy tắc này rồi báo lỗi theo dòng, cột.
+     */
+    NewProduct check(CreateProductRequest request, FieldErrors errors) {
         ProductFields fields = checkFields(request, errors);
         long openingQuantity = wholeNumber(request.openingQuantity(), 0, "openingQuantity", "Tồn kho đầu kỳ",
                 Integer.MAX_VALUE, errors);
@@ -473,7 +510,9 @@ class ProductService {
             // Tổng giá trị tồn đầu kỳ phải còn là một số tiền hợp lệ (inventory nhân hai số này)
             errors.add("openingUnitCost", "Tồn kho đầu kỳ × Giá vốn ban đầu quá lớn");
         }
-        errors.throwIfAny();
+        if (!errors.isEmpty()) {
+            return null;
+        }
         return new NewProduct(fields.name(), fields.categoryId(), fields.unit(), fields.description(),
                 fields.salePrice(), fields.sku(), fields.barcode(), (int) openingQuantity, openingUnitCost);
     }

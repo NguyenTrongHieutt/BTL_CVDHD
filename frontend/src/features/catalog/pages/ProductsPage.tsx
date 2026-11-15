@@ -16,8 +16,12 @@
  * cũng xem). Cột tên có ảnh thu nhỏ của Sản phẩm (SP-01b; chưa có ảnh thì hiện biểu tượng), cả hai vai trò đều thấy;
  * ảnh tải lên, đổi, gỡ trong form thêm và sửa. Chủ cửa hàng có thêm liên kết "Lịch sử kho" ở mọi dòng (cả Sản phẩm đã
  * ngừng kinh doanh) mở màn Lịch sử xuất nhập kho (KHO-07) lọc sẵn theo Biến thể mặc định.
+ *
+ * Chủ cửa hàng còn có nút "Nhập từ Excel" (FR-6, SP-06): hộp thoại tải file mẫu, chọn file, xem kết quả (số Sản phẩm
+ * đã nhập, dòng lỗi kèm số dòng và lý do). Nhập được ít nhất một Sản phẩm thì bảng làm như sau khi thêm: bỏ bộ lọc, sắp
+ * mới nhất trước, về trang đầu, nên các Sản phẩm vừa nhập nằm đầu bảng.
  */
-import { PlusOutlined } from '@ant-design/icons';
+import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
 import { App, Button, Flex, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
@@ -29,6 +33,7 @@ import type { Product, ProductSearchParams } from '../../../shared/types/catalog
 import { defaultVariant, fetchProducts, productsQueryKey, useDeactivateProduct } from '../api/products';
 import { ProductFilterBar } from '../components/ProductFilterBar';
 import { ProductFormModal } from '../components/ProductFormModal';
+import { ProductImportModal } from '../components/ProductImportModal';
 import { ProductThumbnail } from '../components/ProductThumbnail';
 import type { ProductEditing } from '../components/ProductFormModal';
 import {
@@ -123,6 +128,7 @@ export function ProductsPage() {
   const { role } = useCurrentUser();
   const isOwner = role === 'OWNER';
   const [editing, setEditing] = useState<ProductEditing | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   // Đổi key thì DataTable dựng lại từ trang đầu với thứ tự `initialSort` (sau khi thêm Sản phẩm).
   const [tableKey, setTableKey] = useState(0);
   const [initialSort, setInitialSort] = useState<string | undefined>(undefined);
@@ -212,9 +218,14 @@ export function ProductsPage() {
           Sản phẩm
         </Typography.Title>
         {isOwner ? (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>
-            Thêm Sản phẩm
-          </Button>
+          <Flex wrap gap={8}>
+            <Button icon={<FileExcelOutlined />} onClick={() => setImportOpen(true)}>
+              Nhập từ Excel
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>
+              Thêm Sản phẩm
+            </Button>
+          </Flex>
         ) : null}
       </Flex>
       {deactivate.isError ? <ErrorAlert error={deactivate.error} onClose={() => deactivate.reset()} /> : null}
@@ -245,6 +256,14 @@ export function ProductsPage() {
       ) : null}
       {editing?.mode === 'edit' ? (
         <ProductFormModal key={editing.product.id} editing={editing} onClose={() => setEditing(null)} />
+      ) : null}
+      {importOpen ? (
+        <ProductImportModal
+          onClose={() => setImportOpen(false)}
+          onImported={(result) => {
+            if (result.imported > 0) onCreated();
+          }}
+        />
       ) : null}
     </div>
   );

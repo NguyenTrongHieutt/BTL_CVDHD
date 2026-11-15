@@ -111,6 +111,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Cửa hàng đã có Khách hàng dùng số điện thoại này.',
     hint: 'Mở Khách hàng đã có để xem hoặc sửa, thay vì thêm mới.',
   },
+  '/errors/catalog/import-invalid-file': {
+    message: 'File Excel không đọc được hoặc không đúng mẫu.',
+    hint: 'Tải file mẫu, điền mỗi Sản phẩm một dòng từ dòng 2, lưu dạng .xlsx (tối đa 2 MB, 1000 dòng) rồi chọn lại file.',
+  },
   '/errors/catalog/supplier-code-taken': {
     message: 'Cửa hàng đã có Nhà cung cấp dùng mã này.',
     hint: 'Mã không phân biệt chữ hoa, chữ thường. Nhập mã khác, hoặc để trống.',

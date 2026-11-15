@@ -78,4 +78,31 @@ class ProductServiceTest {
         verify(events).publishEvent(new VariantCreated(STORE, FREE, 0, 0));
         assertThat(ids).isEmpty();
     }
+
+    /**
+     * Nhập Excel (SP-06): SKU tự sinh không được lấy SKU mà một dòng chưa ghi của cùng file đã nhập tay
+     * ({@code reservedSku}), dù database chưa có SKU đó.
+     */
+    @Test
+    void aGeneratedSkuReservedByAnotherRowOfTheSameFileIsGeneratedAgain() {
+        ArrayDeque<UUID> ids = new ArrayDeque<>(List.of(PRODUCT, TAKEN, FREE));
+        Supplier<UUID> next = ids::removeFirst;
+        ProductService service = new ProductService(em, mock(CategoryRepository.class), jdbc, context,
+                Clock.fixed(Instant.parse("2026-11-10T03:00:00Z"), ZoneOffset.UTC), events, idempotency,
+                mock(AuditLog.class), next);
+        when(context.storeId()).thenReturn(STORE);
+        // Không SKU nào có trong database
+        when(jdbc.queryForObject(contains("sku = ?"), eq(Boolean.class), eq(STORE), anyString())).thenReturn(false);
+
+        service.insertInCurrentTransaction(new ProductService.NewProduct("Bút bi", null, "cái", null, 5000, null,
+                null, 0, 0), "SP-AAAAAAAA"::equals);
+
+        ArgumentCaptor<Object> persisted = ArgumentCaptor.forClass(Object.class);
+        verify(em, org.mockito.Mockito.times(2)).persist(persisted.capture());
+        ProductVariantEntity variant = (ProductVariantEntity) persisted.getAllValues().get(1);
+        assertThat(variant.id()).isEqualTo(FREE);
+        assertThat(variant.sku()).isEqualTo("SP-BBBBBBBB");
+        verify(events).publishEvent(new VariantCreated(STORE, FREE, 0, 0));
+        assertThat(ids).isEmpty();
+    }
 }

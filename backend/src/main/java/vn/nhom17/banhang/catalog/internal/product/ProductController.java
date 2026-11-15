@@ -147,9 +147,9 @@ class ProductController {
 
     /**
      * Thiếu hoặc không phải UUID đều coi là thiếu khóa: {@code 422 idempotency-key-missing}, báo sau lỗi dữ liệu
-     * ({@code 400}) như đăng ký Cửa hàng.
+     * ({@code 400}) như đăng ký Cửa hàng. Nhập Excel (SP-06) dùng chung.
      */
-    private static UUID parseKey(String raw) {
+    static UUID parseKey(String raw) {
         if (raw == null || raw.isBlank()) {
             return null;
         }

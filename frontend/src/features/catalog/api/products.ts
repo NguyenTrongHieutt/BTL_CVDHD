@@ -10,6 +10,8 @@
  * và `['sales', 'sellable']` (Sản phẩm ẩn khỏi màn bán hàng). Tải lên, gỡ ảnh (SP-01b) xong (thành công hay lỗi) thì
  * invalidate `['catalog', 'products']` (ảnh thu nhỏ ở bảng đổi theo `imageUrl`). Thêm, sửa, ngừng kinh doanh, tải lên, gỡ
  * ảnh cũng invalidate `['inventory', 'ledger']` (KHO-07: thêm có thể ghi dòng Tồn đầu kỳ; sổ kho hiện tên Sản phẩm).
+ * Nhập từ Excel (SP-06) xong (thành công hay lỗi) thì invalidate `['catalog', 'products']`, `['catalog', 'categories']`
+ * (Danh mục mới, số Sản phẩm), `['inventory', 'stock']` và `['inventory', 'ledger']` (Tồn đầu kỳ của các dòng đã nhập).
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
@@ -180,6 +182,69 @@ export function useUploadProductImage() {
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
+      ]),
+  });
+}
+
+/** File mẫu nhập Sản phẩm từ Excel (SP-06), chỉ Chủ cửa hàng. */
+export const PRODUCT_IMPORT_TEMPLATE_PATH = `${PRODUCTS_PATH}/import-template`;
+export const PRODUCT_IMPORT_PATH = `${PRODUCTS_PATH}/import`;
+/** Tên file mẫu khi tải về (như `Content-Disposition` của backend). */
+export const PRODUCT_IMPORT_TEMPLATE_FILENAME = 'mau-nhap-san-pham.xlsx';
+/** File nhập tối đa 2 MB, tối đa 1000 dòng dữ liệu, như backend. */
+export const PRODUCT_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
+export const PRODUCT_IMPORT_MAX_ROWS = 1000;
+/** File không đọc được, sai mẫu (thiếu cột bắt buộc, quá 1000 dòng…): `detail` của backend nêu lý do cụ thể. */
+export const IMPORT_INVALID_FILE = '/errors/catalog/import-invalid-file';
+
+/** Một lỗi của dòng không nhập được: số dòng Excel (dòng 1 là tiêu đề), tiêu đề cột như file mẫu, lý do. */
+export interface ProductImportRowError {
+  row: number;
+  column: string | null;
+  message: string;
+}
+
+/** Kết quả một lần nhập: số Sản phẩm đã tạo, các dòng lỗi (theo dòng), tên Danh mục vừa tạo. */
+export interface ProductImportResult {
+  imported: number;
+  failed: ProductImportRowError[];
+  createdCategories: string[];
+}
+
+/** Tải file mẫu `.xlsx` (`GET /api/v1/catalog/products/import-template`). */
+export function fetchProductImportTemplate(): Promise<Blob> {
+  return api.get<Blob>(PRODUCT_IMPORT_TEMPLATE_PATH, { responseType: 'blob' });
+}
+
+/**
+ * Nhập Sản phẩm từ Excel (FR-6, SP-06), chỉ Chủ cửa hàng: `POST /api/v1/catalog/products/import`,
+ * `multipart/form-data` với file ở phần `file` → `200 ProductImportResult` (kể cả khi không dòng nào nhập được). Một
+ * lần nhập là một chứng từ (`Idempotency-Key`, AD-7): giữ khóa cho cùng một file qua các lần gửi lại sau lỗi mạng, 5xx
+ * (backend trả lại kết quả lần đầu, không nhập hai lần); chọn file khác, nhập xong, hay lỗi khác thì dùng khóa mới. Xong,
+ * kể cả khi lỗi (mất phản hồi có thể là máy chủ đã nhập rồi), thì tải lại bảng Sản phẩm, Danh mục, Tồn kho, sổ kho.
+ */
+export function useImportProducts() {
+  const queryClient = useQueryClient();
+  const idempotency = useRef<{ file: File; key: string } | null>(null);
+  return useMutation({
+    mutationFn: (file: File) => {
+      if (idempotency.current?.file !== file) idempotency.current = { file, key: newIdempotencyKey() };
+      const form = new FormData();
+      form.append('file', file);
+      return api.post<ProductImportResult>(PRODUCT_IMPORT_PATH, form, { idempotencyKey: idempotency.current.key });
+    },
+    onSuccess: () => {
+      idempotency.current = null;
+    },
+    onError: (error) => {
+      if (!shouldReuseIdempotencyKey(error)) idempotency.current = null;
+    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+        queryClient.invalidateQueries({ queryKey: categoriesQueryKey }),
+        queryClient.invalidateQueries({ queryKey: stockQueryKey }),
         queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
       ]),
   });

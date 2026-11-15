@@ -23,6 +23,14 @@ public final class FieldErrors {
         return errors.isEmpty();
     }
 
+    /**
+     * Các lỗi đã ghi, theo thứ tự ghi; mỗi phần tử có {@code field}, {@code message}. Nhập Excel (SP-06) đổi chúng
+     * thành lỗi theo dòng, cột thay vì ném.
+     */
+    public List<Map<String, String>> entries() {
+        return List.copyOf(errors);
+    }
+
     /** Có lỗi thì ném {@code 400 /errors/common/validation}. */
     public void throwIfAny() {
         if (!errors.isEmpty()) {

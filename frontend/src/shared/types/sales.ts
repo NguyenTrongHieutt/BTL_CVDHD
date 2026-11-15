@@ -8,14 +8,14 @@
  */
 import type { IsoDateTime, Money, Quantity, Uuid } from './common';
 
-export type PaymentMethod = 'CASH' | 'TRANSFER';
+export type PaymentMethod = 'CASH' | 'BANK_TRANSFER';
 
 /** Trạng thái Đơn hàng (FR-15). `CANCELLED` và `RETURNED` là trạng thái cuối. */
 export type OrderStatus = 'COMPLETED' | 'CANCELLED' | 'RETURNED';
 
 /** Ý định giảm giá (FR-10). `AMOUNT`: số đồng; `PERCENT`: 0–100, backend làm tròn half-up về đồng. */
 export interface DiscountIntent {
-  kind: 'AMOUNT' | 'PERCENT';
+  type: 'AMOUNT' | 'PERCENT';
   value: number;
 }
 
@@ -31,7 +31,7 @@ export interface QuoteRequest {
   orderDiscount?: DiscountIntent;
   customerId?: Uuid;
   paymentMethod: PaymentMethod;
-  /** Tiền khách đưa (tiền mặt); backend trả lại `changeAmount` (FR-11). */
+  /** Tiền khách đưa (tiền mặt); backend trả lại `change` (FR-11). */
   cashReceived?: Money;
   // TODO(Anh, DH-03/DH-04): chốt ở CB-03 cách gửi Idempotency-Key của lần thanh toán khi gọi quote,
   // vì mã chuyển khoản trong `vietqrPayload` lấy từ khóa này (AD-22).
@@ -39,10 +39,14 @@ export interface QuoteRequest {
 
 /** Một dòng đã tính tiền. */
 export interface QuoteLine {
+  lineNo: number;
+  productName: string;
+  variantName: string | null;
   variantId: Uuid;
   quantity: Quantity;
   unitPrice: Money;
-  discountAmount: Money;
+  lineDiscount: Money;
+  orderDiscountShare: Money;
   netLineAmount: Money;
 }
 
@@ -50,12 +54,18 @@ export interface QuoteLine {
 export interface QuoteResponse {
   lines: QuoteLine[];
   subtotal: Money;
-  discountTotal: Money;
+  lineDiscountTotal: Money;
+  orderDiscount: Money;
+  pointsDiscount: Money;
+  warnings: { variantId: Uuid; code: "INSUFFICIENT_STOCK"; available: Quantity }[];
   total: Money;
   /** Tiền thừa khi trả tiền mặt; `null` khi chưa nhập tiền khách đưa. */
-  changeAmount: Money | null;
+  change: Money | null;
   /** Chuỗi VietQR (AD-22) khi chọn chuyển khoản; frontend chỉ vẽ bằng `QRCode` của antd. */
-  vietqrPayload: string | null;
+  vietqrPayload?: string | null;
+  bankTransferAvailable: boolean;
+  bankAccountName?: string | null;
+  transferRef?: string | null;
 }
 
 /** Body tạo Đơn hàng. Tổng tính lại khác `quotedTotal` thì backend trả `409 /errors/sales/cart-stale`. */

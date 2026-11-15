@@ -2,6 +2,8 @@
 // Trang chính của Chủ cửa hàng sau khi đăng nhập. Dùng được từ chiều rộng 360px.
 import { PagePlaceholder } from '../../../shared/components';
 
+import { LowStockPanel } from '../../../shared/components/LowStockPanel';
+
 export function DashboardPage() {
   return (
     <PagePlaceholder
@@ -10,6 +12,8 @@ export function DashboardPage() {
       phase="GĐ2"
       owner="Lân"
       description="Doanh thu và số Đơn hàng hôm nay, 5 Sản phẩm bán chạy trong 7 ngày, cảnh báo tồn thấp."
-    />
+    >
+      <LowStockPanel />
+    </PagePlaceholder>
   );
 }

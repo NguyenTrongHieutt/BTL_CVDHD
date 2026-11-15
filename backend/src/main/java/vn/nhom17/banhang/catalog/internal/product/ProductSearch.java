@@ -75,7 +75,9 @@ final class ProductSearch {
          */
         PRODUCTS,
         /** Hàng còn bán: mọi Biến thể {@code ACTIVE} chưa xóa mềm của Sản phẩm {@code ACTIVE} chưa xóa mềm. */
-        SELLABLE
+        SELLABLE,
+        /** Mọi biến thể chưa xóa mềm, gồm cả hàng ngừng kinh doanh. */
+        INVENTORY
     }
 
     /**
@@ -248,6 +250,14 @@ final class ProductSearch {
                 sql.append(" and p.status = ?\n");
                 args.add(criteria.status());
             }
+        } else if (scope == Scope.INVENTORY) {
+            sql.append("""
+                    from app.product p
+                    join app.product_variant v
+                      on v.store_id = p.store_id and v.product_id = p.id and v.deleted_at is null
+                    where p.store_id = ? and p.deleted_at is null
+                    """);
+            args.add(storeId);
         } else {
             sql.append("""
                     from app.product p

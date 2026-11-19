@@ -560,9 +560,9 @@ describe('Lịch sử mua của Khách hàng (KH-03)', () => {
 
   async function openHistory(name = 'Chị Hoa') {
     fireEvent.click(await screen.findByRole('button', { name: `Lịch sử mua của ${name}` }));
-    const dialog = within(await screen.findByRole('dialog'));
-    expect(dialog.getByText(`Lịch sử mua · ${name}`)).toBeTruthy();
-    return dialog;
+    const historyDialog = within(await screen.findByRole('dialog'));
+    expect(historyDialog.getByText(`Lịch sử mua · ${name}`)).toBeTruthy();
+    return historyDialog;
   }
 
   function lastOrdersQuery() {

@@ -44,4 +44,7 @@ echo "5/6 Bật ai-service (đánh chỉ mục lại toàn bộ khi khởi độ
 "${COMPOSE[@]}" up -d --no-build ai-service
 echo "6/6 Bật web"
 "${COMPOSE[@]}" up -d --no-build web
-WEB_PORT=$(grep -E "^WEB_PORT=" .env | cut -d= -f2); echo "Xong. Mở http://localhost:${WEB_PORT:-80}"
+endpoint=$("${COMPOSE[@]}" port web 80)
+port=${endpoint##*:}
+[[ $port =~ ^[0-9]+$ ]] || { echo "Không xác định được cổng web." >&2; exit 1; }
+echo "Xong. Mở http://localhost:$port"

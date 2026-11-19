@@ -43,7 +43,7 @@ function json(body: unknown, status = 200): Response {
 }
 
 function variant(id: string, sku: string, name: string | null, isDefault: boolean, barcode: string | null = null) {
-  return { id, sku, barcode, name, salePrice: 10000, isDefault, status: 'ACTIVE' as const };
+  return { id, sku, barcode, name, attributes: {}, salePrice: 10000, isDefault, status: 'ACTIVE' as const };
 }
 
 function product(id: string, name: string, variants: Product['variants'], overrides: Partial<Product> = {}): Product {
@@ -59,6 +59,7 @@ function product(id: string, name: string, variants: Product['variants'], overri
     status: 'ACTIVE',
     createdAt: '2026-10-01T03:00:00Z',
     updatedAt: '2026-10-01T03:00:00Z',
+    priceRange: { min: 10000, max: 10000 },
     variants,
     ...overrides,
   };

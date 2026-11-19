@@ -17,6 +17,8 @@ PostgreSQL 18 + pgvector (image `pgvector/pgvector:pg18`), một database `banha
 | `V202611060840__ai_init.sql` | Schema `ai`: `product_embedding` (vector 384), `ai_quota`, `ai_query_log`, `sync_cursor` |
 | `V202611102330__catalog_feed_view_and_index.sql` | Thay view `catalog_product_changes` (`search_text` không còn `{}`, ghép giá trị thuộc tính); index `product_changed_feed_idx (changed_at, id)` |
 | `V202611102354__catalog_product_image.sql` | `product_image` (ảnh Sản phẩm, SP-01b) |
+| `V202611151000__catalog_product_import.sql` | `product_import` (kết quả nhập Sản phẩm từ Excel, SP-06) |
+| `V202611151400__catalog_variant_name_unique.sql` | Unique `product_variant_name_uq (store_id, product_id, lower(name))` của Biến thể chưa xóa mềm có nhãn (SP-07) |
 
 ## Ai được ghi bảng nào (AD-3)
 
@@ -54,7 +56,14 @@ Test `ArchitectureRulesTest.onlyTheOwnerModuleWritesItsTables` chặn lệnh INS
 - **View** `catalog_product_changes` (`security_invoker = true`, nên chạy bằng quyền người đọc: `sync_reader` thấy mọi Cửa hàng, `app_backend` vẫn chịu RLS; định nghĩa hiện tại ở `V202611102330__catalog_feed_view_and_index.sql`): một dòng mỗi Sản phẩm. `search_text` = tên Sản phẩm, tên Danh mục, rồi nhãn và giá trị thuộc tính (`jsonb_each_text`) của các Biến thể chưa xóa mềm (Biến thể mặc định trước, rồi theo ngày tạo; giá trị theo tên khóa), cách nhau một dấu cách, bỏ phần rỗng. `status` là `INACTIVE` khi đã ngừng kinh doanh hoặc xóa mềm.
 - **Thứ tự và con trỏ:** sắp theo `(changed_at, product_id)`; trang sau đọc `(changed_at, product_id) > (:t, :id)` với `(:t, :id)` lấy từ con trỏ mờ (base64url của `changed_at` đủ micro giây và `product_id`).
 - **Ngoại lệ AD-4 về index:** `product_changed_feed_idx` trên `app.product (changed_at, id)` **không** bắt đầu bằng `store_id`, vì thứ tự đọc của feed đi qua mọi Cửa hàng. Đây là index duy nhất được phép như vậy, đi cùng ngoại lệ đọc vượt Cửa hàng ở trên.
-- **`changed_at` đổi khi nào:** đặt bằng giờ lúc ghi (`Clock` của backend, AD-8), nên chỉ hứa là **đổi**, không hứa luôn tăng. Đổi khi thêm Sản phẩm; sửa tên, Danh mục, mô tả hoặc đơn vị (SP-02; chỉ đổi giá, SKU, mã vạch thì không); ngừng kinh doanh (SP-03); đổi tên Danh mục chứa Sản phẩm (SP-04). Sửa Biến thể (nhãn, thuộc tính) chưa đổi `changed_at`: chờ SP-07. Đổi, gỡ ảnh (SP-01b) không đổi `changed_at`: ảnh không thuộc `search_text`.
+- **`changed_at` đổi khi nào:** đặt bằng giờ lúc ghi (`Clock` của backend, AD-8), nên chỉ hứa là **đổi**, không hứa luôn tăng. Đổi khi thêm Sản phẩm; sửa tên, Danh mục, mô tả hoặc đơn vị (SP-02; chỉ đổi giá, SKU, mã vạch thì không); ngừng kinh doanh (SP-03); đổi tên Danh mục chứa Sản phẩm (SP-04); thêm Biến thể, ngừng một Biến thể, đổi nhãn hay thuộc tính của Biến thể (SP-07; chỉ đổi giá, SKU, mã vạch của Biến thể thì không). Đổi, gỡ ảnh (SP-01b) không đổi `changed_at`: ảnh không thuộc `search_text`.
+
+### Biến thể (SP-07)
+
+- `product.has_variants = false`: một Biến thể mặc định, `name` `NULL`, `attributes = '{}'`. `true`: 2 Biến thể trở lên, mỗi Biến thể có nhãn (`name`) và 0–3 thuộc tính (`attributes`, jsonb object tên → giá trị chuỗi). Chỉ đổi từ `false` sang `true` (thêm Biến thể), không đổi ngược.
+- Nhãn duy nhất trong một Sản phẩm, không phân biệt hoa thường (`product_variant_name_uq`, gồm cả Biến thể đã ngừng kinh doanh). `product_variant_default_uq` giữ đúng một Biến thể mặc định; ngừng Biến thể mặc định thì bỏ cờ trước, rồi đặt cho Biến thể đang bán tạo sớm nhất (unique kiểm ngay từng câu lệnh).
+- Thứ tự Biến thể là `created_at, id`; các Biến thể tạo cùng một lần (`POST …/products` có `variants`) có `created_at` cách nhau 1 micro giây theo thứ tự gửi lên.
+- Ghi Biến thể khóa dòng `product` (`FOR UPDATE`) trước rồi mới tới `product_variant`, cùng thứ tự với sửa và ngừng kinh doanh Sản phẩm.
 - **Độ trễ an toàn 5 giây** (`ProductChangeRepository.SAFETY_LAG`): chỉ đọc dòng có `changed_at <=` giờ `Clock` của backend − 5 giây, cùng nguồn giờ với lúc ghi `changed_at`. `changed_at` lấy giờ lúc ghi, trước khi commit; transaction commit muộn mà `changed_at` sớm hơn dòng đã đọc sẽ bị con trỏ bỏ qua nếu không có khoảng trễ này. **Giả định:** mọi bên ghi commit trong vòng 5 giây sau khi lấy giờ. Ghi chậm hơn (hoặc giờ bị lùi) thì thay đổi có thể bị bỏ sót; đường phục hồi là dịch vụ AI xóa con trỏ khi khởi động và đánh chỉ mục lại toàn bộ.
 
 ### Ảnh Sản phẩm (SP-01b)

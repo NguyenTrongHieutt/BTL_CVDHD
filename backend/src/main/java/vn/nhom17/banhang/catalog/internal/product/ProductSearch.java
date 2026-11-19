@@ -18,8 +18,10 @@ import vn.nhom17.banhang.catalog.internal.SearchText;
  *       dòng thành dấu cách, gộp khoảng trắng liền nhau; rỗng thì bỏ qua. Khớp khi tên Sản phẩm CHỨA {@code q}, không
  *       phân biệt hoa thường, không cần dấu ({@code lower(app.f_unaccent(…))} cả hai phía, gộp khoảng trắng;
  *       {@code %} {@code _} {@code \} trong {@code q} được thoát sau khi bỏ dấu nên chỉ khớp đúng chữ đó), hoặc SKU, mã
- *       vạch BẮT ĐẦU bằng {@code q}, không phân biệt hoa thường: ở {@link Scope#PRODUCTS} là mã của bất kỳ Biến thể
- *       chưa xóa mềm nào của Sản phẩm, ở {@link Scope#SELLABLE} là mã của chính Biến thể {@code v}.</li>
+ *       vạch BẮT ĐẦU bằng {@code q}, không phân biệt hoa thường, hoặc nhãn Biến thể CHỨA {@code q} (cùng cách với tên,
+ *       SP-07): ở {@link Scope#PRODUCTS} là mã, nhãn của bất kỳ Biến thể chưa xóa mềm nào của Sản phẩm, ở
+ *       {@link Scope#SELLABLE} là mã, nhãn của chính Biến thể {@code v}; {@link Scope#INVENTORY} (màn Tồn kho) chỉ
+ *       khớp tên và mã của chính Biến thể, không đổi.</li>
  *   <li>Giá lọc theo {@code v.sale_price}, gồm cả hai đầu; {@code minPrice > maxPrice} là {@code 400} trên
  *       {@code minPrice}.</li>
  *   <li>Không đọc bảng của {@code inventory} (AD-2): lọc theo Tồn kho là việc của {@code sales}
@@ -55,12 +57,22 @@ final class ProductSearch {
     private static final String CODE_MATCH =
             "upper(%1$s.sku) like ? escape '\\' or upper(%1$s.barcode) like ? escape '\\'";
 
-    /** Danh sách quản lý: mã của BẤT KỲ Biến thể chưa xóa mềm nào; không join thêm dòng nên không lặp Sản phẩm. */
-    private static final String ANY_VARIANT_CODE_MATCH = "exists (select 1 from app.product_variant x"
+    /**
+     * Danh sách quản lý: mã (bắt đầu bằng {@code q}) hoặc nhãn (chứa {@code q}, như tên, SP-07) của BẤT KỲ Biến thể
+     * chưa xóa mềm nào; không join thêm dòng nên không lặp Sản phẩm. Ba tham số: tiền tố mã hai lần, rồi {@code q}.
+     */
+    private static final String ANY_VARIANT_CODE_OR_LABEL_MATCH = "exists (select 1 from app.product_variant x"
             + " where x.store_id = p.store_id and x.product_id = p.id and x.deleted_at is null"
-            + " and (" + CODE_MATCH.formatted("x") + "))";
+            + " and (" + CODE_MATCH.formatted("x") + " or " + SearchText.containsFolded("x.name") + "))";
 
-    /** Hàng còn bán: mã của chính Biến thể {@code v} (quét mã vạch ra đúng Biến thể đó). */
+    /**
+     * Hàng còn bán: mã (quét mã vạch ra đúng Biến thể đó) hoặc nhãn của chính Biến thể {@code v} (gõ "xanh" ra
+     * "Áo thun – Xanh / M", SP-07). Ba tham số như trên.
+     */
+    private static final String OWN_CODE_OR_LABEL_MATCH = CODE_MATCH.formatted("v") + " or "
+            + SearchText.containsFolded("v.name");
+
+    /** Màn Tồn kho ({@link Scope#INVENTORY}, của inventory): chỉ mã của chính Biến thể, như trước SP-07. */
     private static final String OWN_CODE_MATCH = CODE_MATCH.formatted("v");
 
     private ProductSearch() {
@@ -284,11 +296,19 @@ final class ProductSearch {
         if (criteria.query() != null) {
             // SKU, mã vạch lưu chữ HOA bằng Locale.ROOT (ProductService.validate): viết hoa q cùng cách
             String codePrefix = escapeLike(criteria.query().toUpperCase(Locale.ROOT)) + "%";
-            String codeMatch = scope == Scope.PRODUCTS ? ANY_VARIANT_CODE_MATCH : OWN_CODE_MATCH;
+            String codeMatch = switch (scope) {
+                case PRODUCTS -> ANY_VARIANT_CODE_OR_LABEL_MATCH;
+                case SELLABLE -> OWN_CODE_OR_LABEL_MATCH;
+                case INVENTORY -> OWN_CODE_MATCH;
+            };
             sql.append(" and (").append(NAME_MATCH).append("\n      or ").append(codeMatch).append(")\n");
             args.add(criteria.query());
             args.add(codePrefix);
             args.add(codePrefix);
+            if (scope != Scope.INVENTORY) {
+                // Nhãn Biến thể chứa q (SP-07)
+                args.add(criteria.query());
+            }
         }
         return new Sql(sql.toString(), List.copyOf(args));
     }

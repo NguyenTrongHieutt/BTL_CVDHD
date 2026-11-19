@@ -55,8 +55,18 @@ function product(n: number, overrides: Partial<Product> = {}): Product {
     createdAt: '2026-11-10T03:00:00Z',
     updatedAt: '2026-11-10T03:00:00Z',
     variants: [
-      { id: `v-${n}`, sku: `SP-0000000${n}`, barcode: null, name: null, salePrice: 1000 * n, isDefault: true, status: 'ACTIVE' },
+      {
+        id: `v-${n}`,
+        sku: `SP-0000000${n}`,
+        barcode: null,
+        name: null,
+        attributes: {},
+        salePrice: 1000 * n,
+        isDefault: true,
+        status: 'ACTIVE',
+      },
     ],
+    priceRange: { min: 1000 * n, max: 1000 * n },
     ...overrides,
   };
 }
@@ -177,7 +187,9 @@ function updateProduct(id: string, body: UpdateProductRequest): Response {
     categoryName: category?.name ?? null,
     unit: body.unit ?? 'cái',
     description: body.description ?? null,
-    variants: existing.variants.map((v) => (v.isDefault ? { ...v, salePrice: body.salePrice, sku, barcode } : v)),
+    variants: existing.variants.map((v) =>
+      v.isDefault ? { ...v, salePrice: body.salePrice ?? v.salePrice, sku, barcode } : v,
+    ),
   };
   products = products.map((p) => (p.id === id ? edited : p));
   if (loseNextPutResponse) {
@@ -299,6 +311,7 @@ function backend() {
             sku: body.sku ?? `SP-NEW0000${id}`,
             barcode: body.barcode ?? null,
             name: null,
+            attributes: {},
             salePrice: body.salePrice,
             isDefault: true,
             status: 'ACTIVE',

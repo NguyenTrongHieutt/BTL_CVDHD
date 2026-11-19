@@ -119,6 +119,14 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Cửa hàng đã có Nhà cung cấp dùng mã này.',
     hint: 'Mã không phân biệt chữ hoa, chữ thường. Nhập mã khác, hoặc để trống.',
   },
+  '/errors/catalog/variant-name-taken': {
+    message: 'Sản phẩm đã có Biến thể dùng nhãn này.',
+    hint: 'Nhãn không phân biệt chữ hoa, chữ thường, và Biến thể đã ngừng kinh doanh vẫn giữ nhãn. Hãy đặt nhãn khác.',
+  },
+  '/errors/catalog/last-active-variant': {
+    message: 'Đây là Biến thể đang bán cuối cùng của Sản phẩm nên không ngừng riêng được.',
+    hint: 'Muốn thôi bán, hãy dùng "Ngừng kinh doanh" cho cả Sản phẩm ở bảng Sản phẩm.',
+  },
 
   // sales
   '/errors/sales/invalid-state': {

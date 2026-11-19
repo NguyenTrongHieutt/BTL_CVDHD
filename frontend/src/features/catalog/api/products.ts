@@ -12,6 +12,9 @@
  * ảnh cũng invalidate `['inventory', 'ledger']` (KHO-07: thêm có thể ghi dòng Tồn đầu kỳ; sổ kho hiện tên Sản phẩm).
  * Nhập từ Excel (SP-06) xong (thành công hay lỗi) thì invalidate `['catalog', 'products']`, `['catalog', 'categories']`
  * (Danh mục mới, số Sản phẩm), `['inventory', 'stock']` và `['inventory', 'ledger']` (Tồn đầu kỳ của các dòng đã nhập).
+ * Biến thể (FR-7, SP-07): thêm Sản phẩm có thể kèm nhiều Biến thể (`CreateProductWithVariantsRequest`); thêm, sửa,
+ * ngừng từng Biến thể xong (thành công hay lỗi) thì invalidate `['catalog', 'products']`, `['inventory', 'stock']`,
+ * `['sales', 'sellable']` và `['inventory', 'ledger']`.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
@@ -19,11 +22,14 @@ import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '.
 import { pageRequestToQuery } from '../../../shared/api/pagination';
 import type { PageRequest, PageResponse } from '../../../shared/api/pagination';
 import type {
+  AddVariantRequest,
   CreateProductRequest,
+  CreateProductWithVariantsRequest,
   Product,
   ProductSearchParams,
   ProductVariant,
   UpdateProductRequest,
+  UpdateVariantRequest,
 } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { categoriesQueryKey } from './categories';
@@ -43,6 +49,16 @@ export const DEFAULT_UNIT = 'cái';
 export function defaultVariant(product: Product): ProductVariant | undefined {
   return product.variants.find((v) => v.isDefault) ?? product.variants[0];
 }
+
+/** Sản phẩm nhiều Biến thể tối đa 50 Biến thể khi tạo, tối thiểu 2 (như backend). */
+export const VARIANTS_MIN = 2;
+export const VARIANTS_MAX = 50;
+/** Tối đa 3 thuộc tính mỗi Biến thể (như backend). */
+export const VARIANT_ATTRIBUTES_MAX = 3;
+/** Nhãn ghép từ giá trị thuộc tính khi bỏ trống nhãn (như backend). */
+export const VARIANT_LABEL_SEPARATOR = ' / ';
+export const VARIANT_NAME_TAKEN = '/errors/catalog/variant-name-taken';
+export const LAST_ACTIVE_VARIANT = '/errors/catalog/last-active-variant';
 
 /**
  * Danh sách Sản phẩm có Tìm kiếm thường và lọc (FR-5, SP-05). Bộ lọc trống không gửi; không có `sort` thì backend
@@ -82,7 +98,7 @@ export function useCreateProduct() {
       queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
     ]);
   return useMutation({
-    mutationFn: (request: CreateProductRequest) => {
+    mutationFn: (request: CreateProductRequest | CreateProductWithVariantsRequest) => {
       idempotencyKey.current ??= newIdempotencyKey();
       return api.post<Product>(PRODUCTS_PATH, request, { idempotencyKey: idempotencyKey.current });
     },
@@ -153,6 +169,76 @@ export function useDeactivateProduct() {
         queryClient.invalidateQueries({ queryKey: sellableQueryKey }),
         queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
       ]),
+  });
+}
+
+function variantsPath(productId: Uuid): string {
+  return `${productPath(productId)}/variants`;
+}
+
+function variantPath(productId: Uuid, variantId: Uuid): string {
+  return `${variantsPath(productId)}/${encodeURIComponent(variantId)}`;
+}
+
+/** Sau mọi thao tác Biến thể (cả khi lỗi): bảng Sản phẩm, Tồn kho, hàng bán được, sổ kho tải lại. */
+function useRefreshAfterVariantChange() {
+  const queryClient = useQueryClient();
+  return () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: productsQueryKey }),
+      queryClient.invalidateQueries({ queryKey: stockQueryKey }),
+      queryClient.invalidateQueries({ queryKey: sellableQueryKey }),
+      queryClient.invalidateQueries({ queryKey: stockLedgerQueryKey }),
+    ]);
+}
+
+/**
+ * Thêm một Biến thể (SP-07), chỉ Chủ cửa hàng: `POST /api/v1/catalog/products/{id}/variants` → chi tiết Sản phẩm.
+ * Kèm Tồn kho đầu kỳ nên có `Idempotency-Key` (AD-7), giữ qua các lần gửi lại như `useCreateProduct`; hook sống cùng
+ * hộp thoại thêm Biến thể. Xong, kể cả khi lỗi, thì tải lại bảng Sản phẩm, Tồn kho, hàng bán được, sổ kho.
+ */
+export function useAddVariant() {
+  const refresh = useRefreshAfterVariantChange();
+  const idempotencyKey = useRef<string | null>(null);
+  return useMutation({
+    mutationFn: ({ productId, request }: { productId: Uuid; request: AddVariantRequest }) => {
+      idempotencyKey.current ??= newIdempotencyKey();
+      return api.post<Product>(variantsPath(productId), request, { idempotencyKey: idempotencyKey.current });
+    },
+    onSuccess: () => {
+      idempotencyKey.current = null;
+    },
+    onError: (error) => {
+      if (!shouldReuseIdempotencyKey(error)) idempotencyKey.current = null;
+    },
+    onSettled: refresh,
+  });
+}
+
+/**
+ * Sửa một Biến thể (SP-07): `PUT /api/v1/catalog/products/{id}/variants/{variantId}`, thay toàn bộ, trả chi tiết Sản
+ * phẩm. Không có `Idempotency-Key`. Xong, kể cả khi lỗi, thì tải lại các bảng liên quan.
+ */
+export function useUpdateVariant() {
+  const refresh = useRefreshAfterVariantChange();
+  return useMutation({
+    mutationFn: ({ productId, variantId, request }: { productId: Uuid; variantId: Uuid; request: UpdateVariantRequest }) =>
+      api.put<Product>(variantPath(productId, variantId), request),
+    onSettled: refresh,
+  });
+}
+
+/**
+ * Ngừng kinh doanh một Biến thể (SP-07): `POST …/variants/{variantId}/deactivate`, không có body, trả chi tiết Sản
+ * phẩm. Một chiều; gọi lại vẫn `200`. Biến thể đang bán cuối cùng: `409 last-active-variant`. Xong, kể cả khi lỗi, thì
+ * tải lại các bảng liên quan (Biến thể ẩn khỏi màn bán hàng).
+ */
+export function useDeactivateVariant() {
+  const refresh = useRefreshAfterVariantChange();
+  return useMutation({
+    mutationFn: ({ productId, variantId }: { productId: Uuid; variantId: Uuid }) =>
+      api.post<Product>(`${variantPath(productId, variantId)}/deactivate`),
+    onSettled: refresh,
   });
 }
 

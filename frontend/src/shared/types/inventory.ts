@@ -48,9 +48,10 @@ export interface StockLedgerEntry {
 /**
  * Bộ lọc của `GET /api/v1/inventory/ledger`. Trường bỏ trống thì không lọc. `fromDate`, `toDate` theo lịch Việt Nam,
  * gồm cả hai đầu, tối đa 366 ngày (AD-19; ngoài khoảng: `400 /errors/common/validation` trên `toDate`).
- * TODO(Anh, KHO-07): thêm `actorId` (lọc theo người thực hiện, FR-28) khi API có tham số này.
+ * `actorId` chỉ dùng khi backend đã hỗ trợ lọc người thực hiện (FR-28).
  */
 export interface StockLedgerSearchParams {
+  actorId?: Uuid;
   variantId?: Uuid;
   documentType?: StockDocumentType;
   fromDate?: IsoDate;

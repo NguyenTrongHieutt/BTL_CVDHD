@@ -151,7 +151,7 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 
 **Cần Anh (KHO-07):**
 
-- `GET /api/v1/inventory/ledger` chưa lọc được theo người thực hiện (FR-28). Đề xuất thêm tham số `actorId` (UUID tài khoản, cột `stock_ledger.created_by`), cùng kiểu với các tham số lọc khác (bỏ trống thì không lọc). Khi có, màn KHO-07 thêm ô chọn người thực hiện (danh sách từ `GET /api/v1/platform/users`; chỗ cần sửa có ghi `TODO(Anh, KHO-07)`).
+- Bộ lọc người thực hiện của KHO-07 dùng `actorId` (UUID tài khoản). Backend hiện chưa hỗ trợ nên giao diện mặc định ẩn bộ lọc và bỏ qua `actorId` trên URL. Sau khi Anh bàn giao và kiểm tra API lọc đúng ở cả danh sách và tổng phân trang, đặt `VITE_LEDGER_ACTOR_FILTER=true` khi build lại web. Danh sách người thực hiện lấy từ `GET /api/v1/platform/users`.
 - Sau mỗi lần bán hàng, hủy Đơn hàng, trả hàng, lưu Phiếu nhập, Phiếu kiểm kho (thành công hay lỗi, vì mất phản hồi có thể là máy chủ đã ghi), invalidate `['inventory', 'ledger']` (hoặc cả `['inventory']`) để sổ kho đang mở tải lại ngay.
 
 ### 3.4 sales (Anh) — GĐ1–GĐ2

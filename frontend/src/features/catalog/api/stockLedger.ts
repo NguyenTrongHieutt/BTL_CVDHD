@@ -23,6 +23,11 @@ export const STOCK_LEDGER_PATH = '/api/v1/inventory/ledger';
 
 export const stockLedgerQueryKey = ['inventory', 'ledger'] as const;
 
+// Bật lúc build sau khi backend đã hỗ trợ lọc ledger theo actorId.
+export function ledgerActorFilterEnabled(): boolean {
+  return import.meta.env.VITE_LEDGER_ACTOR_FILTER === 'true';
+}
+
 export interface DocumentTypeInfo {
   /** Nhãn tiếng Việt. */
   label: string;
@@ -55,22 +60,23 @@ export function documentTypeInfo(documentType: string): DocumentTypeInfo {
 
 /**
  * Một trang sổ kho, mới nhất trước (backend sắp). Bộ lọc trống không gửi.
- * TODO(Anh, KHO-07): lọc theo người thực hiện khi API có tham số `actorId` (FR-28; xem contracts.md mục 3.3).
+ * Cách bật bộ lọc người thực hiện sau khi tích hợp backend: xem contracts.md mục 3.3.
  */
 export function fetchStockLedger(
   request: PageRequest,
   filters: StockLedgerSearchParams = {},
   signal?: AbortSignal,
 ): Promise<PageResponse<StockLedgerEntry>> {
-  const { variantId, documentType, fromDate, toDate } = filters;
+  const { variantId, documentType, fromDate, toDate, actorId } = filters;
   return api.get<PageResponse<StockLedgerEntry>>(STOCK_LEDGER_PATH, {
-    query: { variantId, documentType, fromDate, toDate, ...pageRequestToQuery(request) },
+    query: { variantId, documentType, fromDate, toDate, actorId, ...pageRequestToQuery(request) },
     signal,
   });
 }
 
 /** Bộ lọc của màn hình, đọc từ URL (`?type=&productId=&variantId=&from=&to=`). */
 export interface StockLedgerFilters {
+  actorId?: Uuid;
   type?: StockDocumentType;
   /**
    * Sản phẩm đang chọn ở ô lọc; một mình nó không lọc gì (API chỉ lọc theo Biến thể): Sản phẩm nhiều Biến thể mà
@@ -83,7 +89,7 @@ export interface StockLedgerFilters {
   to?: IsoDate;
 }
 
-export const STOCK_LEDGER_FILTER_KEYS = ['type', 'productId', 'variantId', 'from', 'to'] as const;
+export const STOCK_LEDGER_FILTER_KEYS = ['actorId', 'type', 'productId', 'variantId', 'from', 'to'] as const;
 
 export const LEDGER_RANGE_TOO_LONG = `Khoảng ngày tối đa ${MAX_RANGE_DAYS} ngày. Hãy chọn khoảng ngắn hơn.`;
 
@@ -117,6 +123,8 @@ function uuid(raw: string | null): Uuid | undefined {
 
 export function stockLedgerFiltersFromSearchParams(params: URLSearchParams): StockLedgerFilters {
   const filters: StockLedgerFilters = {};
+  const actorId = uuid(params.get('actorId'));
+  if (ledgerActorFilterEnabled() && actorId) filters.actorId = actorId;
   const type = params.get('type')?.trim();
   if (type && isStockDocumentType(type)) filters.type = type;
   const productId = uuid(params.get('productId'));
@@ -149,12 +157,13 @@ export function withStockLedgerFilters(params: URLSearchParams, filters: StockLe
 
 /** Có bộ lọc nào đang làm bảng ít dòng đi không (`productId` một mình chưa lọc gì nên không tính). */
 export function hasStockLedgerFilters(filters: StockLedgerFilters): boolean {
-  return Boolean(filters.type || filters.variantId || (filters.from && filters.to));
+  return Boolean(filters.actorId || filters.type || filters.variantId || (filters.from && filters.to));
 }
 
 /** Tham số gửi API từ bộ lọc trên URL. Khoảng ngày sai thì không có ở đây: màn hình không gửi yêu cầu. */
 export function toStockLedgerSearchParams(filters: StockLedgerFilters): StockLedgerSearchParams {
   const params: StockLedgerSearchParams = {};
+  if (ledgerActorFilterEnabled() && filters.actorId) params.actorId = filters.actorId;
   if (filters.variantId) params.variantId = filters.variantId;
   if (filters.type) params.documentType = filters.type;
   if (filters.from && filters.to) {

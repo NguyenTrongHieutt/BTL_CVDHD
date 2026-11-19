@@ -5,9 +5,9 @@ import { useSearchParams } from 'react-router';
 import { DEFAULT_PAGE_SIZE, clampPageSize } from '../../../shared/api/pagination';
 import { ErrorAlert, countDaysInclusive, formatMoney, fromAntdChange, toAntdPagination, useDocumentTitle } from '../../../shared/components';
 import { MAX_RANGE_DAYS, VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
-import { fetchAuditActions, fetchAuditActors, fetchAuditLog } from '../api/auditLog';
+import { fetchAuditActions, fetchAuditLog } from '../api/auditLog';
 import type { AuditEntry, AuditFilters, Snapshot } from '../api/auditLog';
-import { usersQueryKey } from '../api/users';
+import { actorOptionsKey, fetchActorOptions } from '../../../shared/api/storeUsers';
 
 const TITLE = 'Nhật ký thao tác';
 const time = new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short', timeZone: VIETNAM_TIME_ZONE });
@@ -80,7 +80,7 @@ export function AuditLogPage() {
     setParams(next, { replace: true });
   }
   const actions = useQuery({ queryKey: ['platform', 'audit-log', 'actions'], queryFn: ({ signal }) => fetchAuditActions(signal) });
-  const actors = useQuery({ queryKey: [...usersQueryKey, 'audit-actors'], queryFn: ({ signal }) => fetchAuditActors(signal) });
+  const actors = useQuery({ queryKey: actorOptionsKey, queryFn: ({ signal }) => fetchActorOptions(signal) });
   const log = useQuery({
     queryKey: ['platform', 'audit-log', filters, request],
     queryFn: ({ signal }) => fetchAuditLog(filters, request, signal),

@@ -5,6 +5,7 @@ WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
+ARG VITE_LEDGER_ACTOR_FILTER=false
 RUN npm run build
 
 FROM nginx:1.30.6-alpine

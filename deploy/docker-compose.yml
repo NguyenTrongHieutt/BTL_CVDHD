@@ -66,6 +66,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/web.Dockerfile
+      args:
+        VITE_LEDGER_ACTOR_FILTER: ${VITE_LEDGER_ACTOR_FILTER:-false}
     ports:
       - "${WEB_PORT:-80}:80"
     # Không depends_on ai-service: nginx vẫn chạy khi dịch vụ AI tắt (AD-1).

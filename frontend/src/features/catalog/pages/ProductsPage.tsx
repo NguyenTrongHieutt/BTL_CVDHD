@@ -14,21 +14,33 @@
  * và hiện giá mới ngay. Ngừng kinh doanh có hộp xác nhận; xong thì bảng tải lại tại chỗ, dòng đổi sang "Ngừng kinh
  * doanh" và cả hai nút biến mất (một chiều, không sửa, không mở bán lại, AD-14). Bảng không có Giá vốn (Nhân viên
  * cũng xem). Cột tên có ảnh thu nhỏ của Sản phẩm (SP-01b; chưa có ảnh thì hiện biểu tượng), cả hai vai trò đều thấy;
- * ảnh tải lên, đổi, gỡ trong form thêm và sửa.
+ * ảnh tải lên, đổi, gỡ trong form thêm và sửa. Chủ cửa hàng có thêm liên kết "Lịch sử kho" ở mọi dòng (cả Sản phẩm đã
+ * ngừng kinh doanh) mở màn Lịch sử xuất nhập kho (KHO-07) lọc sẵn theo Biến thể mặc định.
+ *
+ * Sản phẩm nhiều Biến thể (FR-7, SP-07): cột SKU hiện số Biến thể đang bán ("2 Biến thể"), cột Giá bán hiện khoảng
+ * giá của các Biến thể đang bán; thêm kèm Biến thể và quản lý từng Biến thể (thêm, sửa, ngừng) trong form thêm, sửa.
+ * Dòng của Sản phẩm nhiều Biến thể không có "Lịch sử kho" (Biến thể mặc định đổi khi ngừng Biến thể): link theo từng
+ * Biến thể nằm ở phần Biến thể của form sửa.
+ *
+ * Chủ cửa hàng còn có nút "Nhập từ Excel" (FR-6, SP-06): hộp thoại tải file mẫu, chọn file, xem kết quả (số Sản phẩm
+ * đã nhập, dòng lỗi kèm số dòng và lý do). Nhập được ít nhất một Sản phẩm thì bảng làm như sau khi thêm: bỏ bộ lọc, sắp
+ * mới nhất trước, về trang đầu, nên các Sản phẩm vừa nhập nằm đầu bảng.
  */
-import { PlusOutlined } from '@ant-design/icons';
+import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
 import { App, Button, Flex, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useCurrentUser } from '../../../shared/api/session';
-import { DataTable, ErrorAlert, MoneyText, useConfirm, useDocumentTitle } from '../../../shared/components';
+import { DataTable, ErrorAlert, MoneyText, formatMoney, useConfirm, useDocumentTitle } from '../../../shared/components';
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import type { Product, ProductSearchParams } from '../../../shared/types/catalog';
 import { defaultVariant, fetchProducts, productsQueryKey, useDeactivateProduct } from '../api/products';
 import { ProductFilterBar } from '../components/ProductFilterBar';
 import { ProductFormModal } from '../components/ProductFormModal';
+import { ProductImportModal } from '../components/ProductImportModal';
 import { ProductThumbnail } from '../components/ProductThumbnail';
+import { stockLedgerLink } from '../components/stockLedgerLink';
 import type { ProductEditing } from '../components/ProductFormModal';
 import {
   hasProductFilters,
@@ -47,6 +59,22 @@ const createdDateFormatter = new Intl.DateTimeFormat('vi-VN', {
   month: '2-digit',
   year: 'numeric',
 });
+
+/**
+ * Giá bán của dòng: giá Biến thể mặc định; Sản phẩm nhiều Biến thể (SP-07) có giá khác nhau thì hiện khoảng giá của
+ * các Biến thể đang bán (`priceRange` của backend, không tự tính).
+ */
+function PriceCell({ product }: { product: Product }) {
+  const range = product.priceRange;
+  if (product.hasVariants && range && range.min !== range.max) {
+    return (
+      <Typography.Text className="money-text">
+        {formatMoney(range.min)} – {formatMoney(range.max)}
+      </Typography.Text>
+    );
+  }
+  return <MoneyText value={product.hasVariants && range ? range.min : defaultVariant(product)?.salePrice} />;
+}
 
 /** Chiều sắp ban đầu của cột `key` khi bảng mở với `sort` (`<field>,asc|desc`), để cột hiện đúng mũi tên. */
 function sortOrderOf(sort: string | undefined, key: string): 'ascend' | 'descend' | null {
@@ -81,15 +109,31 @@ function buildColumns(initialSort: string | undefined): TableColumnsType<Product
       key: 'categoryName',
       render: (name: string | null) => name ?? EMPTY,
     },
-    { title: 'SKU', key: 'sku', render: (_, product) => defaultVariant(product)?.sku ?? EMPTY },
-    { title: 'Mã vạch', key: 'barcode', render: (_, product) => defaultVariant(product)?.barcode ?? EMPTY },
+    {
+      title: 'SKU',
+      key: 'sku',
+      // Sản phẩm nhiều Biến thể (SP-07): mỗi Biến thể một SKU, nên hiện số Biến thể đang bán
+      render: (_, product) =>
+        product.hasVariants ? (
+          <Typography.Text type="secondary">
+            {product.variants.filter((v) => v.status === 'ACTIVE').length} Biến thể
+          </Typography.Text>
+        ) : (
+          (defaultVariant(product)?.sku ?? EMPTY)
+        ),
+    },
+    {
+      title: 'Mã vạch',
+      key: 'barcode',
+      render: (_, product) => (product.hasVariants ? EMPTY : (defaultVariant(product)?.barcode ?? EMPTY)),
+    },
     { title: 'Đơn vị tính', dataIndex: 'unit', key: 'unit' },
     {
       title: 'Giá bán',
       key: 'salePrice',
       align: 'right',
       ...sortable('salePrice'),
-      render: (_, product) => <MoneyText value={defaultVariant(product)?.salePrice} />,
+      render: (_, product) => <PriceCell product={product} />,
     },
     {
       title: 'Trạng thái',
@@ -113,6 +157,7 @@ export function ProductsPage() {
   const { role } = useCurrentUser();
   const isOwner = role === 'OWNER';
   const [editing, setEditing] = useState<ProductEditing | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
   // Đổi key thì DataTable dựng lại từ trang đầu với thứ tự `initialSort` (sau khi thêm Sản phẩm).
   const [tableKey, setTableKey] = useState(0);
   const [initialSort, setInitialSort] = useState<string | undefined>(undefined);
@@ -156,32 +201,46 @@ export function ProductsPage() {
   const actionsColumn: TableColumnsType<Product>[number] = {
     title: 'Thao tác',
     key: 'actions',
-    // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại
-    render: (_, product) =>
-      product.status === 'ACTIVE' ? (
-        <Flex wrap>
-          <Button
-            type="link"
-            size="small"
-            aria-label={`Sửa ${product.name}`}
-            disabled={deactivate.isPending && deactivate.variables === product.id}
-            onClick={() => setEditing({ mode: 'edit', product })}
+    // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại; lịch sử kho
+    // vẫn xem được
+    render: (_, product) => (
+      <Flex wrap align="center">
+        {/* Sản phẩm nhiều Biến thể: lịch sử kho theo từng Biến thể, ở phần Biến thể của form sửa (SP-07) */}
+        {product.hasVariants ? null : (
+          <Link
+            to={stockLedgerLink(product.id, defaultVariant(product)?.id)}
+            aria-label={`Lịch sử kho ${product.name}`}
+            style={{ padding: '0 7px', whiteSpace: 'nowrap' }}
           >
-            Sửa
-          </Button>
-          <Button
-            type="link"
-            size="small"
-            danger
-            aria-label={`Ngừng kinh doanh ${product.name}`}
-            disabled={deactivate.isPending}
-            loading={deactivate.isPending && deactivate.variables === product.id}
-            onClick={() => void onDeactivate(product)}
-          >
-            Ngừng kinh doanh
-          </Button>
-        </Flex>
-      ) : null,
+            Lịch sử kho
+          </Link>
+        )}
+        {product.status === 'ACTIVE' ? (
+          <>
+            <Button
+              type="link"
+              size="small"
+              aria-label={`Sửa ${product.name}`}
+              disabled={deactivate.isPending && deactivate.variables === product.id}
+              onClick={() => setEditing({ mode: 'edit', product })}
+            >
+              Sửa
+            </Button>
+            <Button
+              type="link"
+              size="small"
+              danger
+              aria-label={`Ngừng kinh doanh ${product.name}`}
+              disabled={deactivate.isPending}
+              loading={deactivate.isPending && deactivate.variables === product.id}
+              onClick={() => void onDeactivate(product)}
+            >
+              Ngừng kinh doanh
+            </Button>
+          </>
+        ) : null}
+      </Flex>
+    ),
   };
 
   return (
@@ -191,9 +250,14 @@ export function ProductsPage() {
           Sản phẩm
         </Typography.Title>
         {isOwner ? (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>
-            Thêm Sản phẩm
-          </Button>
+          <Flex wrap gap={8}>
+            <Button icon={<FileExcelOutlined />} onClick={() => setImportOpen(true)}>
+              Nhập từ Excel
+            </Button>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>
+              Thêm Sản phẩm
+            </Button>
+          </Flex>
         ) : null}
       </Flex>
       {deactivate.isError ? <ErrorAlert error={deactivate.error} onClose={() => deactivate.reset()} /> : null}
@@ -224,6 +288,14 @@ export function ProductsPage() {
       ) : null}
       {editing?.mode === 'edit' ? (
         <ProductFormModal key={editing.product.id} editing={editing} onClose={() => setEditing(null)} />
+      ) : null}
+      {importOpen ? (
+        <ProductImportModal
+          onClose={() => setImportOpen(false)}
+          onImported={(result) => {
+            if (result.imported > 0) onCreated();
+          }}
+        />
       ) : null}
     </div>
   );

@@ -12,6 +12,8 @@ public enum AuditAction {
     PLATFORM_STORE_UPDATE("platform.store.update", "store"),
     CATALOG_VARIANT_PRICE_CHANGE("catalog.variant.price_change", "product_variant"),
     CATALOG_PRODUCT_DEACTIVATE("catalog.product.deactivate", "product"),
+    /** Ngừng kinh doanh một Biến thể (FR-7, SP-07); ngừng cả Sản phẩm là {@link #CATALOG_PRODUCT_DEACTIVATE}. */
+    CATALOG_VARIANT_DEACTIVATE("catalog.variant.deactivate", "product_variant"),
     SALES_ORDER_CANCEL("sales.order.cancel", "sales_order"),
     SALES_RETURN_CREATE("sales.return.create", "sales_return"),
     INVENTORY_STOCKTAKE_COMPLETE("inventory.stocktake.complete", "stocktake");

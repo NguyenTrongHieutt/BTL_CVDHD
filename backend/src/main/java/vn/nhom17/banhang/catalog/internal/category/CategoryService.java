@@ -35,8 +35,8 @@ import vn.nhom17.banhang.platform.ProblemException;
 @Service
 class CategoryService {
 
-    static final int NAME_MAX = 100;
-    static final String NAME_UNIQUE = "category_name_uq";
+    static final int NAME_MAX = CategoryEntity.NAME_MAX;
+    static final String NAME_UNIQUE = CategoryEntity.NAME_UNIQUE;
     private static final TextFields.Rule NAME_RULE = TextFields.Rule.required("Tên Danh mục", NAME_MAX);
 
     private final CategoryRepository categories;

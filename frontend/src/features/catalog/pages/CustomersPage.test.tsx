@@ -525,3 +525,90 @@ describe('Khách hàng (FR-18 KH-01, FR-19 KH-02)', () => {
     expect(customers.find((c) => c.customerId === 'k-1')?.note).toBe('Ghi chú mới');
   });
 });
+
+describe('Lịch sử mua của Khách hàng (KH-03)', () => {
+  const ordersPath = '/api/v1/sales/orders';
+  const summaryPath = '/api/v1/sales/customers/k-1/purchase-summary';
+  const purchasedAt = '2026-11-10T19:15:00Z';
+
+  function salesBackend(failure?: { path: string; status: number }) {
+    const catalog = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname === failure?.path) return json({ status: failure.status, requestId: 'req-sales' }, failure.status);
+      if ((init?.method ?? 'GET') === 'GET') {
+        if (url.pathname === summaryPath) {
+          return json({ orderCount: 21, totalSpent: 210000, lastPurchaseAt: purchasedAt });
+        }
+        if (url.pathname === '/api/v1/sales/customers/k-3/purchase-summary') {
+          return json({ orderCount: 0, totalSpent: 0, lastPurchaseAt: null });
+        }
+        if (url.pathname === ordersPath) {
+          const page = Number(url.searchParams.get('page'));
+          const size = Number(url.searchParams.get('size'));
+          const total = url.searchParams.get('customerId') === 'k-1' ? 21 : 0;
+          const items = Array.from({ length: total }, (_, i) => ({
+            orderId: String(i), orderCode: `DH-${i + 1}`, total: 10000, createdAt: purchasedAt,
+            status: 'COMPLETED', sellerName: 'Lan',
+          })).slice(page * size, (page + 1) * size);
+          return json({ items, total, page, size });
+        }
+      }
+      return catalog(input, init);
+    });
+  }
+
+  async function openHistory(name = 'Chị Hoa') {
+    fireEvent.click(await screen.findByRole('button', { name: `Lịch sử mua của ${name}` }));
+    const historyDialog = within(await screen.findByRole('dialog'));
+    expect(historyDialog.getByText(`Lịch sử mua · ${name}`)).toBeTruthy();
+    return historyDialog;
+  }
+
+  function lastOrdersQuery() {
+    const call = callsTo('GET', ordersPath).at(-1);
+    return Object.fromEntries(new URL(String(call?.[0]), 'http://localhost').searchParams);
+  }
+
+  it('mở từ danh sách, phân trang theo khách và về trang đầu khi mở khách khác', async () => {
+    salesBackend();
+    renderPage();
+    const first = await openHistory();
+    const row = (await first.findByText('DH-1')).closest('tr')!;
+    expect(row.textContent).toContain('Hoàn tất');
+    expect(row.textContent).toContain('Lan');
+    expect(row.textContent).toContain('10.000');
+    expect(row.textContent).toContain('11/11/26');
+    expect(first.getByText(/210\.000/)).toBeTruthy();
+    expect(lastOrdersQuery()).toEqual({ customerId: 'k-1', page: '0', size: '20' });
+    fireEvent.click(within(first.getByTitle('2')).getByRole('button'));
+    expect(await first.findByText('DH-21')).toBeTruthy();
+    expect(first.queryByText('DH-1')).toBeNull();
+    expect(lastOrdersQuery()).toEqual({ customerId: 'k-1', page: '1', size: '20' });
+    expect(callsTo('GET', summaryPath)).toHaveLength(1);
+    fireEvent.click(first.getByRole('button', { name: 'Đóng' }));
+    const second = await openHistory('0933 000 111');
+    expect(await second.findByText('Khách hàng chưa có đơn hàng.')).toBeTruthy();
+    expect(second.getByText('Chưa mua hàng')).toBeTruthy();
+    expect(second.queryByText('DH-21')).toBeNull();
+    expect(lastOrdersQuery()).toEqual({ customerId: 'k-3', page: '0', size: '20' });
+  });
+
+  it.each([
+    [summaryPath, 404, 'Tải lại tổng quan'],
+    [ordersPath, 503, 'Tải lại đơn hàng'],
+  ] as const)('hiện lỗi riêng của %s (%i), cho phép tải lại', async (path, status, retry) => {
+    salesBackend({ path, status });
+    renderPage();
+    const view = await openHistory();
+    const button = await view.findByRole('button', { name: retry });
+    expect(view.getByText(/req-sales/)).toBeTruthy();
+    expect(view.queryByText('Khách hàng chưa có đơn hàng.')).toBeNull();
+    expect(await view.findByText(path === ordersPath ? /210\.000/ : 'DH-1')).toBeTruthy();
+    backend();
+    salesBackend();
+    fireEvent.click(button);
+    expect(await view.findByText(path === ordersPath ? 'DH-1' : /210\.000/)).toBeTruthy();
+    expect(view.queryByText(/req-sales/)).toBeNull();
+  });
+});

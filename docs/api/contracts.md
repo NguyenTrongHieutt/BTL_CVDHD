@@ -161,8 +161,9 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 | `POST /api/v1/sales/orders/quote` | Không ghi gì (AD-8). Header `Idempotency-Key` của lần thanh toán. Body `{customerId?, lines: [{variantId, quantity, discount?: {type: "PERCENT"\|"AMOUNT", value}}], orderDiscount?, pointsToRedeem?, paymentMethod?: "CASH"\|"BANK_TRANSFER", cashReceived?}` → `{lines: [{lineNo, variantId, productName, variantName, quantity, unitPrice, lineDiscount, orderDiscountShare, netLineAmount}], subtotal, lineDiscountTotal, orderDiscount, pointsDiscount, total, change?, vietqrPayload?, transferRef?, warnings: [{variantId, code: "INSUFFICIENT_STOCK", available}]}` |
 | `POST /api/v1/sales/orders` | Như `quote` + `quotedTotal`; header `Idempotency-Key`. Tổng tính lại khác `quotedTotal`: `409 /errors/sales/cart-stale`. Thành công `201 Order` |
 | `GET /api/v1/sales/sellable?ids=` hoặc `?q=&categoryId=&minPrice=&maxPrice=&inStock=&page=&size=` | Hàng bán được, gộp catalog + inventory: `{variantId, productId, productName, variantName, sku, barcode, unit, salePrice, quantity, belowMin}` (không có Giá vốn) |
-| `GET /api/v1/sales/orders?customerId=&page=&size=` | Màn KH-03 của Hiếu: `PageResponse<{orderId, orderCode, createdAt, status, total, sellerName}>` |
-| `GET /api/v1/sales/customers/{customerId}/purchase-summary` | `{orderCount, totalSpent, lastPurchaseAt}` (FR-20) |
+| `GET /api/v1/sales/orders` | DH-09 và KH-03. Bộ lọc tùy chọn: `customerId`, `orderCode` (tìm một phần mã), `customerPhone` (số đầy đủ), `fromDate`, `toDate` (ngày Việt Nam, tính cả hai đầu), `status`, `sellerId`. Phân trang `page`, `size`: `PageResponse<{orderId, orderCode, createdAt, status, total, sellerName}>`, mới nhất trước. |
+| `GET /api/v1/sales/orders/sellers` | Người đã bán hàng trong cửa hàng hiện tại: `[{sellerId, sellerName}]`. |
+| `GET /api/v1/sales/customers/{customerId}/purchase-summary` | `{orderCount, totalSpent, lastPurchaseAt}` (FR-20), tính từ các đơn `COMPLETED`. Khi chưa có đơn hoàn thành, số đơn và tổng chi là 0, lần mua gần nhất là `null`. |
 | `POST /api/v1/sales/orders/{id}/cancel`, `POST /api/v1/sales/orders/{id}/returns` | Header `Idempotency-Key`; quy tắc AD-16, AD-17 |
 | Java `LoyaltyQuery.balanceOf(customerId)` | GĐ3 |
 

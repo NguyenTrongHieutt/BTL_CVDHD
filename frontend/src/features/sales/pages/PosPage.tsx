@@ -79,7 +79,10 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       setCashReceived(null);
       setMethod('CASH');
       setProducts(new Map());
-      for (const key of [['sales', 'sellable'], ['inventory', 'stock'], ['inventory', 'low-stock']]) {
+      for (const key of [
+        ['sales', 'sellable'], ['sales', 'orders'], ['sales', 'order-sellers'],
+        ['inventory', 'stock'], ['inventory', 'low-stock'],
+      ]) {
         void queryClient.invalidateQueries({ queryKey: key });
       }
     },

@@ -116,6 +116,7 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 | Java `StockQuery.find(ids)`, `lowStock()` | `StockView{variantId, quantity, minQuantity, avgUnitCost, active}` |
 | `GET /api/v1/inventory/stock?q=&categoryId=&belowMin=&includeInactive=&page=&size=` | Cả hai vai trò; `avgUnitCost` chỉ có khi là Chủ cửa hàng (AD-16) |
 | `GET /api/v1/inventory/low-stock` | Cả hai vai trò: `[{variantId, productName, variantName, quantity, minQuantity}]` |
+| `POST /api/v1/inventory/purchase-receipts` | KHO-03, chỉ Chủ cửa hàng. Header `Idempotency-Key`. Body `{supplierId, receivedAt?, note?, lines: [{variantId, quantity, unitCost}]}`. Số lượng và giá nhập là số nguyên dương. `receivedAt` mặc định là giờ lưu phiếu. Trả `201 {receiptId, code, supplierId, receivedAt, totalAmount}`; gửi lại cùng nội dung trả `200` và `Idempotent-Replay: true`. Biến thể đã ngừng kinh doanh trả `409 /errors/inventory/variant-inactive`; toàn bộ phiếu bị rollback. |
 | `GET /api/v1/inventory/ledger?variantId=&documentType=&fromDate=&toDate=&page=&size=` | Chủ cửa hàng (màn KHO-07 của Hiếu): `PageResponse<{createdAt, documentType, documentId, variantId, productName, variantName, delta, quantityAfter, actorName}>` |
 
 ### 3.4 sales (Anh) — GĐ1–GĐ2

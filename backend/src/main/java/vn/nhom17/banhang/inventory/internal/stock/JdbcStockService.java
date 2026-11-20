@@ -1,11 +1,15 @@
 package vn.nhom17.banhang.inventory.internal.stock;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import org.springframework.dao.EmptyResultDataAccessException;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import vn.nhom17.banhang.inventory.StockDocumentType;
 import vn.nhom17.banhang.inventory.StockService;
 import vn.nhom17.banhang.platform.CurrentContext;
+import vn.nhom17.banhang.platform.ProblemException;
 
 @Repository
 public class JdbcStockService implements StockService {
@@ -76,23 +81,24 @@ public class JdbcStockService implements StockService {
 
         // duyệt danh sách các dòng để cập nhật tồn kho  
         List<AppliedLine> results = new ArrayList<>();    
-        record StockData(int quantity,long avgUnitCost){}   
+        record StockData(int quantity, long avgUnitCost, boolean active) {}
         for (StockLine line : lines) {
              
-             StockData stock = jdbc.queryForObject(
-                 """
-                 SELECT quantity, avg_unit_cost
-                 FROM app.stock
-                 WHERE store_id = ? AND variant_id = ?
-                 FOR UPDATE
-                 """,
-                 (rs, rowNum) -> new StockData(
-                 rs.getInt("quantity"),
-                 rs.getLong("avg_unit_cost")
-                 ),
-                 storeId,
-                 line.variantId()
-             );
+            StockData stock;
+            try {
+                stock = jdbc.queryForObject("""
+                        SELECT quantity, avg_unit_cost, is_active
+                        FROM app.stock
+                        WHERE store_id = ? AND variant_id = ?
+                        FOR UPDATE
+                        """, (rs, rowNum) -> new StockData(rs.getInt("quantity"),
+                        rs.getLong("avg_unit_cost"), rs.getBoolean("is_active")), storeId, line.variantId());
+            } catch (EmptyResultDataAccessException ex) {
+                if (documentType == StockDocumentType.PURCHASE_RECEIPT) {
+                    throw invalidPurchase("Biến thể ở dòng " + line.lineNo() + " không có trong kho của cửa hàng.");
+                }
+                throw ex;
+            }
 
             long newQuantity;
             long newCost;
@@ -125,13 +131,26 @@ public class JdbcStockService implements StockService {
                      break;
                 
                 case PURCHASE_RECEIPT:
-                     if (line.delta() <= 0)
-                     throw new IllegalArgumentException("Số lượng hàng nhập phải dương");
-                     if (line.unitCost() == null || line.unitCost() <= 0) 
-                     throw new IllegalArgumentException("Giá vốn hiện tại không hợp lệ");
-                     newQuantity = (long) stock.quantity() + line.delta(); 
-                     newCost = (line.delta() * line.unitCost() + (long) stock.quantity() * stock.avgUnitCost()) / newQuantity;
-                     break;
+                    if (!stock.active()) {
+                        throw ProblemException.conflict("/errors/inventory/variant-inactive",
+                                "Biến thể đã ngừng kinh doanh", "Bỏ dòng " + line.lineNo() + " khỏi phiếu nhập.");
+                    }
+                    if (line.delta() <= 0 || line.unitCost() == null || line.unitCost() <= 0) {
+                        throw invalidPurchase("Số lượng và giá nhập phải lớn hơn 0.");
+                    }
+                    newQuantity = (long) stock.quantity() + line.delta();
+                    if (newQuantity > Integer.MAX_VALUE) {
+                        throw invalidPurchase("Số lượng tồn sau khi nhập ở dòng " + line.lineNo() + " vượt giới hạn.");
+                    }
+                    try {
+                        BigDecimal currentValue = BigDecimal.valueOf(Math.multiplyExact(stock.quantity(), stock.avgUnitCost()));
+                        BigDecimal receivedValue = BigDecimal.valueOf(Math.multiplyExact(line.delta(), line.unitCost()));
+                        newCost = currentValue.add(receivedValue)
+                                .divide(BigDecimal.valueOf(newQuantity), 0, RoundingMode.HALF_UP).longValueExact();
+                    } catch (ArithmeticException ex) {
+                        throw invalidPurchase("Tổng giá vốn ở dòng " + line.lineNo() + " vượt giới hạn.");
+                    }
+                    break;
 
                 case STOCKTAKE:
                      newQuantity = (long) stock.quantity() + line.delta(); 
@@ -210,5 +229,9 @@ public class JdbcStockService implements StockService {
     return results;
 
 }
+
+    private static ProblemException invalidPurchase(String detail) {
+        return new ProblemException(HttpStatus.BAD_REQUEST, "/errors/common/validation", "Phiếu nhập không hợp lệ", detail);
+    }
 
 }

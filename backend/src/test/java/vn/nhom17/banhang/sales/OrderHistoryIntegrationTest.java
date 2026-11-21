@@ -119,6 +119,58 @@ class OrderHistoryIntegrationTest {
                 .andExpect(jsonPath("$.lastPurchaseAt").doesNotExist());
     }
 
+    @Test
+    void aCustomerCreatedByStaffIsLinkedAtCheckoutAndAppearsInOrderSearch() throws Exception {
+        String newPhone = "08" + ThreadLocalRandom.current().nextInt(10_000_000, 90_000_000);
+        String customer = mvc.perform(post("/api/v1/catalog/customers").cookie(staffA.cookie())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"phone":"%s"}
+                                """.formatted(newPhone)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String selectedId = JsonPath.read(customer, "$.customerId");
+
+        Session ownerA = login("dev.chu.a");
+        String product = mvc.perform(post("/api/v1/catalog/products").cookie(ownerA.cookie())
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"name":"Hàng test DH-06","salePrice":15000,"openingQuantity":2,"openingUnitCost":10000}
+                                """))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String variantId = JsonPath.read(product, "$.variants[0].id");
+
+        String quote = """
+                {"customerId":"%s","lines":[{"variantId":"%s","quantity":1}],
+                 "paymentMethod":"CASH","cashReceived":15000}
+                """;
+        mvc.perform(post(ORDERS + "/quote").cookie(staffA.cookie()).contentType(MediaType.APPLICATION_JSON)
+                        .content(quote.formatted(selectedId, variantId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(15000));
+
+        String checkout = """
+                {"customerId":"%s","lines":[{"variantId":"%s","quantity":1}],
+                 "paymentMethod":"CASH","cashReceived":15000,"quotedTotal":15000}
+                """;
+        UUID key = UUID.randomUUID();
+        mvc.perform(post(ORDERS).cookie(staffA.cookie()).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(checkout.formatted(customerB, variantId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("customerId"));
+
+        String order = mvc.perform(post(ORDERS).cookie(staffA.cookie()).header("Idempotency-Key", key)
+                        .contentType(MediaType.APPLICATION_JSON).content(checkout.formatted(selectedId, variantId)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String orderId = JsonPath.read(order, "$.orderId");
+
+        mvc.perform(get(ORDERS).cookie(staffA.cookie()).param("customerPhone", newPhone))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].orderId").value(orderId));
+        mvc.perform(get(ORDERS).cookie(staffA.cookie()).param("customerId", selectedId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].orderId").value(orderId));
+    }
+
     private Session login(String key) throws Exception {
         Cookie cookie = mvc.perform(post("/api/v1/platform/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("""

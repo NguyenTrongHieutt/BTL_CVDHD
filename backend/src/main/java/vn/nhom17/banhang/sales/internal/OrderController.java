@@ -1,5 +1,7 @@
 package vn.nhom17.banhang.sales.internal;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -47,7 +49,9 @@ public class OrderController {
 
     public record CreateOrder(java.util.List<QuoteController.LineRequest> lines,
                               QuoteController.Discount orderDiscount, String paymentMethod,
-                              java.math.BigDecimal cashReceived, java.math.BigDecimal quotedTotal) {}
+                              java.math.BigDecimal cashReceived, java.math.BigDecimal quotedTotal,
+                              // Giữ nguyên hash của các đơn khách lẻ đã lưu trước DH-06.
+                              @JsonInclude(JsonInclude.Include.NON_NULL) UUID customerId) {}
 
     public record Order(UUID orderId, String orderCode, String status, long total, OffsetDateTime createdAt) {}
 
@@ -64,7 +68,7 @@ public class OrderController {
 
     private UUID save(UUID key, CreateOrder request) {
         var quote = pricing.quote(key, new QuoteController.QuoteRequest(
-            request.lines(), request.orderDiscount(), request.paymentMethod(), request.cashReceived()));
+            request.lines(), request.orderDiscount(), request.paymentMethod(), request.cashReceived(), request.customerId()));
         if (request.quotedTotal() == null ||
                 request.quotedTotal().compareTo(java.math.BigDecimal.valueOf(quote.total())) != 0) {
             throw ProblemException.conflict("/errors/sales/cart-stale", "Giỏ hàng đã thay đổi",
@@ -86,10 +90,10 @@ public class OrderController {
         String code = codes.nextOrderCode();
         jdbc.update("""
             INSERT INTO app.sales_order
-                (id, store_id, order_code, status, subtotal, line_discount_total, order_discount,
+                (id, store_id, customer_id, order_code, status, subtotal, line_discount_total, order_discount,
                  total_amount, created_by, created_at)
-            VALUES (?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?)
-            """, orderId, storeId, code, quote.subtotal(), quote.lineDiscountTotal(),
+            VALUES (?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?)
+            """, orderId, storeId, request.customerId(), code, quote.subtotal(), quote.lineDiscountTotal(),
             quote.orderDiscount(), quote.total(), context.userId(), now);
 
         var movements = quote.lines().stream().map(line ->

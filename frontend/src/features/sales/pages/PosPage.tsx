@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Card, Descriptions, InputNumber, QRCode, Select, Space, Table, Typography } from 'antd';
 import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
+import { customersQueryKey, fetchCustomer } from '../../../shared/api/customers';
+import { CustomerPicker } from '../../../shared/components/CustomerPicker';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
 import { MoneyText } from '../../../shared/components/MoneyText';
 import { DiscountInput } from './DiscountInput';
@@ -9,6 +11,7 @@ import { useCurrentUser } from '../../../shared/api/session';
 import { LowStockPanel } from '../../../shared/components/LowStockPanel';
 import { ProductPicker } from '../../../shared/components/ProductPicker';
 import { useDocumentTitle } from '../../../shared/components/useDocumentTitle';
+import type { CustomerSummary } from '../../../shared/types/catalog';
 import type { CreateOrderRequest, PaymentMethod, QuoteLineRequest, QuoteRequest, QuoteResponse, SellableItem } from '../../../shared/types/sales';
 import { emptyCart, loadCart, saveCart } from '../cart/cartStorage';
 
@@ -68,6 +71,20 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
   const [bankAvailable, setBankAvailable] = useState(false);
   const [orderCode, setOrderCode] = useState('');
   const [pending, setPending] = useState<CreateOrderRequest | null>(null);
+  const selectedCustomerId = cart.customerId;
+  const selectedCustomer = useQuery({
+    queryKey: [...customersQueryKey, 'pos-selected', cart.customerId],
+    queryFn: selectedCustomerId ? ({ signal }) => fetchCustomer(selectedCustomerId, signal) : skipToken,
+    retry: false,
+  });
+  const customerReady = !cart.customerId || Boolean(selectedCustomer.data);
+
+  function changeCustomer(customer: CustomerSummary | null) {
+    if (customer) {
+      queryClient.setQueryData([...customersQueryKey, 'pos-selected', customer.customerId], customer);
+    }
+    setCart((current) => ({ ...current, customerId: customer?.customerId }));
+  }
   const payment = useMutation({
     mutationFn: (order: CreateOrderRequest) => api.post<{ orderCode: string }>(
       '/api/v1/sales/orders', order, { idempotencyKey: cart.idempotencyKey },
@@ -99,6 +116,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
   const [debouncedQuote, setDebouncedQuote] = useState('');
   const request: QuoteRequest = {
     lines: cart.lines,
+    customerId: cart.customerId,
     orderDiscount: cart.orderDiscount,
     paymentMethod: method,
     cashReceived: method === 'CASH' ? cashReceived ?? undefined : undefined,
@@ -132,7 +150,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       payment.mutate(pending);
       return;
     }
-    if (!pricing || pricing.warnings.length || quote.isFetching || quote.isError) return;
+    if (!customerReady || !pricing || pricing.warnings.length || quote.isFetching || quote.isError) return;
     if (method === 'CASH' && (cashReceived === null || cashReceived < pricing.total)) return;
     const order = { ...request, quotedTotal: pricing.total };
     setPending(order);
@@ -163,6 +181,22 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       <Card title="Giỏ hàng">
         {orderCode && <Alert type="success" showIcon title={`Đã bán hàng · ${orderCode}`} />}
         {warning && <Alert type="warning" showIcon title={warning} />}
+        <Space orientation="vertical" style={{ width: '100%', marginBottom: 16 }}>
+          <Typography.Text strong>Khách hàng</Typography.Text>
+          <CustomerPicker
+            value={selectedCustomer.data}
+            onChange={changeCustomer}
+            allowQuickCreate
+            disabled={pending !== null}
+            placeholder={cart.customerId && selectedCustomer.isPending ? 'Đang tải khách đã chọn…' : undefined}
+          />
+          {cart.customerId && selectedCustomer.isError && !selectedCustomer.data && (
+            <>
+              <ErrorAlert error={selectedCustomer.error} />
+              <Button disabled={pending !== null} onClick={() => changeCustomer(null)}>Bỏ chọn khách</Button>
+            </>
+          )}
+        </Space>
         <Table<QuoteLineRequest>
           rowKey="variantId"
           dataSource={cart.lines}
@@ -276,7 +310,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             )}
             <Button type="primary" loading={payment.isPending} onClick={confirmPayment}
               disabled={payment.isPending || (!pending && (
-                !pricing || quote.isFetching || quote.isError || pricing.warnings.length > 0 ||
+                !customerReady || !pricing || quote.isFetching || quote.isError || pricing.warnings.length > 0 ||
                 (method === 'CASH' && (cashReceived === null || cashReceived < pricing.total))
               ))}
             >

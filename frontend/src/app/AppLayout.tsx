@@ -5,9 +5,9 @@
  * Dưới mốc `lg` (992px) menu ẩn đi, mở bằng nút trên thanh trên và nổi đè lên nội dung, để màn của
  * Chủ cửa hàng dùng được từ chiều rộng 360px (Consistency Conventions, dòng "Giao diện").
  */
-import { LogoutOutlined, MenuOutlined } from '@ant-design/icons';
+import { LogoutOutlined, MenuOutlined, ShopOutlined } from '@ant-design/icons';
 import { App, Button, Grid, Layout, Menu, Tag, Typography, theme } from 'antd';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router';
 import { useCurrentUser, useLogout } from '../shared/api/session';
 import { APP_TITLE } from '../shared/components';
@@ -34,6 +34,18 @@ export function AppLayout({ features }: AppLayoutProps) {
   const items = useMemo(() => buildMenuItems(features, me.role), [features, me.role]);
   const selectedKey = selectedMenuKey(features, location.pathname);
 
+  useEffect(() => {
+    if (!narrow || collapsed) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setCollapsed(true);
+        document.querySelector<HTMLButtonElement>('[aria-controls="app-navigation"]')?.focus();
+      }
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [narrow, collapsed]);
+
   const onLogout = () => {
     logout.mutate(undefined, {
       onError: (error) => {
@@ -44,10 +56,13 @@ export function AppLayout({ features }: AppLayoutProps) {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
+    <>
+    <a className="skip-link" href="#main-content">Chuyển đến nội dung chính</a>
+    <Layout style={{ minHeight: '100dvh' }}>
       <Layout.Sider
-        className="app-chrome"
-        theme="light"
+        id="app-navigation"
+        className="app-chrome app-sider"
+        theme="dark"
         width={240}
         breakpoint="lg"
         collapsedWidth={0}
@@ -76,19 +91,33 @@ export function AppLayout({ features }: AppLayoutProps) {
               }
         }
       >
-        <div className="app-brand">{APP_TITLE}</div>
+        <div className="app-brand">
+          <span className="app-brand-mark" aria-hidden="true"><ShopOutlined /></span>
+          <span className="app-brand-name">{APP_TITLE}<span className="app-brand-caption">Không gian cửa hàng</span></span>
+        </div>
         <Menu
           mode="inline"
+          theme="dark"
+          aria-label="Điều hướng chính"
           items={items}
           selectedKeys={selectedKey ? [selectedKey] : []}
           style={{ borderInlineEnd: 'none' }}
           onClick={({ key }) => {
             void navigate(key);
-            if (narrow) setCollapsed(true);
+            if (narrow) {
+              setCollapsed(true);
+              document.getElementById('main-content')?.focus();
+            }
           }}
         />
       </Layout.Sider>
-      {narrow && !collapsed ? <div className="app-sider-mask app-chrome" onClick={() => setCollapsed(true)} /> : null}
+      {narrow && !collapsed ? (
+        <button type="button" className="app-sider-mask app-chrome" aria-label="Đóng menu"
+          onClick={() => {
+            setCollapsed(true);
+            document.querySelector<HTMLButtonElement>('[aria-controls="app-navigation"]')?.focus();
+          }} />
+      ) : null}
       <Layout>
         <Layout.Header className="app-chrome app-header" style={{ background: token.colorBgContainer }}>
           {narrow ? (
@@ -96,6 +125,8 @@ export function AppLayout({ features }: AppLayoutProps) {
               type="text"
               icon={<MenuOutlined />}
               aria-label={collapsed ? 'Mở menu' : 'Đóng menu'}
+              aria-expanded={!collapsed}
+              aria-controls="app-navigation"
               onClick={() => setCollapsed((value) => !value)}
             />
           ) : null}
@@ -110,10 +141,11 @@ export function AppLayout({ features }: AppLayoutProps) {
             </Button>
           </div>
         </Layout.Header>
-        <Layout.Content className="app-content">
+        <Layout.Content className="app-content" id="main-content" tabIndex={-1}>
           <Outlet />
         </Layout.Content>
       </Layout>
     </Layout>
+    </>
   );
 }

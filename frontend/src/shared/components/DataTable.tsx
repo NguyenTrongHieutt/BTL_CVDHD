@@ -61,6 +61,7 @@ export function DataTable<T extends object>({
       {query.isError ? <ErrorAlert error={query.error} /> : null}
       <Table<T>
         {...tableProps}
+        className={['data-table-shell', tableProps.className].filter(Boolean).join(' ')}
         dataSource={query.data?.items ?? []}
         loading={query.isFetching}
         pagination={{

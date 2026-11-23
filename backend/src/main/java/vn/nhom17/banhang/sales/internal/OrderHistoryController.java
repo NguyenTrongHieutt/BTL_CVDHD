@@ -1,5 +1,6 @@
 package vn.nhom17.banhang.sales.internal;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -35,13 +36,15 @@ public class OrderHistoryController {
     private final CurrentContext context;
     private final CustomerLookup customers;
     private final UserNameLookup users;
+    private final Clock clock;
 
     public OrderHistoryController(JdbcTemplate jdbc, CurrentContext context, CustomerLookup customers,
-                                  UserNameLookup users) {
+                                  UserNameLookup users, Clock clock) {
         this.jdbc = jdbc;
         this.context = context;
         this.customers = customers;
         this.users = users;
+        this.clock = clock;
     }
 
     @GetMapping("/orders")
@@ -109,15 +112,24 @@ public class OrderHistoryController {
         args.add(pageSize);
         args.add(offset);
         List<OrderRow> rows = jdbc.query("""
-                SELECT id, order_code, created_at, status, total_amount, created_by
+                SELECT id, order_code, created_at, status, total_amount, created_by,
+                       EXISTS (SELECT 1 FROM app.sales_return r
+                               WHERE r.store_id = sales_order.store_id AND r.order_id = sales_order.id) AS has_returns
                 """ + where + " ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
                 (rs, index) -> new OrderRow(rs.getObject("id", UUID.class), rs.getString("order_code"),
                         rs.getObject("created_at", OffsetDateTime.class), OrderStatus.valueOf(rs.getString("status")),
-                        rs.getLong("total_amount"), rs.getObject("created_by", UUID.class)), args.toArray());
+                        rs.getLong("total_amount"), rs.getObject("created_by", UUID.class),
+                        rs.getBoolean("has_returns")), args.toArray());
         var sellerNames = users.findNames(rows.stream().map(OrderRow::sellerId).distinct().toList());
+        var now = clock.instant();
+        boolean owner = context.isOwner();
+        UUID actorId = context.userId();
         return new PageResponse<>(rows.stream().map(row -> new OrderSummary(
                 row.orderId(), row.orderCode(), row.createdAt(), row.status(), row.total(),
-                sellerNames.get(row.sellerId()))).toList(), total, pageNo, pageSize);
+                sellerNames.get(row.sellerId()),
+                row.status() == OrderStatus.COMPLETED && !row.hasReturns()
+                        && OrderCancellationPolicy.permits(owner, actorId, row.sellerId(), row.createdAt(), now)
+        )).toList(), total, pageNo, pageSize);
     }
 
     @GetMapping("/orders/sellers")
@@ -151,10 +163,10 @@ public class OrderHistoryController {
     public enum OrderStatus { COMPLETED, CANCELLED, RETURNED }
 
     private record OrderRow(UUID orderId, String orderCode, OffsetDateTime createdAt,
-                            OrderStatus status, long total, UUID sellerId) {}
+                            OrderStatus status, long total, UUID sellerId, boolean hasReturns) {}
 
     public record OrderSummary(UUID orderId, String orderCode, OffsetDateTime createdAt,
-                               OrderStatus status, long total, String sellerName) {}
+                               OrderStatus status, long total, String sellerName, boolean canCancel) {}
 
     public record Seller(UUID sellerId, String sellerName) {}
 

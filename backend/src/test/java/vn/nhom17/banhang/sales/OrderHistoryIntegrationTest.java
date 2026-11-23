@@ -1,7 +1,9 @@
 package vn.nhom17.banhang.sales;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -19,6 +21,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import com.jayway.jsonpath.JsonPath;
@@ -186,6 +189,116 @@ class OrderHistoryIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.items[0].orderId").value(orderId));
     }
+
+    @Test
+    void cancellationRestoresStockOnceAndRecordsWhoCancelled() throws Exception {
+        Session ownerA = login("dev.chu.a");
+        var sale = checkoutForCancellation(ownerA);
+        String endpoint = ORDERS + "/" + sale.orderId() + "/cancel";
+        UUID key = UUID.randomUUID();
+        String reason = "Khách đổi ý";
+        String request = """
+                {"reason":"Khách đổi ý"}
+                """;
+
+        mvc.perform(get(ORDERS).cookie(staffA.cookie()).param("orderCode", sale.orderCode()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].canCancel").value(true));
+        cancel(endpoint, ownerB, UUID.randomUUID(), request).andExpect(status().isNotFound());
+        cancel(endpoint, staffA, UUID.randomUUID(), "{\"reason\":\" \"}").andExpect(status().isBadRequest());
+        cancel(endpoint, staffA, key, request)
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("CANCELLED"))
+                .andExpect(jsonPath("$.reason").value(reason));
+        cancel(endpoint, staffA, key, request)
+                .andExpect(status().isOk())
+                .andExpect(header().string("Idempotent-Replay", "true"));
+        cancel(endpoint, staffA, UUID.randomUUID(), request)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("/errors/sales/invalid-state"));
+
+        mvc.perform(get(ORDERS).cookie(staffA.cookie()).param("orderCode", sale.orderCode()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].status").value("CANCELLED"))
+                .andExpect(jsonPath("$.items[0].canCancel").value(false));
+        TenantScope.runAs(staffA.storeId(), () -> new TransactionTemplate(transactions).execute(tx -> {
+            int quantity = jdbc.queryForObject("SELECT quantity FROM app.stock WHERE variant_id = ?",
+                    Integer.class, sale.variantId());
+            int restored = jdbc.queryForObject("""
+                    SELECT coalesce(sum(delta), 0) FROM app.stock_ledger
+                    WHERE document_type = 'SALE_CANCEL' AND document_id = ?
+                    """, Integer.class, sale.orderId());
+            UUID actor = jdbc.queryForObject("SELECT cancelled_by FROM app.sales_order WHERE id = ?",
+                    UUID.class, sale.orderId());
+            assertEquals(5, quantity);
+            assertEquals(1, restored);
+            assertEquals(staffA.userId(), actor);
+            int entries = jdbc.queryForObject("""
+                    SELECT count(*) FROM app.audit_log
+                    WHERE action = 'sales.order.cancel' AND entity_id = ?
+                    """, Integer.class, sale.orderId().toString());
+            assertEquals(1, entries);
+            return null;
+        }));
+    }
+
+    @Test
+    void staffCannotCancelAfterTheVietnameseDayAndOwnerCannotCancelAnOrderWithAReturn() throws Exception {
+        Session ownerA = login("dev.chu.a");
+        var oldSale = checkoutForCancellation(ownerA);
+        var returnedSale = checkoutForCancellation(ownerA);
+        TenantScope.runAs(staffA.storeId(), () -> new TransactionTemplate(transactions).execute(tx -> {
+            jdbc.update("UPDATE app.sales_order SET created_at = ? WHERE id = ?",
+                    OffsetDateTime.parse("2020-01-01T00:00:00Z"), oldSale.orderId());
+            jdbc.update("UPDATE app.sales_order SET created_by = ? WHERE id = ?",
+                    ownerA.userId(), returnedSale.orderId());
+            jdbc.update("""
+                    INSERT INTO app.sales_return (store_id, order_id, refund_amount, refund_method, created_by)
+                    VALUES (?, ?, 1000, 'CASH', ?)
+                    """, staffA.storeId(), returnedSale.orderId(), staffA.userId());
+            return null;
+        }));
+
+        String reason = "{\"reason\":\"Khách đổi ý\"}";
+        String oldEndpoint = ORDERS + "/" + oldSale.orderId() + "/cancel";
+        cancel(oldEndpoint, staffA, UUID.randomUUID(), reason).andExpect(status().isForbidden());
+        cancel(oldEndpoint, ownerA, UUID.randomUUID(), reason).andExpect(status().isOk());
+
+        String returnedEndpoint = ORDERS + "/" + returnedSale.orderId() + "/cancel";
+        cancel(returnedEndpoint, staffA, UUID.randomUUID(), reason).andExpect(status().isForbidden());
+        cancel(returnedEndpoint, ownerA, UUID.randomUUID(), reason)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("/errors/sales/invalid-state"));
+        mvc.perform(get(ORDERS).cookie(ownerA.cookie()).param("orderCode", returnedSale.orderCode()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].status").value("COMPLETED"))
+                .andExpect(jsonPath("$.items[0].canCancel").value(false));
+    }
+
+    private ResultActions cancel(String endpoint, Session session, UUID key, String request) throws Exception {
+        return mvc.perform(post(endpoint).cookie(session.cookie()).header("Idempotency-Key", key)
+                .contentType(MediaType.APPLICATION_JSON).content(request));
+    }
+
+    private Sale checkoutForCancellation(Session owner) throws Exception {
+        String product = mvc.perform(post("/api/v1/catalog/products").cookie(owner.cookie())
+                        .header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"name":"Hàng test DH-07 %s","salePrice":15000,"openingQuantity":5,"openingUnitCost":10000}
+                                """.formatted(UUID.randomUUID())))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        String variantId = JsonPath.read(product, "$.variants[0].id");
+        String order = mvc.perform(post(ORDERS).cookie(staffA.cookie()).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"lines":[{"variantId":"%s","quantity":1}],
+                                 "paymentMethod":"CASH","cashReceived":15000,"quotedTotal":15000}
+                                """.formatted(variantId)))
+                .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        return new Sale(UUID.fromString(JsonPath.read(order, "$.orderId")), JsonPath.read(order, "$.orderCode"),
+                UUID.fromString(variantId));
+    }
+
+    private record Sale(UUID orderId, String orderCode, UUID variantId) {}
 
     private Session login(String key) throws Exception {
         Cookie cookie = mvc.perform(post("/api/v1/platform/auth/login").contentType(MediaType.APPLICATION_JSON)

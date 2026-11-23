@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Button, Card, Input, Select, Space, Table, Tag, Typography } from 'antd';
-import { api } from '../../../shared/api/client';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { App, Button, Card, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { api, isApiError, newIdempotencyKey } from '../../../shared/api/client';
 import type { PageRequest, PageResponse } from '../../../shared/api/client';
 import {
   DateRangePicker, ErrorAlert, MoneyText, fromAntdChange, toAntdPagination, useDocumentTitle,
@@ -40,6 +40,30 @@ interface Seller {
 export function OrdersPage() {
   useDocumentTitle('Đơn hàng');
   const [filters, setFilters] = useState<Filters>({ page: 0, size: 20 });
+  const [cancellation, setCancellation] = useState<{
+    order: OrderSummary;
+    reason: string;
+    key: string;
+  } | null>(null);
+  const queryClient = useQueryClient();
+  const { message } = App.useApp();
+  const cancelOrder = useMutation({
+    mutationFn: (input: NonNullable<typeof cancellation>) =>
+      api.post('/api/v1/sales/orders/' + input.order.orderId + '/cancel',
+        { reason: input.reason.trim() }, { idempotencyKey: input.key }),
+    onSuccess: (_, input) => {
+      setCancellation(null);
+      void message.success('Đã hủy đơn ' + input.order.orderCode);
+      for (const queryKey of [['sales'], ['inventory'], ['reporting']]) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    },
+    onError: (error) => {
+      if (isApiError(error) && [403, 404, 409].includes(error.status)) {
+        void queryClient.invalidateQueries({ queryKey: ['sales', 'orders'] });
+      }
+    },
+  });
   const orders = useQuery({
     queryKey: ['sales', 'orders', filters],
     queryFn: ({ signal }) => {
@@ -137,9 +161,55 @@ export function OrdersPage() {
               },
             },
             { title: 'Tổng tiền', align: 'right', render: (_, row) => <MoneyText value={row.total} /> },
+            {
+              title: 'Thao tác',
+              render: (_, row) => row.canCancel && (
+                <Button danger size="small" disabled={orders.isFetching} onClick={() => {
+                  cancelOrder.reset();
+                  setCancellation({ order: row, reason: '', key: newIdempotencyKey() });
+                }}>
+                  Hủy đơn
+                </Button>
+              ),
+            },
           ]}
         />
       )}
+      <Modal
+        open={cancellation !== null}
+        title={'Hủy đơn ' + (cancellation?.order.orderCode ?? '')}
+        okText="Xác nhận hủy"
+        cancelText="Quay lại"
+        confirmLoading={cancelOrder.isPending}
+        closable={!cancelOrder.isPending}
+        keyboard={!cancelOrder.isPending}
+        mask={{ closable: !cancelOrder.isPending }}
+        cancelButtonProps={{ disabled: cancelOrder.isPending }}
+        okButtonProps={{ danger: true, disabled: !cancellation?.reason.trim() }}
+        onCancel={() => setCancellation(null)}
+        onOk={() => {
+          if (cancellation?.reason.trim() && !cancelOrder.isPending) cancelOrder.mutate(cancellation);
+        }}
+      >
+        <Typography.Paragraph>
+          Hàng sẽ được cộng lại vào tồn kho. Nếu đã nhận tiền, hãy hoàn tiền cho khách riêng.
+        </Typography.Paragraph>
+        <label htmlFor="cancel-order-reason">Lý do hủy (bắt buộc)</label>
+        <Input
+          id="cancel-order-reason"
+          maxLength={200}
+          value={cancellation?.reason ?? ''}
+          disabled={cancelOrder.isPending}
+          onChange={(event) => {
+            if (!cancellation) return;
+            const reason = event.target.value;
+            setCancellation({ ...cancellation, reason,
+              key: reason.trim() === cancellation.reason.trim() ? cancellation.key : newIdempotencyKey() });
+            if (cancelOrder.isError) cancelOrder.reset();
+          }}
+        />
+        {cancelOrder.isError && <ErrorAlert error={cancelOrder.error} style={{ marginTop: 12 }} />}
+      </Modal>
     </Card>
   );
 }

@@ -7,6 +7,7 @@ import { CustomerPicker } from '../../../shared/components/CustomerPicker';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
 import { MoneyText } from '../../../shared/components/MoneyText';
 import { DiscountInput } from './DiscountInput';
+import { OrderReceipt } from './OrderReceipt';
 import { useCurrentUser } from '../../../shared/api/session';
 import { LowStockPanel } from '../../../shared/components/LowStockPanel';
 import { ProductPicker } from '../../../shared/components/ProductPicker';
@@ -69,7 +70,8 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
   const queryClient = useQueryClient();
   const [method, setMethod] = useState<PaymentMethod>('CASH');
   const [bankAvailable, setBankAvailable] = useState(false);
-  const [orderCode, setOrderCode] = useState('');
+  const [completedOrder, setCompletedOrder] = useState<{ orderId: string; orderCode: string } | null>(null);
+  const [showReceipt, setShowReceipt] = useState(false);
   const [pending, setPending] = useState<CreateOrderRequest | null>(null);
   const selectedCustomerId = cart.customerId;
   const selectedCustomer = useQuery({
@@ -86,11 +88,11 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
     setCart((current) => ({ ...current, customerId: customer?.customerId }));
   }
   const payment = useMutation({
-    mutationFn: (order: CreateOrderRequest) => api.post<{ orderCode: string }>(
+    mutationFn: (order: CreateOrderRequest) => api.post<{ orderId: string; orderCode: string }>(
       '/api/v1/sales/orders', order, { idempotencyKey: cart.idempotencyKey },
     ),
     onSuccess: (order) => {
-      setOrderCode(order.orderCode);
+      setCompletedOrder(order);
       setCart(emptyCart());
       setPending(null);
       setCashReceived(null);
@@ -174,12 +176,23 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
     });
   }
 
+  if (showReceipt && completedOrder) {
+    return <OrderReceipt orderId={completedOrder.orderId} onBack={() => setShowReceipt(false)} />;
+  }
+
   return (
     <Space orientation="vertical" size="large" style={{ width: '100%' }}>
       <Typography.Title level={2} style={{ margin: 0 }}>Bán hàng</Typography.Title>
       <Card title="Thêm hàng vào giỏ"><ProductPicker onPick={add} autoFocus disabled={pending !== null} /></Card>
       <Card title="Giỏ hàng">
-        {orderCode && <Alert type="success" showIcon title={`Đã bán hàng · ${orderCode}`} />}
+        {completedOrder && (
+          <Alert
+            type="success"
+            showIcon
+            title={'Đã bán hàng · ' + completedOrder.orderCode}
+            action={<Button onClick={() => setShowReceipt(true)}>Xem hóa đơn</Button>}
+          />
+        )}
         {warning && <Alert type="warning" showIcon title={warning} />}
         <Space orientation="vertical" style={{ width: '100%', marginBottom: 16 }}>
           <Typography.Text strong>Khách hàng</Typography.Text>

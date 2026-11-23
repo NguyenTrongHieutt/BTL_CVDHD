@@ -10,7 +10,7 @@
  * khoản, đổi vai trò, gửi mật khẩu qua SMS hay email: Chủ cửa hàng tự báo mật khẩu cho Nhân viên.
  */
 import { PlusOutlined } from '@ant-design/icons';
-import { App, Button, Flex, Form, Input, Modal, Space, Table, Tag, Typography } from 'antd';
+import { App, Button, Flex, Form, Grid, Input, Modal, Space, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useRef, useState } from 'react';
 import { isApiError } from '../../../shared/api/client';
@@ -38,7 +38,7 @@ const LOGIN_TAKEN_MESSAGE = 'Tên đăng nhập này đã được dùng. Hãy c
 /** `409 login-taken` sau một lần gửi mất phản hồi: có thể chính lần đó đã tạo tài khoản. */
 const LOGIN_TAKEN_AFTER_LOST_MESSAGE =
   'Tên đăng nhập này đã có. Lần gửi trước bị mất kết nối nên có thể tài khoản đã được tạo: xem lại bảng Nhân viên trước khi chọn tên khác.';
-/** Bảng rộng cố định; màn hẹp thì cuộn ngang. */
+/** Bảng rộng trên desktop; màn hẹp hiển thị mỗi tài khoản thành một dòng đầy đủ. */
 const TABLE_SCROLL = { x: 960 };
 
 const dateFormat = new Intl.DateTimeFormat('vi-VN', {
@@ -72,11 +72,11 @@ const COLUMN_COUNT = 7;
  * Gợi ý dưới bảng khi Cửa hàng chưa có Nhân viên: Chủ cửa hàng luôn đứng đầu trang đầu, nên trang có dòng mà không dòng
  * nào là Nhân viên nghĩa là chưa có Nhân viên nào. Bảng rỗng (chưa tải được) thì không gợi ý gì.
  */
-function noStaffHint(rows: readonly StoreUser[]) {
+function noStaffHint(rows: readonly StoreUser[], columnCount = COLUMN_COUNT) {
   if (rows.length === 0 || rows.some((user) => user.role === 'STAFF')) return null;
   return (
     <Table.Summary.Row>
-      <Table.Summary.Cell index={0} colSpan={COLUMN_COUNT}>
+      <Table.Summary.Cell index={0} colSpan={columnCount}>
         <Typography.Text type="secondary">
           {'Chưa có Nhân viên nào. Bấm "Thêm Nhân viên" để tạo tài khoản.'}
         </Typography.Text>
@@ -237,6 +237,8 @@ function ResetPasswordModal({ user, onClose }: { user: StoreUser; onClose: () =>
 
 export function StaffPage() {
   useDocumentTitle('Tài khoản Nhân viên');
+  const screens = Grid.useBreakpoint();
+  const compact = screens.md === false;
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState<StoreUser | null>(null);
   const setLocked = useSetUserLocked();
@@ -273,6 +275,34 @@ export function StaffPage() {
     );
   };
 
+  const staffActions = (user: StoreUser) => {
+    if (user.role !== 'STAFF') return null;
+    const busy = setLocked.isPending && setLocked.variables?.userId === user.userId;
+    return (
+      <Space size={compact ? 8 : 0} wrap={compact}>
+        <Button
+          type={compact ? 'default' : 'link'}
+          size={compact ? 'middle' : 'small'}
+          danger={user.status === 'ACTIVE'}
+          aria-label={`${user.status === 'ACTIVE' ? 'Khóa' : 'Mở khóa'} ${user.loginKey}`}
+          disabled={setLocked.isPending}
+          loading={busy}
+          onClick={() => void onToggleLock(user)}
+        >
+          {user.status === 'ACTIVE' ? 'Khóa' : 'Mở khóa'}
+        </Button>
+        <Button
+          type={compact ? 'default' : 'link'}
+          size={compact ? 'middle' : 'small'}
+          aria-label={`Đặt lại mật khẩu ${user.loginKey}`}
+          onClick={() => setResetting(user)}
+        >
+          Đặt lại mật khẩu
+        </Button>
+      </Space>
+    );
+  };
+
   const columns: TableColumnsType<StoreUser> = [
     { title: 'Tên đăng nhập', dataIndex: 'loginKey', key: 'loginKey', ellipsis: true },
     { title: 'Tên', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
@@ -304,35 +334,27 @@ export function StaffPage() {
       title: 'Thao tác',
       key: 'actions',
       width: 230,
-      render: (_, user) => {
-        if (user.role !== 'STAFF') return <Typography.Text type="secondary">{EMPTY}</Typography.Text>;
-        const busy = setLocked.isPending && setLocked.variables?.userId === user.userId;
-        return (
-          <Space size={0}>
-            <Button
-              type="link"
-              size="small"
-              danger={user.status === 'ACTIVE'}
-              aria-label={`${user.status === 'ACTIVE' ? 'Khóa' : 'Mở khóa'} ${user.loginKey}`}
-              disabled={setLocked.isPending}
-              loading={busy}
-              onClick={() => void onToggleLock(user)}
-            >
-              {user.status === 'ACTIVE' ? 'Khóa' : 'Mở khóa'}
-            </Button>
-            <Button
-              type="link"
-              size="small"
-              aria-label={`Đặt lại mật khẩu ${user.loginKey}`}
-              onClick={() => setResetting(user)}
-            >
-              Đặt lại mật khẩu
-            </Button>
-          </Space>
-        );
-      },
+      render: (_, user) => staffActions(user) ?? <Typography.Text type="secondary">{EMPTY}</Typography.Text>,
     },
   ];
+
+  const compactColumns: TableColumnsType<StoreUser> = [{
+    title: 'Tài khoản',
+    key: 'account',
+    render: (_, user) => (
+      <div className="staff-mobile-item">
+        <Typography.Text strong className="staff-mobile-name">{user.displayName}</Typography.Text>
+        <Typography.Text className="staff-mobile-login">{user.loginKey}</Typography.Text>
+        <Space size={4} wrap>
+          <Tag color={user.role === 'OWNER' ? 'gold' : 'blue'}>{ROLE_LABELS[user.role]}</Tag>
+          <Tag color={user.status === 'ACTIVE' ? 'green' : 'red'}>{USER_STATUS_LABELS[user.status]}</Tag>
+        </Space>
+        <Typography.Text>Số điện thoại: <span>{user.phone ?? EMPTY}</span></Typography.Text>
+        <Typography.Text type="secondary">Ngày tạo: <span>{dateFormat.format(new Date(user.createdAt))}</span></Typography.Text>
+        {user.role === 'STAFF' ? <div className="staff-mobile-actions">{staffActions(user)}</div> : null}
+      </div>
+    ),
+  }];
 
   return (
     <div>
@@ -360,11 +382,12 @@ export function StaffPage() {
         rowKey="userId"
         queryKey={usersQueryKey}
         fetchPage={(request, signal) => fetchUsers(request, signal)}
-        columns={columns}
-        scroll={TABLE_SCROLL}
+        columns={compact ? compactColumns : columns}
+        scroll={compact ? undefined : TABLE_SCROLL}
+        showHeader={!compact}
         // Bảng luôn có dòng Chủ cửa hàng, nên rỗng chỉ khi chưa tải được (lỗi hiện phía trên)
         locale={{ emptyText: 'Không có dữ liệu' }}
-        summary={noStaffHint}
+        summary={(rows) => noStaffHint(rows, compact ? 1 : COLUMN_COUNT)}
       />
       {creating ? <CreateStaffModal onClose={() => setCreating(false)} /> : null}
       {resetting ? (

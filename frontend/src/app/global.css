@@ -1,4 +1,20 @@
-/* Kiểu chung của khung ứng dụng. Người giữ: Anh. Phần lớn giao diện dùng Ant Design 6. */
+/* Shared workspace styling. Ant Design colors are mapped in theme.ts. */
+
+:root {
+  --surface: #ffffff;
+  --canvas: #f5f8fa;
+  --ink: #172b3a;
+  --muted: #526575;
+  --line: #e2e9ed;
+  --teal: #0f766e;
+  --teal-soft: #eaf6f3;
+  --success-soft: #e9f5ec;
+  --success-ink: #166534;
+  --neutral-soft: #edf0f2;
+  --sidebar: #102934;
+  --sidebar-ink: #ecf6f5;
+  --focus: #0f766e;
+}
 
 html,
 body,
@@ -8,11 +24,43 @@ body,
 
 body {
   margin: 0;
-  background: #f5f5f5;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15px;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 1200;
+  top: 8px;
+  left: 8px;
+  transform: translateY(-150%);
+  background: var(--surface);
+  color: var(--teal);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
 }
 
 .full-page-center {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -21,22 +69,129 @@ body {
 }
 
 .login-page {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 16px;
+  padding: 24px;
   box-sizing: border-box;
+  background: var(--canvas);
+}
+
+.login-page .ant-card {
+  border-color: var(--line);
+  box-shadow: 0 20px 60px rgba(16, 41, 52, 0.09);
+}
+
+.login-page .ant-card-body {
+  padding: clamp(24px, 4vw, 36px);
+}
+
+.login-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--teal);
+  font-weight: 750;
+  margin-bottom: 24px;
+}
+
+.login-subtitle {
+  margin: 0 0 24px;
+  color: var(--muted);
 }
 
 .app-brand {
-  height: 64px;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: 80px;
   display: flex;
   align-items: center;
-  padding: 0 24px;
-  font-size: 16px;
-  font-weight: 600;
-  white-space: nowrap;
+  gap: 12px;
+  padding: 16px 22px;
+  box-sizing: border-box;
+  color: var(--sidebar-ink);
+  background: var(--sidebar);
+}
+
+.app-brand-mark {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: #1a6b69;
+  border-radius: 11px;
+  font-size: 19px;
+}
+
+.app-brand-name {
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.app-brand-caption {
+  display: block;
+  margin-top: 2px;
+  color: #bad4d5;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.app-menu-close.ant-btn {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  margin-inline-start: auto;
+  color: var(--sidebar-ink);
+}
+
+.app-brand-mobile-open .app-brand-name { font-size: 13px; }
+.app-brand-mobile-open .app-brand-caption { display: none; }
+
+.app-menu-close.ant-btn:hover,
+.app-menu-close.ant-btn:focus-visible { color: var(--sidebar-ink); }
+
+.app-sider :focus-visible { outline-color: #b8e5df; }
+
+.app-sider.ant-layout-sider {
+  background: var(--sidebar);
+}
+
+.app-sider.ant-layout-sider-zero-width {
+  visibility: hidden;
+}
+
+.app-sider .ant-menu {
+  background: transparent;
+  padding: 0 10px 24px;
+}
+
+.app-sider .ant-menu-item-group-title {
+  color: #b8d1d1 !important;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding-top: 18px;
+  padding-bottom: 4px;
+}
+
+.app-sider .ant-menu-item {
+  min-height: 40px;
+  line-height: 40px;
+  margin-block: 2px;
+  border-radius: 8px;
+}
+
+.app-sider .ant-menu-item-selected {
+  background: #1b655f !important;
+  color: #ffffff !important;
+  font-weight: 650;
 }
 
 .app-header {
@@ -44,21 +199,34 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 16px;
+  min-height: 72px;
+  height: auto;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--line);
 }
 
 .app-sider-mask {
   position: fixed;
   inset: 0;
   z-index: 999;
-  background: rgba(0, 0, 0, 0.25);
+  border: 0;
+  background: rgba(16, 41, 52, 0.52);
+  cursor: pointer;
 }
 
 .app-header-store {
   min-width: 0;
   flex: 1;
   font-size: 16px;
+  color: var(--ink);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
+
+#root .ant-tag-gold { color: #805500; }
+#root .ant-tag-blue { color: #1453a4; }
+#root .ant-tag-green { color: #216e38; }
+#root .ant-tag-red { color: #a32929; }
 
 .app-header-user {
   display: flex;
@@ -68,13 +236,386 @@ body {
 }
 
 .app-content {
-  padding: 16px;
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  padding: 20px 16px 48px;
+  box-sizing: border-box;
   min-width: 0;
 }
 
 @media (min-width: 768px) {
   .app-content {
-    padding: 24px;
+    padding: 28px 32px 64px;
+  }
+}
+
+.app-content h2.ant-typography,
+.app-content h3.ant-typography {
+  color: var(--ink);
+  letter-spacing: -0.025em;
+}
+
+.app-content h2.ant-typography { font-size: clamp(25px, 2vw, 30px); }
+.app-content h3.ant-typography { font-size: clamp(23px, 1.8vw, 27px); }
+
+.app-content .ant-card,
+.app-content .ant-table-wrapper .ant-table {
+  border-color: var(--line);
+}
+
+.app-content .ant-card {
+  box-shadow: 0 3px 14px rgba(16, 41, 52, 0.035);
+}
+
+.app-content .ant-card-head {
+  border-bottom-color: var(--line);
+  font-weight: 700;
+}
+
+.app-content .ant-typography-secondary,
+.app-content .ant-form-item-extra {
+  color: var(--muted);
+}
+
+.store-bank-card .ant-card-head-title {
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+}
+
+.staff-mobile-item {
+  display: grid;
+  gap: 7px;
+  overflow-wrap: anywhere;
+}
+
+.staff-mobile-name { font-size: 16px; }
+.staff-mobile-login { color: var(--muted); }
+.staff-mobile-actions { margin-top: 6px; }
+
+.app-content .ant-table-thead > tr > th {
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0.025em;
+}
+
+.app-content .ant-table-tbody > tr > td {
+  vertical-align: middle;
+}
+
+.app-content .ant-table-placeholder .ant-table-cell,
+.app-content .ant-table-placeholder .ant-empty-description {
+  color: var(--muted);
+}
+
+.ant-form-item-label > label {
+  font-weight: 650;
+}
+
+.ant-modal .ant-modal-title {
+  color: var(--ink);
+  font-size: 19px;
+  font-weight: 750;
+}
+
+.ant-modal .ant-modal-close {
+  width: 44px;
+  height: 44px;
+}
+
+.form-section-title {
+  margin: 8px 0 18px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 750;
+}
+
+.page-heading {
+  margin-bottom: 20px;
+}
+
+.page-filter-panel,
+.data-table-shell {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.page-filter-panel {
+  padding: 18px;
+  margin-bottom: 16px;
+}
+
+.filter-panel-title {
+  margin: 0 0 14px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.filter-field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.data-table-shell {
+  padding: 4px 16px 0;
+  overflow: hidden;
+}
+
+.data-table-shell .ant-table-content {
+  overflow-x: auto;
+}
+
+.data-table-shell .ant-pagination {
+  margin: 16px 0;
+}
+
+.mobile-product-actions,
+.mobile-product-history {
+  display: none;
+}
+
+.pos-page {
+  width: 100%;
+}
+
+.pos-heading {
+  margin-bottom: 20px;
+}
+
+.pos-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+
+.pos-main,
+.pos-side {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  gap: 20px;
+}
+
+.pos-main > .ant-card,
+.pos-side > .ant-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.pos-page .ant-card-body {
+  min-width: 0;
+}
+
+.pos-page .ant-table-content {
+  overflow-x: auto;
+}
+
+.pos-cart-mobile {
+  display: none;
+}
+
+.pos-cart-empty {
+  margin: 4px 0;
+  color: var(--muted);
+  text-align: center;
+}
+
+.pos-cart-item {
+  display: grid;
+  gap: 16px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+
+.pos-cart-item-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.pos-cart-item-head strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.pos-cart-item-head .money-text {
+  color: var(--teal);
+}
+
+.pos-cart-item-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  gap: 12px;
+}
+
+.pos-cart-item-fields > div {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pos-cart-item-fields > div > span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.pos-cart-item-fields .ant-input-number {
+  width: 100%;
+}
+
+.pos-cart-item-fields .ant-space-compact {
+  width: 100%;
+}
+
+.pos-cart-item-fields .ant-space-compact .ant-input-number {
+  min-width: 0;
+}
+
+.customer-picker > .ant-select {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.pos-payment-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+.pos-payment-fields > div {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.pos-payment-fields .ant-input-number,
+.pos-payment-fields .ant-select {
+  width: 100%;
+}
+
+.pos-submit {
+  width: 100%;
+  min-height: 46px;
+  margin-top: 8px;
+}
+
+.pos-total {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--teal-soft);
+  color: var(--ink);
+}
+
+.pos-total .money-text {
+  display: block;
+  margin-top: 4px;
+  color: var(--teal);
+  font-size: 26px;
+  line-height: 1.3;
+}
+
+.placeholder-card {
+  max-width: 680px;
+  margin: 24px auto;
+  text-align: center;
+}
+
+.placeholder-icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  margin: 0 auto 16px;
+  border-radius: 16px;
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 24px;
+}
+
+@media (min-width: 1100px) {
+  .pos-grid { grid-template-columns: minmax(0, 1.65fr) minmax(330px, 0.85fr); }
+  .pos-side { position: sticky; top: 20px; }
+}
+
+@media (max-width: 767px) {
+  .app-brand { gap: 8px; padding-inline: 14px; }
+  .app-header { padding: 10px 16px; min-height: 64px; }
+  .app-header .ant-btn { min-width: 44px; min-height: 44px; }
+  .app-header-store { white-space: normal; }
+  .app-header-user { gap: 4px; }
+  .app-header-user .ant-tag { margin-inline-end: 0; }
+  .app-content .ant-btn { min-height: 44px; }
+  .staff-mobile-actions .ant-btn { min-width: 44px; }
+  .staff-mobile-item .ant-tag { margin-inline-end: 0; }
+  .page-filter-panel { padding: 16px; }
+  .filter-field,
+  .filter-field .ant-input,
+  .filter-field .ant-select { width: 100% !important; }
+  .product-filter-bar { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .price-range-fields .ant-input { width: min(40vw, 180px) !important; }
+  .data-table-shell { padding-inline: 10px; }
+  .pos-page .ant-card-body { padding: 16px; }
+  .pos-page .ant-descriptions { overflow-x: auto; }
+  .pos-cart-table { display: none; }
+  .pos-cart-mobile { display: grid; }
+  .products-table .ant-table-thead > tr > th:nth-child(2),
+  .products-table .ant-table-thead > tr > th:nth-child(3),
+  .products-table .ant-table-thead > tr > th:nth-child(4),
+  .products-table .ant-table-thead > tr > th:nth-child(5),
+  .products-table .ant-table-thead > tr > th:nth-child(7),
+  .products-table .ant-table-thead > tr > th:nth-child(8),
+  .products-table .ant-table-tbody > tr > td:nth-child(2),
+  .products-table .ant-table-tbody > tr > td:nth-child(3),
+  .products-table .ant-table-tbody > tr > td:nth-child(4),
+  .products-table .ant-table-tbody > tr > td:nth-child(5),
+  .products-table .ant-table-tbody > tr > td:nth-child(7),
+  .products-table .ant-table-tbody > tr > td:nth-child(8) { display: none; }
+  .products-table .ant-table-content table { min-width: 100% !important; width: 100% !important; }
+  .products-table .ant-table-tbody > tr > td:first-child { min-width: 150px; }
+  .desktop-product-actions { display: none !important; }
+  .mobile-product-actions { display: inline-flex; min-width: 44px; min-height: 44px; }
+  .mobile-product-history { display: inline-flex; min-height: 44px; align-items: center; }
+  .product-name-cell { display: grid; gap: 4px; overflow-wrap: anywhere; }
+  .product-name-cell::after {
+    content: attr(data-status);
+    width: fit-content;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: var(--success-soft);
+    color: var(--success-ink);
+    font-size: 11px;
+    font-weight: 700;
+  }
+  .product-name-cell[data-status="Ngừng kinh doanh"]::after {
+    background: var(--neutral-soft);
+    color: var(--muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
   }
 }
 

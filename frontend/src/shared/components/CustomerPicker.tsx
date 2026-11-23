@@ -68,10 +68,10 @@ export function CustomerPicker({
 
   return (
     <>
-      <Space.Compact style={{ width: '100%' }}>
+      <Space.Compact className="customer-picker" style={{ width: '100%' }}>
         <Select<Uuid>
           aria-label="Khách hàng"
-          style={{ width: '100%' }}
+          style={{ flex: '1 1 0', minWidth: 0 }}
           disabled={disabled}
           placeholder={placeholder}
           value={value?.customerId}

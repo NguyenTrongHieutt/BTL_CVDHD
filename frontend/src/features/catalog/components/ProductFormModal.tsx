@@ -543,6 +543,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
   return (
     <Modal
       open
+      className="product-form-modal"
       title={editing.mode === 'create' ? 'Thêm Sản phẩm' : 'Sửa Sản phẩm'}
       okText={editing.mode === 'create' ? 'Thêm' : 'Lưu'}
       cancelText={closeOnly ? 'Đóng' : 'Hủy'}
@@ -581,6 +582,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
         disabled={pending || closeOnly}
         initialValues={initialValuesOf(editing)}
       >
+        <div className="form-section-title">Thông tin sản phẩm</div>
         <Form.Item
           name="name"
           label="Tên Sản phẩm"
@@ -621,6 +623,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
             <Checkbox>Có nhiều Biến thể (ví dụ màu, size): mỗi Biến thể có mã, giá và Tồn kho riêng</Checkbox>
           </Form.Item>
         ) : null}
+        {!multi ? <div className="form-section-title">Giá và mã sản phẩm</div> : null}
         {multi ? null : (
           <Row gutter={16}>
             <Col xs={24} sm={8}>
@@ -643,6 +646,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
             </Col>
           </Row>
         )}
+        {editing.mode === 'create' && !multi ? <div className="form-section-title">Tồn kho đầu kỳ</div> : null}
         {editing.mode === 'create' && !multi ? (
           <Row gutter={16}>
             <Col xs={24} sm={12}>
@@ -671,6 +675,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
           </Row>
         ) : null}
         {editing.mode === 'create' && multi ? <VariantRowsField /> : null}
+        <div className="form-section-title">Thông tin bổ sung</div>
         <Form.Item name="description" label="Mô tả" rules={textRules('Mô tả', DESCRIPTION_MAX, true)}>
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
         </Form.Item>

@@ -161,6 +161,22 @@ class OrderHistoryIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON).content(checkout.formatted(selectedId, variantId)))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         String orderId = JsonPath.read(order, "$.orderId");
+        String orderCode = JsonPath.read(order, "$.orderCode");
+
+        String receipt = ORDERS + "/{id}/receipt";
+        mvc.perform(get(receipt, orderId).cookie(staffA.cookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.store.name").isNotEmpty())
+                .andExpect(jsonPath("$.store.bankAccountNo").doesNotExist())
+                .andExpect(jsonPath("$.order.orderCode").value(orderCode))
+                .andExpect(jsonPath("$.order.total").value(15000))
+                .andExpect(jsonPath("$.lines.length()").value(1))
+                .andExpect(jsonPath("$.lines[0].productName").value("Hàng test DH-06"))
+                .andExpect(jsonPath("$.lines[0].quantity").value(1))
+                .andExpect(jsonPath("$.lines[0].unitPrice").value(15000))
+                .andExpect(jsonPath("$.lines[0].unitCost").doesNotExist());
+        mvc.perform(get(receipt, orderId).cookie(ownerA.cookie())).andExpect(status().isOk());
+        mvc.perform(get(receipt, orderId).cookie(ownerB.cookie())).andExpect(status().isNotFound());
 
         mvc.perform(get(ORDERS).cookie(staffA.cookie()).param("customerPhone", newPhone))
                 .andExpect(status().isOk())

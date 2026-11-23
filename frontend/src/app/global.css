@@ -625,6 +625,59 @@ textarea {
   font-variant-numeric: tabular-nums;
 }
 
+.print-receipt {
+  width: 80mm;
+  max-width: 100%;
+  padding: 4mm;
+  box-sizing: border-box;
+  background: #fff;
+  color: #000;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.print-receipt header,
+.print-receipt footer {
+  text-align: center;
+}
+
+.print-receipt h1,
+.print-receipt h2 {
+  font-size: 1.2em;
+  margin: 0.35em 0;
+}
+
+.print-receipt table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.75em;
+}
+
+.print-receipt th,
+.print-receipt td {
+  text-align: left;
+  vertical-align: top;
+  padding: 0.25em 0;
+  border-bottom: 1px solid #ddd;
+}
+
+.print-receipt th:last-child,
+.print-receipt td:last-child {
+  text-align: right;
+  padding-left: 0.5em;
+  white-space: nowrap;
+}
+
+.print-receipt dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5em;
+}
+
+.print-receipt dd {
+  margin: 0;
+}
+
 /*
  * In hóa đơn (FR-13): hộp thoại in của trình duyệt, khổ giấy in nhiệt 80mm.
  * Màn in đặt nội dung hóa đơn trong `.print-receipt`; khung ứng dụng (`.app-chrome`) và
@@ -632,7 +685,7 @@ textarea {
  */
 @media print {
   @page {
-    size: 80mm auto;
+    size: auto;
     margin: 0;
   }
 
@@ -649,10 +702,8 @@ textarea {
     padding: 0 !important;
   }
 
-  .print-receipt {
-    width: 80mm;
-    padding: 4mm;
-    box-sizing: border-box;
-    font-size: 12px;
+  .print-receipt tr,
+  .print-receipt dl {
+    break-inside: avoid;
   }
 }

@@ -106,4 +106,5 @@ export interface OrderSummary {
   status: OrderStatus;
   total: Money;
   sellerName: string | null;
+  canCancel: boolean;
 }

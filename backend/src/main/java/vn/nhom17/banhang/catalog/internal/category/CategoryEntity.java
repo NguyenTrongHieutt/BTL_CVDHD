@@ -18,6 +18,11 @@ import org.hibernate.annotations.TenantId;
 @Table(schema = "app", name = "category")
 public class CategoryEntity {
 
+    /** Tên tối đa bấy nhiêu ký tự (đếm theo code point sau khi chuẩn hóa), ở mọi nơi tạo Danh mục. */
+    public static final int NAME_MAX = 100;
+    /** Unique theo Cửa hàng trên {@code lower(name)}. */
+    public static final String NAME_UNIQUE = "category_name_uq";
+
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     private UUID id;

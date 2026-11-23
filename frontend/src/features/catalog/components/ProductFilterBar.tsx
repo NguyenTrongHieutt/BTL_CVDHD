@@ -88,7 +88,7 @@ function PriceRange({ minPrice, maxPrice, onApply }: PriceRangeProps) {
 
   return (
     <Flex vertical gap={4}>
-      <Flex align="center" gap={8}>
+      <Flex className="price-range-fields" align="center" gap={8}>
         <Input
           {...inputProps}
           aria-label={MIN_LABEL}
@@ -153,16 +153,21 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
   };
 
   return (
-    <Flex role="search" aria-label="Bộ lọc Sản phẩm" wrap gap={8} align="flex-start" style={{ marginBottom: 16 }}>
-      <SearchInput
+    <Flex role="search" aria-label="Bộ lọc Sản phẩm" wrap gap={12} align="flex-end" className="product-filter-bar">
+      <div className="filter-field">
+        <span className="filter-field-label">Tìm kiếm</span>
+        <SearchInput
         key={`q-${inputsKey}`}
         aria-label="Tìm Sản phẩm"
         placeholder="Tìm theo tên, SKU, mã vạch"
         defaultValue={value.q ?? ''}
         onSearch={(q) => apply({ ...value, q: q || undefined })}
         style={{ width: 280 }}
-      />
-      <Select<string>
+        />
+      </div>
+      <div className="filter-field">
+        <span className="filter-field-label">Danh mục</span>
+        <Select<string>
         aria-label="Lọc theo Danh mục"
         allowClear
         placeholder={categories.isError ? 'Không tải được Danh mục' : 'Mọi Danh mục'}
@@ -180,14 +185,20 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
         }
         onChange={(categoryId) => apply({ ...value, categoryId: categoryId ?? undefined })}
         style={{ width: 200 }}
-      />
-      <PriceRange
+        />
+      </div>
+      <div className="filter-field">
+        <span className="filter-field-label">Khoảng giá bán</span>
+        <PriceRange
         key={`price-${inputsKey}`}
         minPrice={value.minPrice}
         maxPrice={value.maxPrice}
         onApply={(minPrice, maxPrice) => apply({ ...value, minPrice, maxPrice })}
-      />
-      <Select<ProductStatus>
+        />
+      </div>
+      <div className="filter-field">
+        <span className="filter-field-label">Trạng thái</span>
+        <Select<ProductStatus>
         aria-label="Lọc theo trạng thái"
         allowClear
         placeholder="Mọi trạng thái"
@@ -195,7 +206,8 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
         options={STATUS_OPTIONS}
         onChange={(status) => apply({ ...value, status: status ?? undefined })}
         style={{ width: 180 }}
-      />
+        />
+      </div>
       {hasProductFilters(value) ? <Button onClick={clear}>Xóa bộ lọc</Button> : null}
     </Flex>
   );

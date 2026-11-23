@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -22,9 +23,11 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.jdbc.core.JdbcTemplate;
+import tools.jackson.databind.json.JsonMapper;
 import vn.nhom17.banhang.catalog.VariantCreated;
 import vn.nhom17.banhang.catalog.internal.category.CategoryRepository;
 import vn.nhom17.banhang.catalog.internal.product.ProductController.CreateProductRequest;
+import vn.nhom17.banhang.catalog.internal.product.ProductController.VariantInput;
 import vn.nhom17.banhang.platform.AuditLog;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.IdempotencyService;
@@ -54,7 +57,7 @@ class ProductServiceTest {
         Supplier<UUID> next = ids::removeFirst;
         ProductService service = new ProductService(em, mock(CategoryRepository.class), jdbc, context,
                 Clock.fixed(Instant.parse("2026-11-10T03:00:00Z"), ZoneOffset.UTC), events, idempotency,
-                mock(AuditLog.class), next);
+                mock(AuditLog.class), JsonMapper.builder().build(), next);
         when(context.storeId()).thenReturn(STORE);
         when(jdbc.queryForObject(contains("sku = ?"), eq(Boolean.class), eq(STORE), eq("SP-AAAAAAAA")))
                 .thenReturn(true);
@@ -76,6 +79,70 @@ class ProductServiceTest {
         assertThat(variant.id()).isEqualTo(FREE);
         assertThat(variant.sku()).isEqualTo("SP-BBBBBBBB");
         verify(events).publishEvent(new VariantCreated(STORE, FREE, 0, 0));
+        assertThat(ids).isEmpty();
+    }
+
+    /**
+     * Nhập Excel (SP-06): SKU tự sinh không được lấy SKU mà một dòng chưa ghi của cùng file đã nhập tay
+     * ({@code reservedSku}), dù database chưa có SKU đó.
+     */
+    @Test
+    void aGeneratedSkuReservedByAnotherRowOfTheSameFileIsGeneratedAgain() {
+        ArrayDeque<UUID> ids = new ArrayDeque<>(List.of(PRODUCT, TAKEN, FREE));
+        Supplier<UUID> next = ids::removeFirst;
+        ProductService service = new ProductService(em, mock(CategoryRepository.class), jdbc, context,
+                Clock.fixed(Instant.parse("2026-11-10T03:00:00Z"), ZoneOffset.UTC), events, idempotency,
+                mock(AuditLog.class), JsonMapper.builder().build(), next);
+        when(context.storeId()).thenReturn(STORE);
+        // Không SKU nào có trong database
+        when(jdbc.queryForObject(contains("sku = ?"), eq(Boolean.class), eq(STORE), anyString())).thenReturn(false);
+
+        service.insertInCurrentTransaction(new ProductService.NewProduct("Bút bi", null, "cái", null, 5000, null,
+                null, 0, 0), "SP-AAAAAAAA"::equals);
+
+        ArgumentCaptor<Object> persisted = ArgumentCaptor.forClass(Object.class);
+        verify(em, org.mockito.Mockito.times(2)).persist(persisted.capture());
+        ProductVariantEntity variant = (ProductVariantEntity) persisted.getAllValues().get(1);
+        assertThat(variant.id()).isEqualTo(FREE);
+        assertThat(variant.sku()).isEqualTo("SP-BBBBBBBB");
+        verify(events).publishEvent(new VariantCreated(STORE, FREE, 0, 0));
+        assertThat(ids).isEmpty();
+    }
+
+    /**
+     * Tạo Sản phẩm nhiều Biến thể (SP-07): SKU tự sinh của Biến thể đứng trước không được lấy SKU mà người dùng gõ cho
+     * Biến thể đứng sau trong cùng yêu cầu, dù database chưa có SKU đó.
+     */
+    @Test
+    @SuppressWarnings("unchecked")
+    void aGeneratedSkuTypedForALaterVariantOfTheSameRequestIsGeneratedAgain() {
+        UUID later = UUID.fromString("cccccccc-0000-4000-8000-000000000004");
+        ArrayDeque<UUID> ids = new ArrayDeque<>(List.of(PRODUCT, TAKEN, FREE, later));
+        Supplier<UUID> next = ids::removeFirst;
+        ProductService service = new ProductService(em, mock(CategoryRepository.class), jdbc, context,
+                Clock.fixed(Instant.parse("2026-11-10T03:00:00Z"), ZoneOffset.UTC), events, idempotency,
+                mock(AuditLog.class), JsonMapper.builder().build(), next);
+        when(context.storeId()).thenReturn(STORE);
+        // Không SKU nào có trong database
+        when(jdbc.queryForObject(contains("sku = ?"), eq(Boolean.class), eq(STORE), anyString())).thenReturn(false);
+        when(idempotency.hash(any())).thenReturn("hash");
+        when(idempotency.execute(anyString(), any(), anyString(), any(), any())).thenAnswer(call -> {
+            ((Supplier<UUID>) call.getArgument(3)).get();
+            return new IdempotentResult<>(null, false);
+        });
+        VariantInput blank = new VariantInput("S", null, null, null, BigDecimal.valueOf(1000), null, null);
+        VariantInput typed = new VariantInput("M", null, "sp-aaaaaaaa", null, BigDecimal.valueOf(1000), null, null);
+
+        service.create(UUID.randomUUID(), new CreateProductRequest("Áo", null, null, null, null, null, null, null,
+                null, List.of(blank, typed)));
+
+        // Biến thể đầu (mặc định) đổi id tới khi SKU tự sinh khác SKU gõ cho Biến thể sau
+        verify(jdbc).update(contains("insert into app.product_variant"), eq(FREE), eq(STORE), eq(PRODUCT),
+                eq("SP-BBBBBBBB"), isNull(), eq("S"), anyString(), eq(1000L), eq(true), eq("ACTIVE"), any(), any());
+        verify(jdbc).update(contains("insert into app.product_variant"), eq(later), eq(STORE), eq(PRODUCT),
+                eq("SP-AAAAAAAA"), isNull(), eq("M"), anyString(), eq(1000L), eq(false), eq("ACTIVE"), any(), any());
+        verify(events).publishEvent(new VariantCreated(STORE, FREE, 0, 0));
+        verify(events).publishEvent(new VariantCreated(STORE, later, 0, 0));
         assertThat(ids).isEmpty();
     }
 }

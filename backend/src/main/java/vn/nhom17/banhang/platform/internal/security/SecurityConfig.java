@@ -65,6 +65,8 @@ class SecurityConfig {
                         .requestMatchers("/api/v1/platform/**").hasRole(OWNER)
                         // catalog: Khách hàng cả hai vai trò; xem Sản phẩm cả hai; thêm/sửa chỉ Chủ cửa hàng
                         .requestMatchers("/api/v1/catalog/customers", "/api/v1/catalog/customers/**").hasAnyRole(OWNER, STAFF)
+                        // File mẫu nhập Sản phẩm từ Excel (SP-06): chỉ người nhập được (Chủ cửa hàng) mới tải mẫu
+                        .requestMatchers(HttpMethod.GET, "/api/v1/catalog/products/import-template").hasRole(OWNER)
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/**").hasAnyRole(OWNER, STAFF)
                         .requestMatchers("/api/v1/catalog/**").hasRole(OWNER)
                         // sales: bán hàng, trả hàng, tra cứu cả hai; quy tắc hủy đơn của Nhân viên kiểm trong sales (AD-16)

@@ -143,6 +143,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
   },
 
   // inventory
+  '/errors/inventory/stocktake-stale': {
+    message: 'Tồn hệ thống đã thay đổi trong lúc kiểm kho.',
+    hint: 'Kiểm tra lại số đếm và lý do trên các dòng đã cập nhật trước khi lưu.',
+  },
   '/errors/inventory/variant-inactive': {
     message: 'Sản phẩm này đã ngừng kinh doanh nên không nhập hàng được.',
     hint: 'Bỏ dòng này khỏi Phiếu nhập. Kiểm kho và trả hàng vẫn làm được với hàng còn tồn.',

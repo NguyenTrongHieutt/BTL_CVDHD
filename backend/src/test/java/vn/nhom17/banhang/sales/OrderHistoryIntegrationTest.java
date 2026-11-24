@@ -275,12 +275,92 @@ class OrderHistoryIntegrationTest {
                 .andExpect(jsonPath("$.items[0].canCancel").value(false));
     }
 
+    @Test
+    void partialReturnsRefundTheRemainderOnTheLastReceiptAndRestoreStockOnce() throws Exception {
+        Session ownerA = login("dev.chu.a");
+        var sale = checkout(ownerA, 3, 1);
+        String cancel = ORDERS + "/" + sale.orderId() + "/cancel";
+        String returns = ORDERS + "/" + sale.orderId() + "/returns";
+        String quote = returns + "/quote";
+        String firstLine = "{\"lines\":[{\"lineNo\":1,\"quantity\":1}]}";
+
+        mvc.perform(get(returns).cookie(ownerB.cookie())).andExpect(status().isNotFound());
+        mvc.perform(post(quote).cookie(staffA.cookie()).contentType(MediaType.APPLICATION_JSON).content(firstLine))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.refundAmount").value(14999));
+
+        UUID firstKey = UUID.randomUUID();
+        String firstBody = """
+                {"lines":[{"lineNo":1,"quantity":1}],"refundMethod":"CASH","quotedRefundTotal":14999}
+                """;
+        String first = mvc.perform(post(returns).cookie(staffA.cookie()).header("Idempotency-Key", firstKey)
+                        .contentType(MediaType.APPLICATION_JSON).content(firstBody))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.refundAmount").value(14999))
+                .andReturn().getResponse().getContentAsString();
+        String firstId = JsonPath.read(first, "$.returnId");
+        mvc.perform(post(returns).cookie(staffA.cookie()).header("Idempotency-Key", firstKey)
+                        .contentType(MediaType.APPLICATION_JSON).content(firstBody))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Idempotent-Replay", "true"))
+                .andExpect(jsonPath("$.returnId").value(firstId));
+
+        mvc.perform(get(returns).cookie(staffA.cookie())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("COMPLETED"))
+                .andExpect(jsonPath("$.lines[0].remainingQuantity").value(2))
+                .andExpect(jsonPath("$.receipts.length()").value(1));
+        cancel(cancel, ownerA, UUID.randomUUID(), "{\"reason\":\"Khách đổi ý\"}")
+                .andExpect(status().isConflict());
+        mvc.perform(post(quote).cookie(staffA.cookie()).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"lines\":[{\"lineNo\":1,\"quantity\":3}]}"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("/errors/sales/return-stale"));
+
+        String lastBody = """
+                {"lines":[{"lineNo":1,"quantity":2}],"refundMethod":"BANK_TRANSFER","quotedRefundTotal":%d}
+                """;
+        mvc.perform(post(returns).cookie(staffA.cookie()).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(lastBody.formatted(29998)))
+                .andExpect(status().isConflict());
+        mvc.perform(post(returns).cookie(staffA.cookie()).header("Idempotency-Key", UUID.randomUUID())
+                        .contentType(MediaType.APPLICATION_JSON).content(lastBody.formatted(30000)))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.refundAmount").value(30000));
+
+        mvc.perform(get(returns).cookie(staffA.cookie())).andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("RETURNED"))
+                .andExpect(jsonPath("$.lines[0].remainingQuantity").value(0))
+                .andExpect(jsonPath("$.receipts.length()").value(2));
+        mvc.perform(post(quote).cookie(staffA.cookie()).contentType(MediaType.APPLICATION_JSON).content(firstLine))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("/errors/sales/invalid-state"));
+
+        TenantScope.runAs(staffA.storeId(), () -> new TransactionTemplate(transactions).execute(tx -> {
+            int stock = jdbc.queryForObject("SELECT quantity FROM app.stock WHERE variant_id = ?",
+                    Integer.class, sale.variantId());
+            int movements = jdbc.queryForObject("""
+                    SELECT count(*) FROM app.stock_ledger WHERE document_type = 'SALE_RETURN' AND variant_id = ?
+                    """, Integer.class, sale.variantId());
+            long refunded = jdbc.queryForObject("""
+                    SELECT coalesce(sum(refund_amount), 0) FROM app.sales_return WHERE order_id = ?
+                    """, Long.class, sale.orderId());
+            assertEquals(5, stock);
+            assertEquals(2, movements);
+            assertEquals(44999, refunded);
+            return null;
+        }));
+    }
+
     private ResultActions cancel(String endpoint, Session session, UUID key, String request) throws Exception {
         return mvc.perform(post(endpoint).cookie(session.cookie()).header("Idempotency-Key", key)
                 .contentType(MediaType.APPLICATION_JSON).content(request));
     }
 
     private Sale checkoutForCancellation(Session owner) throws Exception {
+        return checkout(owner, 1, 0);
+    }
+
+    private Sale checkout(Session owner, int quantity, int discount) throws Exception {
         String product = mvc.perform(post("/api/v1/catalog/products").cookie(owner.cookie())
                         .header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON).content("""
@@ -290,9 +370,10 @@ class OrderHistoryIntegrationTest {
         String variantId = JsonPath.read(product, "$.variants[0].id");
         String order = mvc.perform(post(ORDERS).cookie(staffA.cookie()).header("Idempotency-Key", UUID.randomUUID())
                         .contentType(MediaType.APPLICATION_JSON).content("""
-                                {"lines":[{"variantId":"%s","quantity":1}],
-                                 "paymentMethod":"CASH","cashReceived":15000,"quotedTotal":15000}
-                                """.formatted(variantId)))
+                                {"lines":[{"variantId":"%s","quantity":%d}],
+                                 "orderDiscount":{"type":"AMOUNT","value":%d},
+                                 "paymentMethod":"CASH","cashReceived":%d,"quotedTotal":%d}
+                                """.formatted(variantId, quantity, discount, 15000 * quantity, 15000 * quantity - discount)))
                 .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
         return new Sale(UUID.fromString(JsonPath.read(order, "$.orderId")), JsonPath.read(order, "$.orderCode"),
                 UUID.fromString(variantId));

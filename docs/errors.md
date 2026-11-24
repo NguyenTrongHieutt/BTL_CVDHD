@@ -33,6 +33,7 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/inventory/insufficient-stock` | 422 | Không đủ hàng; cả chứng từ rollback (AD-6) | inventory |
 | `/errors/inventory/variant-inactive` | 409 | Nhập hàng cho Biến thể đã ngừng kinh doanh (AD-14) | inventory |
 | `/errors/sales/invalid-state` | 409 | Chuyển trạng thái Đơn hàng không hợp lệ, ví dụ hủy đơn đã hủy hoặc đã có Phiếu trả (AD-17) | sales |
+| `/errors/sales/return-stale` | 409 | Số lượng có thể trả hoặc số tiền hoàn đã thay đổi. Đọc lại đơn và tính lại trước khi lưu Phiếu trả hàng | sales |
 | `/errors/sales/cart-stale` | 409 | Tổng tiền tính lại khác `quotedTotal`, hoặc giá, trạng thái đã đổi (AD-8) | sales |
 | `/errors/ai/quota-exceeded` | 429 | Hết 50 câu Hỏi đáp dữ liệu trong ngày (AD-13) | ai |
 | `/errors/ai/unavailable` | 503 | Dịch vụ AI không sẵn sàng (nginx hoặc ai-service trả, AD-1) | ai |

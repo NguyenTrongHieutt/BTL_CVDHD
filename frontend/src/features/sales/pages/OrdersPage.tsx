@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { Link } from 'react-router';
 import { api, isApiError, newIdempotencyKey } from '../../../shared/api/client';
 import type { PageRequest, PageResponse } from '../../../shared/api/client';
 import {
@@ -163,13 +164,22 @@ export function OrdersPage() {
             { title: 'Tổng tiền', align: 'right', render: (_, row) => <MoneyText value={row.total} /> },
             {
               title: 'Thao tác',
-              render: (_, row) => row.canCancel && (
-                <Button danger size="small" disabled={orders.isFetching} onClick={() => {
-                  cancelOrder.reset();
-                  setCancellation({ order: row, reason: '', key: newIdempotencyKey() });
-                }}>
-                  Hủy đơn
-                </Button>
+              render: (_, row) => (
+                <Space>
+                  {row.status !== 'CANCELLED' && (
+                    <Link to={'/sales/returns?orderId=' + encodeURIComponent(row.orderId)}>
+                      {row.status === 'RETURNED' ? 'Xem phiếu trả' : 'Trả hàng'}
+                    </Link>
+                  )}
+                  {row.canCancel && (
+                    <Button danger size="small" disabled={orders.isFetching} onClick={() => {
+                      cancelOrder.reset();
+                      setCancellation({ order: row, reason: '', key: newIdempotencyKey() });
+                    }}>
+                      Hủy đơn
+                    </Button>
+                  )}
+                </Space>
               ),
             },
           ]}

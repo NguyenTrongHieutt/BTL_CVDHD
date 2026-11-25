@@ -23,9 +23,9 @@ export const STOCK_LEDGER_PATH = '/api/v1/inventory/ledger';
 
 export const stockLedgerQueryKey = ['inventory', 'ledger'] as const;
 
-// Bật lúc build sau khi backend đã hỗ trợ lọc ledger theo actorId.
+// Tắt khi cần dùng frontend với bản backend cũ chưa có actorId.
 export function ledgerActorFilterEnabled(): boolean {
-  return import.meta.env.VITE_LEDGER_ACTOR_FILTER === 'true';
+  return import.meta.env.VITE_LEDGER_ACTOR_FILTER !== 'false';
 }
 
 export interface DocumentTypeInfo {

@@ -1,5 +1,4 @@
-// Run against a frontend built with VITE_LEDGER_ACTOR_FILTER=true.
-// Set the same flag for Playwright and point E2E_BASE_URL at that build.
+// Set VITE_LEDGER_ACTOR_FILTER=false only when testing against an older frontend.
 import { expect, test, type Route } from '@playwright/test';
 
 const actorA = { userId: '00000000-0000-4000-8000-000000000001', displayName: 'Actor A' };
@@ -21,7 +20,7 @@ const ledger = Array.from({ length: 43 }, (_, index) => {
 });
 
 test('owner filters paged stock ledger by actor and clears the filter', async ({ page }) => {
-  test.skip(process.env.VITE_LEDGER_ACTOR_FILTER !== 'true', 'Requires the actor-filter build');
+  test.skip(process.env.VITE_LEDGER_ACTOR_FILTER === 'false', 'Actor filtering is disabled');
 
   await page.route('**/api/v1/platform/me', route => route.fulfill({ json: {
     ...actorA, role: 'OWNER', storeName: 'Test store', storeId: '00000000-0000-4000-8000-000000000004',

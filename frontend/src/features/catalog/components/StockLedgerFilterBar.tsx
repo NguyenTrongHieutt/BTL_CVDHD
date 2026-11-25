@@ -5,7 +5,7 @@
  * `DateRangePicker` dùng chung) và "Xóa bộ lọc" khi đang lọc. `value` là bộ lọc đọc từ URL; mọi ô hiện đúng `value`.
  * `dateError` (khoảng ngày quá dài, hoặc lỗi `400` của backend trên khoảng ngày) hiện ngay dưới ô ngày, gắn với ô qua
  * `aria-describedby`, đọc ngay nhờ `role="alert"`.
- * Bộ lọc người thực hiện chỉ bật trên bản build hỗ trợ tham số `actorId`.
+ * Bộ lọc người thực hiện bật mặc định và có thể tắt khi build cho backend cũ.
  */
 import { useQuery } from '@tanstack/react-query';
 import { actorOptionsKey, fetchActorOptions } from '../../../shared/api/storeUsers';

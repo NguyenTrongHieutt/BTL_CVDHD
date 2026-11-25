@@ -8,7 +8,6 @@ export function ProfitReportPage() {
       frs={['FR-31 (BC-03)']}
       phase="GĐ2"
       owner="Lân"
-      description="Lợi nhuận gộp theo khoảng thời gian (Q3): doanh thu trừ Giá vốn đã lưu ở từng dòng Đơn hàng."
     />
   );
 }

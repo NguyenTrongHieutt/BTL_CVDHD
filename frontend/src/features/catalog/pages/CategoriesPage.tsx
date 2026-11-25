@@ -12,7 +12,7 @@
  */
 import { PlusOutlined } from '@ant-design/icons';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { App, Button, Flex, Form, Input, Modal, Space, Table, Tooltip, Typography } from 'antd';
+import { App, Button, Flex, Form, Input, Modal, Table, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { isApiError } from '../../../shared/api/client';
@@ -29,6 +29,7 @@ import {
   useDeleteCategory,
   useRenameCategory,
 } from '../api/categories';
+import { useCatalogDialog } from '../components/useCatalogDialog';
 
 const NAME_MAX = 100;
 const NAME_TAKEN = '/errors/catalog/category-name-taken';
@@ -53,6 +54,7 @@ function nameErrorsOf(error: unknown): string[] | null {
 
 function CategoryFormModal({ editing, onClose }: { editing: Editing; onClose: () => void }) {
   const [form] = Form.useForm<CategoryFormValues>();
+  const { initialInput, close, modalProps } = useCatalogDialog(onClose);
   const { message } = App.useApp();
   const create = useCreateCategory();
   const rename = useRenameCategory();
@@ -72,7 +74,7 @@ function CategoryFormModal({ editing, onClose }: { editing: Editing; onClose: ()
         {
           onSuccess: (category) => {
             void message.success(`Đã thêm Danh mục "${category.name}"`);
-            onClose();
+            close();
           },
           onError: showNameErrors,
         },
@@ -80,7 +82,7 @@ function CategoryFormModal({ editing, onClose }: { editing: Editing; onClose: ()
       return;
     }
     if (normalizeCategoryName(name) === editing.category.name) {
-      onClose();
+      close();
       return;
     }
     rename.mutate(
@@ -88,7 +90,7 @@ function CategoryFormModal({ editing, onClose }: { editing: Editing; onClose: ()
       {
         onSuccess: (category) => {
           void message.success(`Đã đổi tên Danh mục thành "${category.name}"`);
-          onClose();
+          close();
         },
         onError: showNameErrors,
       },
@@ -97,13 +99,13 @@ function CategoryFormModal({ editing, onClose }: { editing: Editing; onClose: ()
 
   return (
     <Modal
-      open
+      {...modalProps}
       title={editing.mode === 'create' ? 'Thêm Danh mục' : 'Đổi tên Danh mục'}
       okText={editing.mode === 'create' ? 'Thêm' : 'Lưu'}
       cancelText="Hủy"
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!pending) onClose();
+        if (!pending) close();
       }}
       confirmLoading={pending}
       cancelButtonProps={{ disabled: pending }}
@@ -115,8 +117,8 @@ function CategoryFormModal({ editing, onClose }: { editing: Editing; onClose: ()
       <Form<CategoryFormValues>
         form={form}
         layout="vertical"
-        requiredMark={false}
         onFinish={onFinish}
+        scrollToFirstError={{ focus: true }}
         disabled={pending}
         initialValues={{ name: editing.mode === 'rename' ? editing.category.name : '' }}
       >
@@ -133,7 +135,7 @@ function CategoryFormModal({ editing, onClose }: { editing: Editing; onClose: ()
             },
           ]}
         >
-          <Input autoFocus autoComplete="off" />
+          <Input ref={initialInput} autoComplete="off" />
         </Form.Item>
       </Form>
     </Modal>
@@ -191,47 +193,44 @@ export function CategoriesPage() {
       width: 180,
       render: (_, category) => {
         const inUse = category.productCount > 0;
-        const deleteButton = (
-          <Button
-            type="link"
-            size="small"
-            danger
-            aria-label={`Xóa ${category.name}`}
-            disabled={inUse || remove.isPending}
-            loading={remove.isPending && remove.variables === category.id}
-            onClick={() => void onDelete(category)}
-          >
-            Xóa
-          </Button>
-        );
+        const reasonId = `category-delete-reason-${category.id}`;
         return (
-          <Space size={0}>
-            <Button
-              type="link"
-              size="small"
-              aria-label={`Đổi tên ${category.name}`}
-              onClick={() => openForm({ mode: 'rename', category })}
-            >
-              Đổi tên
-            </Button>
+          <Flex vertical align="flex-start" gap={4}>
+            <Flex gap={8} wrap>
+              <Button
+                type="link"
+                size="small"
+                aria-label={`Đổi tên ${category.name}`}
+                onClick={() => openForm({ mode: 'rename', category })}
+              >
+                Đổi tên
+              </Button>
+              <Button
+                type="link"
+                size="small"
+                danger
+                aria-label={`Xóa ${category.name}`}
+                aria-describedby={inUse ? reasonId : undefined}
+                disabled={inUse || remove.isPending}
+                loading={remove.isPending && remove.variables === category.id}
+                onClick={() => void onDelete(category)}
+              >
+                Xóa
+              </Button>
+            </Flex>
             {inUse ? (
-              <Tooltip title={`Còn ${category.productCount.toLocaleString('vi-VN')} Sản phẩm, không xóa được`}>
-                {/* Nút bị tắt không nhận sự kiện chuột, nên bọc trong span để tooltip vẫn hiện. */}
-                <span style={{ display: 'inline-block' }}>{deleteButton}</span>
-              </Tooltip>
-            ) : (
-              deleteButton
-            )}
-          </Space>
+              <Typography.Text id={reasonId} type="secondary">Còn Sản phẩm nên chưa thể xóa.</Typography.Text>
+            ) : null}
+          </Flex>
         );
       },
     },
   ];
 
   return (
-    <div>
+    <div className="catalog-page">
       <Flex justify="space-between" align="center" wrap gap={8} style={{ marginBottom: 16 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
+        <Typography.Title level={1} style={{ margin: 0 }}>
           Danh mục
         </Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openForm({ mode: 'create' })}>
@@ -239,21 +238,24 @@ export function CategoriesPage() {
         </Button>
       </Flex>
       {remove.isError ? <ErrorAlert error={remove.error} onClose={() => remove.reset()} /> : null}
-      {list.isError ? <ErrorAlert error={list.error} /> : null}
-      <Table<Category>
-        rowKey="id"
-        columns={columns}
-        dataSource={list.data?.items ?? []}
-        loading={list.isFetching}
-        locale={{ emptyText: 'Chưa có Danh mục nào. Bấm "Thêm Danh mục" để tạo.' }}
-        pagination={{
-          ...toAntdPagination(list.data, request),
-          showSizeChanger: true,
-          pageSizeOptions: PAGE_SIZE_OPTIONS,
-          showTotal: (total) => `Tổng ${total.toLocaleString('vi-VN')} dòng`,
-        }}
-        onChange={(pagination, _filters, sorter) => setRequest((current) => fromAntdChange(pagination, sorter, current))}
-      />
+      {list.isError ? <ErrorAlert error={list.error} onRetry={() => void list.refetch()} retrying={list.isFetching} /> : null}
+      {!list.isError || list.data ? (
+        <Table<Category>
+          rowKey="id"
+          columns={columns}
+          dataSource={list.data?.items ?? []}
+          loading={list.isFetching}
+          scroll={{ x: 420 }}
+          locale={{ emptyText: list.isPending ? 'Đang tải…' : 'Chưa có Danh mục nào. Bấm "Thêm Danh mục" để tạo.' }}
+          pagination={{
+            ...toAntdPagination(list.data, request),
+            showSizeChanger: true,
+            pageSizeOptions: PAGE_SIZE_OPTIONS,
+            showTotal: (total) => `Tổng ${total.toLocaleString('vi-VN')} dòng`,
+          }}
+          onChange={(pagination, _filters, sorter) => setRequest((current) => fromAntdChange(pagination, sorter, current))}
+        />
+      ) : null}
       {editing ? <CategoryFormModal editing={editing} onClose={() => setEditing(null)} /> : null}
     </div>
   );

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd';
 import { Link } from 'react-router';
@@ -10,6 +10,7 @@ import {
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import type { DateRange, Uuid } from '../../../shared/types/common';
 import type { OrderStatus, OrderSummary } from '../../../shared/types/sales';
+import { OrderReceipt } from './OrderReceipt';
 
 const orderStatuses: Record<OrderStatus, { label: string; color: string }> = {
   COMPLETED: { label: 'Hoàn thành', color: 'success' },
@@ -41,6 +42,8 @@ interface Seller {
 export function OrdersPage() {
   useDocumentTitle('Đơn hàng');
   const [filters, setFilters] = useState<Filters>({ page: 0, size: 20 });
+  const [receiptOrder, setReceiptOrder] = useState<Uuid | null>(null);
+  const receiptTrigger = useRef<HTMLElement>(null);
   const [cancellation, setCancellation] = useState<{
     order: OrderSummary;
     reason: string;
@@ -86,8 +89,9 @@ export function OrdersPage() {
     setFilters((previous) => ({ ...previous, ...change, page: 0 }));
   }
 
-  return (
-    <Card title={<Typography.Title level={2} style={{ margin: 0 }}>Đơn hàng</Typography.Title>}>
+  const orderList = (
+    <Card hidden={receiptOrder !== null} className="no-print"
+      title={<Typography.Title level={1} style={{ margin: 0 }}>Đơn hàng</Typography.Title>}>
       <Space wrap style={{ marginBottom: 16 }}>
         <Input.Search
           aria-label="Mã đơn hàng"
@@ -128,12 +132,11 @@ export function OrdersPage() {
           onChange={(sellerId) => changeFilters({ sellerId })}
         />
       </Space>
-      {sellers.isError && <ErrorAlert error={sellers.error} />}
+      {sellers.isError && <ErrorAlert error={sellers.error} onRetry={() => void sellers.refetch()}
+        retrying={sellers.isFetching} retryLabel="Tải lại người bán" />}
       {orders.isError ? (
-        <>
-          <ErrorAlert error={orders.error} />
-          <Button onClick={() => void orders.refetch()}>Thử lại</Button>
-        </>
+        <ErrorAlert error={orders.error} onRetry={() => void orders.refetch()}
+          retrying={orders.isFetching} retryLabel="Tải lại đơn hàng" />
       ) : (
         <Table<OrderSummary>
           rowKey="orderId"
@@ -165,7 +168,14 @@ export function OrdersPage() {
             {
               title: 'Thao tác',
               render: (_, row) => (
-                <Space>
+                <Space wrap>
+                  <Button size="small" aria-label={`Xem hóa đơn ${row.orderCode}`} disabled={orders.isPlaceholderData}
+                    onClick={(event) => {
+                      receiptTrigger.current = event.currentTarget;
+                      setReceiptOrder(row.orderId);
+                    }}>
+                    Xem hóa đơn
+                  </Button>
                   {row.status !== 'CANCELLED' && (
                     <Link to={'/sales/returns?orderId=' + encodeURIComponent(row.orderId)}>
                       {row.status === 'RETURNED' ? 'Xem phiếu trả' : 'Trả hàng'}
@@ -221,5 +231,17 @@ export function OrdersPage() {
         {cancelOrder.isError && <ErrorAlert error={cancelOrder.error} style={{ marginTop: 12 }} />}
       </Modal>
     </Card>
+  );
+
+  return (
+    <>
+      {receiptOrder && (
+        <OrderReceipt orderId={receiptOrder} backLabel="Quay lại đơn hàng" onBack={() => {
+          setReceiptOrder(null);
+          requestAnimationFrame(() => receiptTrigger.current?.focus());
+        }} />
+      )}
+      {orderList}
+    </>
   );
 }

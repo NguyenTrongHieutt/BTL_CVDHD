@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { App as AntdApp } from 'antd';
+import { App as AntdApp, ConfigProvider } from 'antd';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Customer, CustomerRequest } from '../../../shared/types/catalog';
 import { foldText } from '../components/textUtils';
@@ -139,9 +139,11 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <AntdApp>
-        <CustomersPage />
-      </AntdApp>
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <CustomersPage />
+        </AntdApp>
+      </ConfigProvider>
     </QueryClientProvider>,
   );
 }

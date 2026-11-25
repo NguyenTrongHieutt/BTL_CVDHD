@@ -79,9 +79,9 @@ export function SuppliersPage() {
   ];
 
   return (
-    <div>
+    <div className="catalog-page">
       <Flex justify="space-between" align="center" wrap gap={8} style={{ marginBottom: 16 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
+        <Typography.Title level={1} style={{ margin: 0 }}>
           Nhà cung cấp
         </Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>

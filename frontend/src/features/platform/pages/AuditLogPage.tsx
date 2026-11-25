@@ -10,11 +10,18 @@ import type { AuditEntry, AuditFilters, Snapshot } from '../api/auditLog';
 import { usersQueryKey } from '../api/users';
 
 const TITLE = 'Nhật ký thao tác';
+const DATE_ERROR_ID = 'audit-log-date-error';
 const time = new Intl.DateTimeFormat('vi-VN', { dateStyle: 'short', timeStyle: 'short', timeZone: VIETNAM_TIME_ZONE });
 const labels = new Map(Object.entries({
   salePrice: 'Giá bán', displayName: 'Tên hiển thị', status: 'Trạng thái', name: 'Tên',
   phone: 'Số điện thoại', address: 'Địa chỉ', loginKey: 'Tên đăng nhập',
 }));
+
+function isIsoDate(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
 
 function snapshotFields(snapshot: Snapshot) {
   const fields = new Map<string, string>();
@@ -39,7 +46,7 @@ function AuditDetails({ entry }: { entry: AuditEntry }) {
   const before = snapshotFields(entry.before);
   const after = snapshotFields(entry.after);
   const fields = [...new Set([...before.keys(), ...after.keys()])];
-  return <Table size="small" pagination={false} rowKey="field"
+  return <Table size="small" pagination={false} rowKey="field" tableLayout="fixed" style={{ overflowWrap: 'anywhere' }}
     locale={{ emptyText: 'Không có dữ liệu trước/sau' }}
     columns={[
       { title: 'Trường', dataIndex: 'field' },
@@ -50,9 +57,12 @@ function AuditDetails({ entry }: { entry: AuditEntry }) {
   />;
 }
 
-const expandable: TableProps<AuditEntry>['expandable'] = { expandedRowRender: (entry) => <AuditDetails entry={entry} />,
-        expandIcon: ({ expanded, onExpand, record }) => <Button size="small" aria-expanded={expanded}
-          onClick={(event) => onExpand(record, event)}>{expanded ? 'Thu gọn' : 'Chi tiết'}</Button> };
+const expandable: TableProps<AuditEntry>['expandable'] = {
+  columnWidth: 108,
+  expandedRowRender: (entry) => <AuditDetails entry={entry} />,
+  expandIcon: ({ expanded, onExpand, record }) => <Button size="small" aria-expanded={expanded}
+    onClick={(event) => onExpand(record, event)}>{expanded ? 'Thu gọn' : 'Chi tiết'}</Button>,
+};
 
 export function AuditLogPage() {
   useDocumentTitle(TITLE);
@@ -63,9 +73,14 @@ export function AuditLogPage() {
     if (value) filters[key] = value;
   }
   const { fromDate, toDate } = filters;
-  const days = fromDate && toDate ? countDaysInclusive({ fromDate, toDate }) : 1;
-  const rangeError = days < 1 ? 'Ngày kết thúc phải từ ngày bắt đầu trở đi'
+  const invalidFromDate = Boolean(fromDate && !isIsoDate(fromDate));
+  const invalidToDate = Boolean(toDate && !isIsoDate(toDate));
+  const days = fromDate && toDate && !invalidFromDate && !invalidToDate ? countDaysInclusive({ fromDate, toDate }) : 1;
+  const rangeError = invalidFromDate ? 'Ngày bắt đầu không hợp lệ. Hãy chọn lại ngày hoặc xóa bộ lọc.'
+    : invalidToDate ? 'Ngày kết thúc không hợp lệ. Hãy chọn lại ngày hoặc xóa bộ lọc.'
+    : days < 1 ? 'Ngày kết thúc phải từ ngày bắt đầu trở đi'
     : days > MAX_RANGE_DAYS ? 'Khoảng ngày tối đa 366 ngày' : undefined;
+  const endHasError = invalidToDate || (!invalidFromDate && Boolean(rangeError));
   const page = Number(params.get('page'));
   const request = {
     page: Number.isSafeInteger(page) && page >= 0 ? page : 0,
@@ -89,36 +104,49 @@ export function AuditLogPage() {
   });
 
   return <Flex vertical gap="middle" style={{ minWidth: 0, maxWidth: '100%' }}>
-    <Typography.Title level={2}>{TITLE}</Typography.Title>
-    <Flex gap="small" wrap align="end">
-      <label>Loại thao tác<br />
-        <Select aria-label="Loại thao tác" allowClear placeholder="Tất cả" style={{ minWidth: 220 }}
-          loading={actions.isLoading} value={filters.action}
+    <Typography.Title level={1} style={{ margin: 0 }}>{TITLE}</Typography.Title>
+    <Flex gap="small" wrap align="end" role="group" aria-label="Bộ lọc nhật ký">
+      <label className="filter-field" style={{ width: 220, maxWidth: '100%' }}>Loại thao tác
+        <Select aria-label="Loại thao tác" allowClear placeholder="Tất cả" style={{ width: '100%' }}
+          loading={actions.isFetching} value={filters.action} disabled={actions.isError && !actions.data && !filters.action}
           options={actions.data?.map(({ action, label }) => ({ value: action, label }))}
           onChange={(action) => update({ action, page: undefined })} />
       </label>
-      <label>Người thực hiện<br />
-        <Select aria-label="Người thực hiện" allowClear placeholder="Tất cả" style={{ minWidth: 180 }}
-          loading={actors.isLoading} value={filters.actorId}
+      <label className="filter-field" style={{ width: 180, maxWidth: '100%' }}>Người thực hiện
+        <Select aria-label="Người thực hiện" allowClear placeholder="Tất cả" style={{ width: '100%' }}
+          loading={actors.isFetching} value={filters.actorId} disabled={actors.isError && !actors.data && !filters.actorId}
           options={actors.data?.map(({ userId, displayName }) => ({ value: userId, label: displayName }))}
           onChange={(actorId) => update({ actorId, page: undefined })} />
       </label>
-      <label>Từ ngày<Input type="date" value={fromDate ?? ''} onChange={(event) => update({ fromDate: event.target.value, page: undefined })} /></label>
-      <label>Đến ngày<Input type="date" value={toDate ?? ''} onChange={(event) => update({ toDate: event.target.value, page: undefined })} /></label>
+      <label className="filter-field">Từ ngày
+        <Input type="date" value={fromDate ?? ''} status={invalidFromDate ? 'error' : undefined}
+          aria-invalid={invalidFromDate || undefined} aria-describedby={invalidFromDate ? DATE_ERROR_ID : undefined}
+          onChange={(event) => update({ fromDate: event.target.value, page: undefined })} />
+      </label>
+      <label className="filter-field">Đến ngày
+        <Input type="date" value={toDate ?? ''} status={endHasError ? 'error' : undefined}
+          aria-invalid={endHasError || undefined} aria-describedby={endHasError ? DATE_ERROR_ID : undefined}
+          onChange={(event) => update({ toDate: event.target.value, page: undefined })} />
+      </label>
       <Button disabled={!Object.keys(filters).length}
         onClick={() => update({ action: undefined, actorId: undefined, fromDate: undefined, toDate: undefined, page: undefined })}>Xóa bộ lọc</Button>
     </Flex>
-    {rangeError && <Typography.Text role="alert" type="danger">{rangeError}</Typography.Text>}
-    {[actions, actors, log].map((query, index) => query.isError && <div key={index}>
-      <ErrorAlert error={query.error} /><Button onClick={() => void query.refetch()}>Thử lại</Button>
-    </div>)}
-    <Table<AuditEntry> scroll={{ x: 'max-content' }} rowKey="id" loading={log.isFetching} dataSource={log.data?.items}
-      locale={{ emptyText: 'Không có nhật ký thao tác' }}
+    {rangeError && <Typography.Text id={DATE_ERROR_ID} role="alert" type="danger">{rangeError}</Typography.Text>}
+    {actions.isError && <ErrorAlert error={actions.error} retrying={actions.isFetching}
+      retryLabel="Tải lại loại thao tác" onRetry={() => void actions.refetch()} />}
+    {actors.isError && <ErrorAlert error={actors.error} retrying={actors.isFetching}
+      retryLabel="Tải lại người thực hiện" onRetry={() => void actors.refetch()} />}
+    {!rangeError && log.isError && <ErrorAlert error={log.error} retrying={log.isFetching}
+      retryLabel="Tải lại nhật ký" onRetry={() => void log.refetch()} />}
+    {!rangeError && (!log.isError || log.data) && <Table<AuditEntry> scroll={{ x: 720 }} rowKey="id"
+      loading={log.isFetching} dataSource={log.data?.items} tableLayout="fixed" style={{ overflowWrap: 'anywhere' }}
+      locale={{ emptyText: log.isPending ? 'Đang tải nhật ký…' : Object.keys(filters).length
+        ? 'Không có thao tác khớp với bộ lọc' : 'Không có nhật ký thao tác' }}
       columns={[
-        { title: 'Thời điểm', dataIndex: 'createdAt', render: (value: string) => time.format(new Date(value)) },
+        { title: 'Thời điểm', dataIndex: 'createdAt', width: 134, render: (value: string) => time.format(new Date(value)) },
         { title: 'Loại thao tác', render: (_, entry) => entry.actionLabel ?? entry.action },
         { title: 'Người thực hiện', render: (_, entry) => entry.actorName ?? (entry.actorId ? `Chưa rõ tên · ${entry.actorId}` : 'Hệ thống') },
-        { title: 'Đối tượng', render: (_, entry) => <span style={{ whiteSpace: 'nowrap' }}>{[entry.entity, entry.entityId].filter(Boolean).join(' · ')}</span> },
+        { title: 'Đối tượng', render: (_, entry) => [entry.entity, entry.entityId].filter(Boolean).join(' · ') },
       ]}
       expandable={expandable}
       pagination={{ ...toAntdPagination(log.data, request), showSizeChanger: true }}
@@ -126,6 +154,6 @@ export function AuditLogPage() {
         const next = fromAntdChange(pagination, undefined, request);
         update({ page: String(next.page), size: String(next.size) });
       }}
-    />
+    />}
   </Flex>;
 }

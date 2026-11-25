@@ -87,7 +87,7 @@ function PriceRange({ minPrice, maxPrice, onApply }: PriceRangeProps) {
   const messages = [errors.min, errors.max].filter(Boolean);
 
   return (
-    <Flex vertical gap={4}>
+    <Flex vertical gap={4} role="group" aria-label="Khoảng giá bán">
       <Flex className="price-range-fields" align="center" gap={8}>
         <Input
           {...inputProps}
@@ -122,6 +122,7 @@ function PriceRange({ minPrice, maxPrice, onApply }: PriceRangeProps) {
 
 export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
   const categories = useCategoryOptions();
+  const filterId = useId();
   // Bộ lọc đổi mà không phải do ô tìm kiếm, ô giá gửi lên (URL đổi từ nơi khác): dựng lại hai ô này theo `value`.
   const sent = useRef(textFilters(value));
   const [inputsKey, setInputsKey] = useState(0);
@@ -155,9 +156,10 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
   return (
     <Flex role="search" aria-label="Bộ lọc Sản phẩm" wrap gap={12} align="flex-end" className="product-filter-bar">
       <div className="filter-field">
-        <span className="filter-field-label">Tìm kiếm</span>
+        <label className="filter-field-label" htmlFor={`${filterId}-search`}>Tìm Sản phẩm</label>
         <SearchInput
         key={`q-${inputsKey}`}
+        id={`${filterId}-search`}
         aria-label="Tìm Sản phẩm"
         placeholder="Tìm theo tên, SKU, mã vạch"
         defaultValue={value.q ?? ''}
@@ -166,14 +168,15 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
         />
       </div>
       <div className="filter-field">
-        <span className="filter-field-label">Danh mục</span>
+        <label className="filter-field-label" htmlFor={`${filterId}-category`}>Danh mục</label>
         <Select<string>
+        id={`${filterId}-category`}
         aria-label="Lọc theo Danh mục"
         allowClear
         placeholder={categories.isError ? 'Không tải được Danh mục' : 'Mọi Danh mục'}
         status={categories.isError ? 'error' : undefined}
         value={value.categoryId}
-        loading={categories.isLoading}
+        loading={categories.isFetching}
         options={(categories.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))}
         // Danh mục trên URL không có trong danh sách (đã xóa, hoặc tải danh sách lỗi): không hiện id thô
         labelRender={({ label }) => label ?? missingCategoryLabel()}
@@ -181,11 +184,16 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
           filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
         }}
         notFoundContent={
-          categories.isError ? 'Không tải được danh sách Danh mục. Hãy tải lại trang.' : 'Chưa có Danh mục nào'
+          categories.isError ? 'Danh mục chưa tải được' : 'Chưa có Danh mục nào'
         }
         onChange={(categoryId) => apply({ ...value, categoryId: categoryId ?? undefined })}
         style={{ width: 200 }}
         />
+        {categories.isError ? (
+          <Button size="small" loading={categories.isFetching} onClick={() => void categories.refetch()}>
+            Tải lại Danh mục
+          </Button>
+        ) : null}
       </div>
       <div className="filter-field">
         <span className="filter-field-label">Khoảng giá bán</span>
@@ -197,8 +205,9 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
         />
       </div>
       <div className="filter-field">
-        <span className="filter-field-label">Trạng thái</span>
+        <label className="filter-field-label" htmlFor={`${filterId}-status`}>Trạng thái</label>
         <Select<ProductStatus>
+        id={`${filterId}-status`}
         aria-label="Lọc theo trạng thái"
         allowClear
         placeholder="Mọi trạng thái"

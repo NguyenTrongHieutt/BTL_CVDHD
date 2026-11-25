@@ -42,6 +42,15 @@ textarea {
   outline-offset: 2px;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .skip-link {
   position: fixed;
   z-index: 1200;
@@ -161,6 +170,7 @@ textarea {
 
 .app-sider.ant-layout-sider {
   background: var(--sidebar);
+  scroll-padding-block-start: 80px;
 }
 
 .app-sider.ant-layout-sider-zero-width {
@@ -250,6 +260,7 @@ textarea {
   }
 }
 
+.app-content h1.ant-typography,
 .app-content h2.ant-typography,
 .app-content h3.ant-typography {
   color: var(--ink);
@@ -257,6 +268,7 @@ textarea {
 }
 
 .app-content h2.ant-typography { font-size: clamp(25px, 2vw, 30px); }
+.app-content h1.ant-typography,
 .app-content h3.ant-typography { font-size: clamp(23px, 1.8vw, 27px); }
 
 .app-content .ant-card,
@@ -369,6 +381,15 @@ textarea {
   font-weight: 650;
 }
 
+.product-picker .filter-field-label {
+  display: block;
+  margin-block-end: 6px;
+}
+
+.product-picker .ant-table-cell:first-child {
+  overflow-wrap: anywhere;
+}
+
 .data-table-shell {
   padding: 4px 16px 0;
   overflow: hidden;
@@ -382,9 +403,13 @@ textarea {
   margin: 16px 0;
 }
 
-.mobile-product-actions,
-.mobile-product-history {
+.mobile-product-actions {
   display: none;
+}
+
+.product-stock-history {
+  padding: 0 7px;
+  white-space: nowrap;
 }
 
 .pos-page {
@@ -558,6 +583,7 @@ textarea {
 
 @media (max-width: 767px) {
   .app-brand { gap: 8px; padding-inline: 14px; }
+  .app-sider .ant-menu-item { min-height: 44px; line-height: 44px; }
   .app-header { padding: 10px 16px; min-height: 64px; }
   .app-header .ant-btn { min-width: 44px; min-height: 44px; }
   .app-header-store { white-space: normal; }
@@ -593,7 +619,15 @@ textarea {
   .products-table .ant-table-tbody > tr > td:first-child { min-width: 150px; }
   .desktop-product-actions { display: none !important; }
   .mobile-product-actions { display: inline-flex; min-width: 44px; min-height: 44px; }
-  .mobile-product-history { display: inline-flex; min-height: 44px; align-items: center; }
+  .product-stock-history {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .product-stock-history > span { display: none; }
   .product-name-cell { display: grid; gap: 4px; overflow-wrap: anywhere; }
   .product-name-cell::after {
     content: attr(data-status);

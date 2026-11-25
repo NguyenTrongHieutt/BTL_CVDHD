@@ -229,8 +229,8 @@ export function StockLedgerPage() {
   };
 
   return (
-    <div>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>
+    <div className="catalog-page">
+      <Typography.Title level={1} style={{ marginTop: 0 }}>
         {TITLE}
       </Typography.Title>
       <StockLedgerFilterBar

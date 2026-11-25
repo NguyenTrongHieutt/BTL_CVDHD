@@ -8,7 +8,7 @@
 import { CloseOutlined, LogoutOutlined, MenuOutlined, ShopOutlined } from '@ant-design/icons';
 import { App, Button, Grid, Layout, Menu, Tag, Typography, theme } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router';
+import { Outlet, useLocation, useNavigate, useNavigationType } from 'react-router';
 import { useCurrentUser, useLogout } from '../shared/api/session';
 import { APP_TITLE } from '../shared/components';
 import { describeError } from '../shared/messages.vi';
@@ -25,6 +25,7 @@ export function AppLayout({ features }: AppLayoutProps) {
   const logout = useLogout();
   const location = useLocation();
   const navigate = useNavigate();
+  const navigationType = useNavigationType();
   const { message } = App.useApp();
   const { token } = theme.useToken();
   const screens = Grid.useBreakpoint();
@@ -32,10 +33,19 @@ export function AppLayout({ features }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const menuToggleRef = useRef<HTMLButtonElement>(null);
   const menuCloseRef = useRef<HTMLButtonElement>(null);
+  const mainContentRef = useRef<HTMLElement>(null);
+  const lastPathname = useRef(location.pathname);
   const menuOpen = narrow && !collapsed;
 
   const items = useMemo(() => buildMenuItems(features, me.role), [features, me.role]);
   const selectedKey = selectedMenuKey(features, location.pathname);
+
+  useEffect(() => {
+    if (lastPathname.current === location.pathname || menuOpen) return;
+    lastPathname.current = location.pathname;
+    mainContentRef.current?.focus({ preventScroll: true });
+    if (navigationType !== 'POP') document.documentElement.scrollTop = 0;
+  }, [location.pathname, menuOpen, navigationType]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -81,7 +91,7 @@ export function AppLayout({ features }: AppLayoutProps) {
 
   return (
     <>
-    <a className="skip-link" href="#main-content">Chuyển đến nội dung chính</a>
+    <a className="skip-link" href="#main-content" inert={menuOpen}>Chuyển đến nội dung chính</a>
     <Layout style={{ minHeight: '100dvh' }}>
       <Layout.Sider
         id="app-navigation"
@@ -146,7 +156,7 @@ export function AppLayout({ features }: AppLayoutProps) {
             void navigate(key);
             if (narrow) {
               setCollapsed(true);
-              requestAnimationFrame(() => document.getElementById('main-content')?.focus());
+              if (key === location.pathname) requestAnimationFrame(() => mainContentRef.current?.focus());
             }
           }}
         />
@@ -182,7 +192,7 @@ export function AppLayout({ features }: AppLayoutProps) {
             </Button>
           </div>
         </Layout.Header>
-        <Layout.Content className="app-content" id="main-content" tabIndex={-1}>
+        <Layout.Content className="app-content" id="main-content" ref={mainContentRef} tabIndex={-1}>
           <Outlet />
         </Layout.Content>
       </Layout>

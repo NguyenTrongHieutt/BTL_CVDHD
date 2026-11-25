@@ -6,7 +6,7 @@
  */
 import { DatePicker } from 'antd';
 import type { CSSProperties } from 'react';
-import { useMemo } from 'react';
+import { useId, useMemo } from 'react';
 import type { DateRange } from '../types/common';
 import { DISPLAY_DATE_FORMAT, MAX_RANGE_DAYS, dateRangePresets, fromDateRange, toDateRange } from './dateRange';
 
@@ -29,16 +29,25 @@ export function DateRangePicker({
   style,
 }: DateRangePickerProps) {
   const presets = useMemo(() => dateRangePresets(), []);
+  const id = useId();
+  const startId = `${id}-start`;
+  const endId = `${id}-end`;
   return (
-    <DatePicker.RangePicker
-      value={fromDateRange(value)}
-      onChange={(dates) => onChange(toDateRange(dates))}
-      format={DISPLAY_DATE_FORMAT}
-      presets={presets}
-      allowClear={allowClear}
-      disabled={disabled}
-      style={style}
-      disabledDate={(current, { from }) => (from ? Math.abs(current.diff(from, 'day')) >= maxDays : false)}
-    />
+    <>
+      <label className="visually-hidden" htmlFor={startId}>Từ ngày</label>
+      <label className="visually-hidden" htmlFor={endId}>Đến ngày</label>
+      <DatePicker.RangePicker
+        id={{ start: startId, end: endId }}
+        placeholder={['Từ ngày', 'Đến ngày']}
+        value={fromDateRange(value)}
+        onChange={(dates) => onChange(toDateRange(dates))}
+        format={DISPLAY_DATE_FORMAT}
+        presets={presets}
+        allowClear={allowClear}
+        disabled={disabled}
+        style={style}
+        disabledDate={(current, { from }) => (from ? Math.abs(current.diff(from, 'day')) >= maxDays : false)}
+      />
+    </>
   );
 }

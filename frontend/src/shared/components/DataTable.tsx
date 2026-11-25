@@ -55,20 +55,29 @@ export function DataTable<T extends object>({
     queryFn: ({ signal }) => fetchPage(request, signal),
     placeholderData: keepPreviousData,
   });
+  const waitingForRows = query.isPending || query.isPlaceholderData;
+  const error = query.isError ? (
+    <ErrorAlert error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />
+  ) : null;
+  if (error && !query.data) return error;
 
   return (
     <>
-      {query.isError ? <ErrorAlert error={query.error} /> : null}
+      {error}
       <Table<T>
         {...tableProps}
         className={['data-table-shell', tableProps.className].filter(Boolean).join(' ')}
-        dataSource={query.data?.items ?? []}
-        loading={query.isFetching}
+        dataSource={waitingForRows ? [] : query.data?.items ?? []}
+        loading={query.isFetching && !waitingForRows}
+        locale={waitingForRows ? {
+          ...tableProps.locale,
+          emptyText: <span role="status">{query.isPaused ? 'Đang chờ kết nối mạng…' : 'Đang tải dữ liệu…'}</span>,
+        } : tableProps.locale}
         pagination={{
           ...toAntdPagination(query.data, request),
           showSizeChanger: true,
           pageSizeOptions: PAGE_SIZE_OPTIONS,
-          showTotal: (total) => `Tổng ${total.toLocaleString('vi-VN')} dòng`,
+          showTotal: waitingForRows ? undefined : (total) => `Tổng ${total.toLocaleString('vi-VN')} dòng`,
         }}
         onChange={(pagination, _filters, sorter) =>
           setState({ paramsKey, request: fromAntdChange(pagination, sorter, request) })

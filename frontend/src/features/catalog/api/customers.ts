@@ -7,47 +7,21 @@
  * backend chặn bằng `409 customer-phone-taken` kèm `existingCustomerId`.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api, isApiError } from '../../../shared/api/client';
-import { pageRequestToQuery } from '../../../shared/api/pagination';
-import type { PageRequest, PageResponse } from '../../../shared/api/pagination';
+import { api } from '../../../shared/api/client';
+import { createCustomer, customerPath, customersQueryKey } from '../../../shared/api/customers';
 import type { Customer, CustomerRequest } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { normalizeText } from '../components/textUtils';
 
-export const CUSTOMERS_PATH = '/api/v1/catalog/customers';
-
-export const customersQueryKey = ['catalog', 'customers'] as const;
-
-export const CUSTOMER_PHONE_TAKEN = '/errors/catalog/customer-phone-taken';
+export {
+  CUSTOMERS_PATH, CUSTOMER_PHONE_TAKEN, customersQueryKey, existingCustomerIdOf, fetchCustomer, fetchCustomers,
+} from '../../../shared/api/customers';
 
 /** Câu lỗi của backend khi số điện thoại không đúng dạng. */
 export const PHONE_INVALID = 'Số điện thoại phải là 0 và 9 chữ số, hoặc +84 và 9 chữ số';
 
 const PHONE = /^(?:0|\+84)([0-9]{9})$/;
 const PHONE_SEPARATORS = /[ .-]/g;
-
-/**
- * Danh sách Khách hàng có tìm kiếm: tên chứa `q` (không dấu, không phân biệt hoa thường) hoặc số điện thoại chứa các
- * chữ số của `q`. `q` trống thì không gửi. Backend sắp theo tên không dấu (chưa có tên xếp sau), rồi số điện thoại.
- */
-export function fetchCustomers(
-  request: PageRequest,
-  q: string | undefined,
-  signal?: AbortSignal,
-): Promise<PageResponse<Customer>> {
-  return api.get<PageResponse<Customer>>(CUSTOMERS_PATH, {
-    query: { ...pageRequestToQuery(request), q: q || undefined },
-    signal,
-  });
-}
-
-function customerPath(id: Uuid): string {
-  return `${CUSTOMERS_PATH}/${encodeURIComponent(id)}`;
-}
-
-export function fetchCustomer(id: Uuid, signal?: AbortSignal): Promise<Customer> {
-  return api.get<Customer>(customerPath(id), { signal });
-}
 
 /**
  * Chuẩn hóa số điện thoại như backend: chuẩn hóa chuỗi như trường văn bản, bỏ dấu cách, dấu chấm, gạch ngang; `0` + 9
@@ -69,13 +43,6 @@ export function customerLabel(customer: Pick<Customer, 'name' | 'phone'>): strin
   return customer.name ?? formatPhone(customer.phone);
 }
 
-/** Id Khách hàng đang dùng số điện thoại, khi lỗi là `409 customer-phone-taken`; ngược lại `null`. */
-export function existingCustomerIdOf(error: unknown): Uuid | null {
-  if (!isApiError(error) || error.type !== CUSTOMER_PHONE_TAKEN) return null;
-  const id = error.extensions.existingCustomerId;
-  return typeof id === 'string' && id !== '' ? id : null;
-}
-
 /** Body đã chuẩn hóa như backend; tên, ghi chú trống thì không gửi (PUT: xóa giá trị cũ). */
 export function customerBody(request: CustomerRequest): CustomerRequest {
   const name = normalizeText(request.name ?? '');
@@ -90,7 +57,7 @@ export function customerBody(request: CustomerRequest): CustomerRequest {
 export function useCreateCustomer() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (request: CustomerRequest) => api.post<Customer>(CUSTOMERS_PATH, customerBody(request)),
+    mutationFn: (request: CustomerRequest) => createCustomer(customerBody(request)),
     onSettled: () => queryClient.invalidateQueries({ queryKey: customersQueryKey }),
   });
 }

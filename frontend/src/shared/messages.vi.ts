@@ -133,12 +133,20 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Đơn hàng đã đổi trạng thái nên không làm được thao tác này.',
     hint: 'Đơn có thể đã bị hủy hoặc đã có Phiếu trả hàng. Tải lại Đơn hàng để xem trạng thái mới nhất.',
   },
+  '/errors/sales/return-stale': {
+    message: 'Số lượng có thể trả hoặc số tiền hoàn đã thay đổi.',
+    hint: 'Kiểm tra lại số lượng và tổng tiền hoàn trước khi xác nhận.',
+  },
   '/errors/sales/cart-stale': {
     message: 'Giá hoặc Tồn kho của hàng trong giỏ vừa thay đổi.',
     hint: 'Hệ thống đã tính lại tiền. Kiểm tra tổng tiền (và mã QR mới nếu chuyển khoản) rồi xác nhận lại.',
   },
 
   // inventory
+  '/errors/inventory/stocktake-stale': {
+    message: 'Tồn hệ thống đã thay đổi trong lúc kiểm kho.',
+    hint: 'Kiểm tra lại số đếm và lý do trên các dòng đã cập nhật trước khi lưu.',
+  },
   '/errors/inventory/variant-inactive': {
     message: 'Sản phẩm này đã ngừng kinh doanh nên không nhập hàng được.',
     hint: 'Bỏ dòng này khỏi Phiếu nhập. Kiểm kho và trả hàng vẫn làm được với hàng còn tồn.',

@@ -97,3 +97,14 @@ export interface StoredCart {
   idempotencyKey: string;
   updatedAt: IsoDateTime;
 }
+
+/** Dòng lịch sử đơn hàng dùng chung cho DH-09 và KH-03. */
+export interface OrderSummary {
+  orderId: Uuid;
+  orderCode: string;
+  createdAt: IsoDateTime;
+  status: OrderStatus;
+  total: Money;
+  sellerName: string | null;
+  canCancel: boolean;
+}

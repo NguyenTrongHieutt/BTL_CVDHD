@@ -31,8 +31,10 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/catalog/customer-phone-taken` | 409 | Thêm Khách hàng, hoặc sửa sang số điện thoại mà Khách hàng khác (chưa xóa mềm) của Cửa hàng đang dùng (unique `customer_phone_uq`, FR-18). Số so sau khi chuẩn hóa (`+84…` là `0…`, bỏ dấu cách, dấu chấm, gạch ngang). Có trường mở rộng `existingCustomerId`: id Khách hàng đang dùng số đó, để mở luôn thay vì thêm mới. Cửa hàng khác dùng cùng số thì được | catalog |
 | `/errors/catalog/supplier-code-taken` | 409 | Thêm Nhà cung cấp, hoặc sửa sang mã mà Nhà cung cấp khác (chưa xóa mềm) của Cửa hàng đang dùng (unique `supplier_code_uq`, FR-23). Mã lưu chữ HOA nên khác hoa thường vẫn là trùng. Nhà cung cấp không có mã không bao giờ trùng; trùng tên được phép. Cửa hàng khác dùng cùng mã thì được | catalog |
 | `/errors/inventory/insufficient-stock` | 422 | Không đủ hàng; cả chứng từ rollback (AD-6) | inventory |
+| `/errors/inventory/stocktake-stale` | 409 | Tồn hệ thống đã thay đổi trước khi lưu kiểm kho. `currentQuantities` trả số tồn hiện tại theo ID biến thể có thay đổi | inventory |
 | `/errors/inventory/variant-inactive` | 409 | Nhập hàng cho Biến thể đã ngừng kinh doanh (AD-14) | inventory |
 | `/errors/sales/invalid-state` | 409 | Chuyển trạng thái Đơn hàng không hợp lệ, ví dụ hủy đơn đã hủy hoặc đã có Phiếu trả (AD-17) | sales |
+| `/errors/sales/return-stale` | 409 | Số lượng có thể trả hoặc số tiền hoàn đã thay đổi. Đọc lại đơn và tính lại trước khi lưu Phiếu trả hàng | sales |
 | `/errors/sales/cart-stale` | 409 | Tổng tiền tính lại khác `quotedTotal`, hoặc giá, trạng thái đã đổi (AD-8) | sales |
 | `/errors/ai/quota-exceeded` | 429 | Hết 50 câu Hỏi đáp dữ liệu trong ngày (AD-13) | ai |
 | `/errors/ai/unavailable` | 503 | Dịch vụ AI không sẵn sàng (nginx hoặc ai-service trả, AD-1) | ai |

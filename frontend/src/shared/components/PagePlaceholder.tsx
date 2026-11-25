@@ -3,7 +3,7 @@
  * Mỗi feature thay component này bằng màn thật ở giai đoạn ghi trên trang.
  */
 import { ToolOutlined } from '@ant-design/icons';
-import { Result, Typography } from 'antd';
+import { Card, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { useDocumentTitle } from './useDocumentTitle';
 
@@ -18,23 +18,18 @@ export interface PagePlaceholderProps {
   children?: ReactNode;
 }
 
-export function PagePlaceholder({ title, frs, phase, owner, description, children }: PagePlaceholderProps) {
+export function PagePlaceholder({ title, description, children }: PagePlaceholderProps) {
   useDocumentTitle(title);
   return (
     <div>
       <Typography.Title level={3} style={{ marginTop: 0 }}>
         {title}
       </Typography.Title>
-      <Result
-        icon={<ToolOutlined />}
-        title={`Sẽ làm ở ${phase} — ${owner}`}
-        subTitle={
-          <>
-            <div>{frs.join(', ')}</div>
-            {description ? <div style={{ marginTop: 8 }}>{description}</div> : null}
-          </>
-        }
-      />
+      <Card className="placeholder-card">
+        <span className="placeholder-icon" aria-hidden="true"><ToolOutlined /></span>
+        <Typography.Title level={4}>Tính năng đang được chuẩn bị</Typography.Title>
+        {description ? <Typography.Paragraph type="secondary">{description}</Typography.Paragraph> : null}
+      </Card>
       {children}
     </div>
   );

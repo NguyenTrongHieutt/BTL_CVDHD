@@ -419,7 +419,7 @@ function StoreForm({ store }: { store: StoreInfo }) {
           </Form.Item>
         </Card>
 
-        <Card title="Tài khoản nhận chuyển khoản (VietQR)" style={{ marginBottom: 16 }}>
+        <Card className="store-bank-card" title="Tài khoản nhận chuyển khoản (VietQR)" style={{ marginBottom: 16 }}>
           <Typography.Paragraph type="secondary">
             Khách quét mã VietQR để chuyển tiền vào tài khoản này. Để trống cả ba ô thì tắt thanh toán chuyển khoản.
           </Typography.Paragraph>

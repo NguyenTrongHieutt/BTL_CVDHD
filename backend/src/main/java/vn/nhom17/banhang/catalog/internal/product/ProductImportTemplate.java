@@ -4,6 +4,8 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -39,6 +41,7 @@ final class ProductImportTemplate {
 
     static final String FILENAME = "mau-nhap-san-pham.xlsx";
     static final String CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    static final String CSV_FILENAME = "mau-nhap-san-pham.csv";
     static final String DATA_SHEET = "Sản phẩm";
     static final String GUIDE_SHEET = "Hướng dẫn";
 
@@ -61,18 +64,28 @@ final class ProductImportTemplate {
     private static final List<String> GUIDE = List.of(
             "Cách nhập Sản phẩm từ file này",
             "",
-            "1. Điền mỗi Sản phẩm một dòng ở trang \"" + DATA_SHEET + "\", bắt đầu từ dòng 2. Dòng 1 là tiêu đề cột: "
+            "1. Điền Sản phẩm ở trang \"" + DATA_SHEET + "\", bắt đầu từ dòng 2. Dòng 1 là tiêu đề cột: "
                     + "không xóa, không đổi tên (được đổi thứ tự cột, bỏ cột không bắt buộc).",
             "2. Cột có dấu * là bắt buộc: Tên Sản phẩm, Giá bán. Đưa chuột vào ô tiêu đề để xem quy tắc của từng cột.",
             "3. Dòng 2 là dòng ví dụ: để nguyên thì dòng này được bỏ qua (báo trong kết quả, không nhập). Xóa đi "
                     + "hoặc sửa thành Sản phẩm của bạn.",
             "4. Tiền là số nguyên đồng (15000 hoặc 15.000), không có số lẻ. Có Tồn đầu kỳ thì phải có Giá vốn ban đầu.",
             "5. Danh mục ghi theo tên; tên chưa có thì hệ thống tạo Danh mục mới.",
-            "6. SKU, Mã vạch không được trùng với Sản phẩm đã có hay với dòng khác trong file (dòng trên được nhập, "
-                    + "dòng dưới báo lỗi). Để trống SKU thì hệ thống tự sinh.",
-            "7. Mỗi lần nhập tối đa 1000 dòng, file .xlsx tối đa 2 MB. Dòng trống được bỏ qua.",
-            "8. Dòng sai được báo kèm số dòng và lý do; các dòng đúng vẫn được nhập. Sửa các dòng sai rồi chỉ nhập "
-                    + "các dòng đó: nhập lại dòng đã nhập thì dòng có SKU hoặc mã vạch bị báo trùng, còn dòng không có "
+            "6. SKU, Mã vạch không được trùng với Sản phẩm đã có, Sản phẩm/nhóm hợp lệ đứng trước trong file "
+                    + "hoặc Biến thể khác cùng nhóm. Để trống SKU thì hệ thống tự sinh.",
+            "7. Mỗi lần nhập tối đa 1000 dòng dữ liệu, file .xlsx hoặc .csv UTF-8 tối đa 2 MB. Dòng trống được bỏ qua. "
+                    + "CSV nhận dấu phẩy hoặc chấm phẩy; ô có dấu phân cách, xuống dòng phải đặt trong ngoặc kép; "
+                    + "ngoặc kép trong ô viết hai lần.",
+            "8. Không có Mã sản phẩm cha: mỗi dòng là một Sản phẩm một Biến thể như dòng ví dụ. Cùng Mã sản phẩm cha "
+                    + "trong file (không phân biệt hoa thường, khoảng trắng thừa): một Sản phẩm có từ 2 đến 50 Biến thể. "
+                    + "Mã này chỉ nhóm trong file, không gắn vào hay sửa Sản phẩm đã có.",
+            "9. Với nhóm Biến thể, Tên Sản phẩm, Danh mục, Đơn vị tính, Mô tả có thể điền một lần; nếu lặp lại phải "
+                    + "nhất quán. Mỗi dòng có Giá bán, SKU, Mã vạch, Tồn đầu kỳ và Giá vốn riêng. Nhập Tên Biến thể "
+                    + "hoặc 1–3 cặp thuộc tính; tên để trống sẽ ghép từ các giá trị thuộc tính. Biến thể đầu là mặc định.",
+            "10. Xem trước để kiểm tra trước khi lưu. Dòng sai được báo kèm số dòng và lý do; nhóm có bất kỳ dòng sai "
+                    + "nào thì toàn bộ nhóm không được nhập. Các Sản phẩm đúng khác vẫn được nhập. Sửa lỗi rồi chỉ nhập "
+                    + "lại Sản phẩm/nhóm chưa được nhập; nhóm phải giữ đủ các Biến thể. Nhập lại dòng đã nhập thì dòng có "
+                    + "SKU hoặc mã vạch bị báo trùng, còn dòng không có "
                     + "SKU, mã vạch sẽ được tạo thêm một Sản phẩm nữa.");
 
     private ProductImportTemplate() {
@@ -89,6 +102,12 @@ final class ProductImportTemplate {
             return false;
         }
         for (ImportColumn column : ImportColumn.values()) {
+            if (!EXAMPLE.containsKey(column)) {
+                if (row.texts().containsKey(column) || row.numbers().containsKey(column)) {
+                    return false;
+                }
+                continue;
+            }
             String expected = String.valueOf(EXAMPLE.get(column));
             if (column.kind == ImportColumn.Kind.NUMBER) {
                 BigDecimal actual = row.numbers().get(column);
@@ -123,6 +142,18 @@ final class ProductImportTemplate {
         }
     }
 
+    static byte[] buildCsv() {
+        String headers = String.join(",", Arrays.stream(ImportColumn.values())
+                .map(column -> csvCell(column.templateHeader())).toList());
+        String example = String.join(",", Arrays.stream(ImportColumn.values())
+                .map(column -> csvCell(String.valueOf(EXAMPLE.getOrDefault(column, "")))).toList());
+        return ("\ufeff" + headers + "\r\n" + example + "\r\n").getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String csvCell(String value) {
+        return "\"" + value.replace("\"", "\"\"") + "\"";
+    }
+
     private static void buildDataSheet(XSSFWorkbook workbook) {
         Sheet sheet = workbook.createSheet(DATA_SHEET);
         CreationHelper helper = workbook.getCreationHelper();
@@ -143,7 +174,7 @@ final class ProductImportTemplate {
             int index = column.ordinal();
             CellStyle columnStyle = switch (column) {
                 case SALE_PRICE, OPENING_QUANTITY, OPENING_UNIT_COST -> number;
-                case SKU, BARCODE -> text;
+                case SKU, BARCODE, PARENT_CODE -> text;
                 case DESCRIPTION -> wrapped;
                 default -> null;
             };
@@ -168,7 +199,7 @@ final class ProductImportTemplate {
             Object value = EXAMPLE.get(column);
             if (value instanceof Number n) {
                 example.setCellValue(n.doubleValue());
-            } else {
+            } else if (value != null) {
                 example.setCellValue(String.valueOf(value));
             }
             if (columnStyle != null) {

@@ -211,6 +211,10 @@ class ProductService {
      */
     record NewVariantProduct(String name, UUID categoryId, String unit, String description,
                              List<NewVariant> variants) {
+
+        NewVariantProduct withCategory(UUID id) {
+            return new NewVariantProduct(name, id, unit, description, variants);
+        }
     }
 
     record Created(ProductView product, boolean replayed) {
@@ -471,6 +475,12 @@ class ProductService {
      * hai Biến thể của yêu cầu), trùng nhãn: {@code 409} (unique bắt), cả lần tạo rollback.
      */
     private UUID insertWithVariants(NewVariantProduct p) {
+        return insertWithVariantsInCurrentTransaction(p, sku -> false);
+    }
+
+    /** Nhập nhóm Biến thể dùng cùng cách tạo và sự kiện như thêm Sản phẩm nhiều Biến thể. */
+    @Transactional(propagation = Propagation.MANDATORY)
+    UUID insertWithVariantsInCurrentTransaction(NewVariantProduct p, Predicate<String> reservedSku) {
         UUID storeId = context.storeId();
         Instant now = clock.instant();
         UUID productId = ids.get();
@@ -486,7 +496,7 @@ class ProductService {
         List<UUID> created = new ArrayList<>(p.variants().size());
         for (int i = 0; i < p.variants().size(); i++) {
             NewVariant v = p.variants().get(i);
-            VariantCode code = allocate(v.sku(), taken::contains);
+            VariantCode code = allocate(v.sku(), sku -> taken.contains(sku) || reservedSku.test(sku));
             taken.add(code.sku());
             // Cách nhau 1 micro giây: thứ tự Biến thể (theo ngày tạo) đúng thứ tự gửi lên
             insertVariant(storeId, productId, code, v.name(), v.attributes(), v.barcode(), v.salePrice(), i == 0,
@@ -682,6 +692,13 @@ class ProductService {
      */
     NewVariantProduct validateWithVariants(CreateProductRequest request) {
         FieldErrors errors = new FieldErrors();
+        NewVariantProduct product = checkWithVariants(request, errors);
+        errors.throwIfAny();
+        return product;
+    }
+
+    /** Như validateWithVariants, nhưng gom lỗi để preview nhập file có thể báo theo dòng. */
+    NewVariantProduct checkWithVariants(CreateProductRequest request, FieldErrors errors) {
         String name = TextFields.check(request.name(), "name", NAME, errors);
         String unit = TextFields.check(request.unit(), "unit", UNIT, errors);
         String description = TextFields.check(request.description(), "description", DESCRIPTION, errors);
@@ -713,7 +730,9 @@ class ProductService {
                 variants.add(VariantFields.check(inputs.get(i), "variants[" + i + "].", errors));
             }
         }
-        errors.throwIfAny();
+        if (!errors.isEmpty()) {
+            return null;
+        }
         return new NewVariantProduct(name, request.categoryId(), unit.isEmpty() ? DEFAULT_UNIT : unit,
                 emptyToNull(description), List.copyOf(variants));
     }

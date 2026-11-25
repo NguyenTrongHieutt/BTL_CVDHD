@@ -3,6 +3,7 @@ package vn.nhom17.banhang.catalog.internal.product;
 import jakarta.persistence.EntityManager;
 import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.PreparedStatement;
@@ -15,10 +16,10 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.HexFormat;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -28,6 +29,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 import tools.jackson.databind.json.JsonMapper;
 import vn.nhom17.banhang.catalog.VariantCreated;
@@ -36,16 +38,16 @@ import vn.nhom17.banhang.catalog.internal.FieldErrors;
 import vn.nhom17.banhang.catalog.internal.TextFields;
 import vn.nhom17.banhang.catalog.internal.category.CategoryEntity;
 import vn.nhom17.banhang.catalog.internal.category.CategoryRepository;
-import vn.nhom17.banhang.catalog.internal.product.ProductController.CreateProductRequest;
 import vn.nhom17.banhang.catalog.internal.product.ProductImportReader.ImportRow;
-import vn.nhom17.banhang.catalog.internal.product.ProductService.NewProduct;
+import vn.nhom17.banhang.catalog.internal.product.ProductImportPlanner.Candidate;
+import vn.nhom17.banhang.catalog.internal.product.VariantFields.NewVariant;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.IdempotencyService;
 import vn.nhom17.banhang.platform.IdempotencyService.IdempotentResult;
 import vn.nhom17.banhang.platform.ProblemException;
 
 /**
- * Nhập Sản phẩm từ file Excel (FR-6, SP-06), chỉ Chủ cửa hàng.
+ * Nhập Sản phẩm từ XLSX hoặc CSV UTF-8 (FR-6, SP-06), chỉ Chủ cửa hàng.
  *
  * <ol>
  *   <li><b>Tệp</b> ({@link #read}, ngoài transaction): tối đa {@value #MAX_BYTES} byte ({@code 413
@@ -66,8 +68,8 @@ import vn.nhom17.banhang.platform.ProblemException;
  *       khác vừa tạo): cả lần nhập rollback, {@code 409} nêu số dòng, không nhập dở dang.</li>
  * </ol>
  *
- * <p>Không có dòng hợp lệ nào vẫn là {@code 200} với {@code imported: 0}. Không cập nhật Sản phẩm đã có, không nhập
- * Biến thể, ảnh.
+ * <p>Mã sản phẩm cha nhóm các dòng thành Sản phẩm nhiều Biến thể; nhóm có lỗi bị loại toàn bộ. Không có nhóm hợp lệ
+ * nào vẫn là {@code 200} với {@code imported: 0}. Không cập nhật hoặc gắn Biến thể vào Sản phẩm đã có; không nhập ảnh.
  */
 @Service
 class ProductImportService {
@@ -77,9 +79,6 @@ class ProductImportService {
     static final String DOCUMENT_TYPE = "CATALOG_PRODUCT_IMPORT";
     /** File tối đa 2 MB, bằng {@code spring.servlet.multipart.max-file-size}. */
     static final long MAX_BYTES = 2L * 1024 * 1024;
-
-    private static final TextFields.Rule CATEGORY_NAME = TextFields.Rule.optional("Tên Danh mục",
-            CategoryEntity.NAME_MAX);
 
     private final ProductService products;
     private final CategoryRepository categories;
@@ -126,10 +125,20 @@ class ProductImportService {
     record Imported(ImportResult result, boolean replayed) {
     }
 
+    record PreviewRow(int row, String parentCode, String productName, String variantName,
+                      Map<String, String> attributes, String sku, String barcode, String categoryName,
+                      String unit, String description, BigDecimal salePrice, BigDecimal openingQuantity,
+                      BigDecimal openingUnitCost, boolean valid) {
+    }
+
+    record PreviewResult(int totalRows, int validProducts, int validRows, List<PreviewRow> rows,
+                         List<RowError> errors, String previewToken) {
+    }
+
     /** Kiểm và đọc phần {@code file}, gọi NGOÀI transaction. */
     ImportFile read(MultipartFile file) {
         if (file == null) {
-            throw FieldErrors.of("file", "Chọn file Excel để nhập");
+            throw FieldErrors.of("file", "Chọn file .xlsx hoặc .csv để nhập");
         }
         if (file.getSize() > MAX_BYTES) {
             throw tooLarge();
@@ -144,156 +153,209 @@ class ProductImportService {
         if (content.length > MAX_BYTES) {
             throw tooLarge();
         }
-        return new ImportFile(sha256(content), ProductImportReader.read(content));
+        return new ImportFile(sha256(content), ProductImportReader.read(content, file.getOriginalFilename()));
+    }
+
+    @Transactional(readOnly = true)
+    PreviewResult preview(ImportFile file) {
+        Plan plan = plan(file.rows());
+        List<PreviewRow> rows = previewRows(plan);
+        return new PreviewResult(file.rows().size(), plan.accepted().size(),
+                (int) rows.stream().filter(PreviewRow::valid).count(), rows, plan.errors(),
+                previewToken(file, plan, rows));
     }
 
     /** Gọi từ controller, NGOÀI transaction ({@link IdempotencyService#execute} tự mở transaction). */
     Imported importFile(UUID idempotencyKey, ImportFile file) {
+        return importFile(idempotencyKey, file, null);
+    }
+
+    Imported importFile(UUID idempotencyKey, ImportFile file, String previewToken) {
         if (idempotencyKey == null) {
             throw ProblemException.unprocessable("/errors/common/idempotency-key-missing", "Thiếu Idempotency-Key",
                     "Yêu cầu phải có header Idempotency-Key là một UUID hợp lệ.");
         }
         IdempotentResult<ImportResult> result = idempotency.execute(DOCUMENT_TYPE, idempotencyKey, file.sha256(),
-                () -> importRows(file.rows()), this::loadResult);
+                () -> importRows(file, previewToken), this::loadResult);
         return new Imported(result.value(), result.replayed());
     }
 
     // --- Trong transaction của lần nhập ------------------------------------------------------------------------
 
-    /** Một dòng hợp lệ chờ ghi. {@code categoryKey} {@code null}: không thuộc Danh mục nào. */
-    private record Accepted(int row, NewProduct product, String categoryKey, String categoryName) {
+    private record Plan(List<Candidate> candidates, List<Candidate> accepted, List<RowError> errors,
+                        Set<String> reservedSkus) {
     }
 
-    /** Kết quả kiểm trường của một dòng; {@code product} {@code null} khi có lỗi. */
-    private record Checked(ImportRow row, NewProduct product, String categoryName, List<RowError> errors) {
-    }
-
-    private UUID importRows(List<ImportRow> rows) {
-        UUID storeId = context.storeId();
-        List<Checked> checked = rows.stream().map(this::checkRow).toList();
-        Set<String> takenSkus = existingCodes(storeId, "sku",
-                checked.stream().filter(c -> c.product() != null).map(c -> c.product().sku()).toList());
-        Set<String> takenBarcodes = existingCodes(storeId, "barcode",
-                checked.stream().filter(c -> c.product() != null).map(c -> c.product().barcode()).toList());
-
-        List<RowError> failed = new ArrayList<>();
-        List<Accepted> accepted = new ArrayList<>();
+    /** Chỉ SELECT; preview và commit dùng chính xác cùng cách dựng nhóm và kiểm xung đột. */
+    private Plan plan(List<ImportRow> rows) {
+        List<Candidate> candidates = new ProductImportPlanner(products).check(rows);
+        List<NewVariant> variants = candidates.stream().filter(Candidate::valid)
+                .flatMap(c -> c.variants().stream()).toList();
+        Set<String> takenSkus = existingCodes(context.storeId(), "sku", variants.stream().map(NewVariant::sku).toList());
+        Set<String> takenBarcodes = existingCodes(context.storeId(), "barcode",
+                variants.stream().map(NewVariant::barcode).toList());
+        List<RowError> errors = new ArrayList<>();
+        List<Candidate> accepted = new ArrayList<>();
         Map<String, Integer> skuRows = new HashMap<>();
         Map<String, Integer> barcodeRows = new HashMap<>();
-        for (Checked c : checked) {
-            List<RowError> errors = new ArrayList<>(c.errors());
-            NewProduct product = c.product();
-            int row = c.row().row();
-            if (product != null) {
-                String sku = product.sku();
-                String barcode = product.barcode();
-                if (sku != null && takenSkus.contains(sku)) {
-                    errors.add(error(row, ImportColumn.SKU, "SKU " + sku + " đã có ở Sản phẩm khác của Cửa hàng"));
-                } else if (sku != null && skuRows.containsKey(sku)) {
-                    errors.add(error(row, ImportColumn.SKU, "SKU " + sku + " trùng với dòng " + skuRows.get(sku)));
+        for (Candidate candidate : candidates) {
+            List<RowError> own = new ArrayList<>(candidate.errors());
+            Map<String, Integer> groupSkus = new HashMap<>();
+            Map<String, Integer> groupBarcodes = new HashMap<>();
+            Map<String, Integer> groupNames = new HashMap<>();
+            List<NewVariant> checked = candidate.variants();
+            for (int i = 0; i < checked.size(); i++) {
+                NewVariant variant = checked.get(i);
+                int row = candidate.rows().get(i).row();
+                checkCode(row, ImportColumn.SKU, variant.sku(), takenSkus, skuRows, groupSkus, own);
+                checkCode(row, ImportColumn.BARCODE, variant.barcode(), takenBarcodes, barcodeRows, groupBarcodes, own);
+                if (variant.name() != null) {
+                    Integer previous = groupNames.putIfAbsent(variant.name().toLowerCase(Locale.ROOT), row);
+                    if (previous != null) {
+                        own.add(error(row, ImportColumn.VARIANT_NAME,
+                                "Tên Biến thể " + variant.name() + " trùng với dòng " + previous));
+                    }
                 }
-                if (barcode != null && takenBarcodes.contains(barcode)) {
-                    errors.add(error(row, ImportColumn.BARCODE,
-                            "Mã vạch " + barcode + " đã có ở Sản phẩm khác của Cửa hàng"));
-                } else if (barcode != null && barcodeRows.containsKey(barcode)) {
-                    errors.add(error(row, ImportColumn.BARCODE,
-                            "Mã vạch " + barcode + " trùng với dòng " + barcodeRows.get(barcode)));
+            }
+            if (!own.isEmpty()) {
+                if (candidate.parentCode() != null) {
+                    Set<Integer> invalidRows = new HashSet<>();
+                    own.forEach(e -> invalidRows.add(e.row()));
+                    for (ImportRow row : candidate.rows()) {
+                        if (!invalidRows.contains(row.row())) {
+                            own.add(error(row.row(), ImportColumn.PARENT_CODE,
+                                    "Nhóm " + candidate.parentCode() + " có dòng lỗi nên không nhập toàn bộ nhóm"));
+                        }
+                    }
                 }
+                errors.addAll(own);
+            } else {
+                accepted.add(candidate);
+                skuRows.putAll(groupSkus);
+                barcodeRows.putAll(groupBarcodes);
             }
-            if (!errors.isEmpty()) {
-                failed.addAll(errors);
-                continue;
-            }
-            if (product.sku() != null) {
-                skuRows.put(product.sku(), row);
-            }
-            if (product.barcode() != null) {
-                barcodeRows.put(product.barcode(), row);
-            }
-            String categoryName = c.categoryName();
-            accepted.add(new Accepted(row, product, categoryName == null ? null : categoryKey(categoryName),
-                    categoryName));
         }
+        return new Plan(candidates, List.copyOf(accepted), ProductImportPlanner.sorted(errors), Set.copyOf(skuRows.keySet()));
+    }
 
-        List<String> createdCategories = insert(storeId, accepted, skuRows.keySet());
-        ImportResult result = new ImportResult(accepted.size(), List.copyOf(failed), createdCategories);
+    private static void checkCode(int row, ImportColumn column, String code, Set<String> taken,
+                                  Map<String, Integer> accepted, Map<String, Integer> group, List<RowError> errors) {
+        if (code == null) {
+            return;
+        }
+        String label = column == ImportColumn.SKU ? "SKU " : "Mã vạch ";
+        Integer previous = accepted.get(code);
+        if (previous == null) {
+            previous = group.get(code);
+        }
+        if (taken.contains(code)) {
+            errors.add(error(row, column, label + code + " đã có ở Sản phẩm khác của Cửa hàng"));
+        } else if (previous != null) {
+            errors.add(error(row, column, label + code + " trùng với dòng " + previous));
+        }
+        group.putIfAbsent(code, row);
+    }
+
+    private UUID importRows(ImportFile file, String expectedPreview) {
+        Plan plan = plan(file.rows());
+        if (expectedPreview != null && !Objects.equals(expectedPreview, previewToken(file, plan, previewRows(plan)))) {
+            throw ProblemException.conflict("/errors/catalog/import-preview-stale", "Bản xem trước đã thay đổi",
+                    "Dữ liệu đã thay đổi sau khi xem trước. Không Sản phẩm nào được nhập; hãy xem trước lại rồi lưu.");
+        }
+        List<String> createdCategories = insert(context.storeId(), plan.accepted(), plan.reservedSkus());
+        ImportResult result = new ImportResult(plan.accepted().size(), plan.errors(), createdCategories);
         UUID importId = UUID.randomUUID();
         jdbc.update("""
                 insert into app.product_import (id, store_id, created_by, imported, result, created_at)
                 values (?, ?, ?, ?, ?::jsonb, ?)
-                """, importId, storeId, context.userIdIfPresent().orElse(null), result.imported(),
+                """, importId, context.storeId(), context.userIdIfPresent().orElse(null), result.imported(),
                 json.writeValueAsString(result), OffsetDateTime.ofInstant(clock.instant(), ZoneOffset.UTC));
         return importId;
     }
 
-    /**
-     * Kiểm các trường của một dòng bằng đúng quy tắc của thêm Sản phẩm, và tên Danh mục. Lỗi đọc ô (chữ không phải
-     * số…) đứng thay mọi lỗi khác của cùng cột. Lỗi sắp theo thứ tự cột của file mẫu.
-     */
-    private Checked checkRow(ImportRow row) {
-        if (ProductImportTemplate.isExample(row)) {
-            // Dòng ví dụ của file mẫu còn nguyên: không nhập (Sản phẩm không xóa được, Tồn đầu kỳ đã ghi sổ kho)
-            return new Checked(row, null, null,
-                    List.of(new RowError(row.row(), null, ProductImportTemplate.EXAMPLE_ROW_MESSAGE)));
-        }
-        CreateProductRequest request = new CreateProductRequest(row.texts().get(ImportColumn.NAME), null,
-                row.texts().get(ImportColumn.UNIT), row.texts().get(ImportColumn.DESCRIPTION),
-                number(row, ImportColumn.SALE_PRICE), row.texts().get(ImportColumn.SKU),
-                row.texts().get(ImportColumn.BARCODE), number(row, ImportColumn.OPENING_QUANTITY),
-                number(row, ImportColumn.OPENING_UNIT_COST));
-        FieldErrors fieldErrors = new FieldErrors();
-        NewProduct product = products.check(request, fieldErrors);
-        String categoryName = TextFields.check(row.texts().get(ImportColumn.CATEGORY), ImportColumn.CATEGORY_FIELD,
-                CATEGORY_NAME, fieldErrors);
-
-        Map<ImportColumn, List<String>> byColumn = new LinkedHashMap<>();
-        row.cellErrors().forEach((column, message) -> byColumn.computeIfAbsent(column, k -> new ArrayList<>())
-                .add(message));
-        for (Map<String, String> e : fieldErrors.entries()) {
-            ImportColumn column = ImportColumn.ofField(e.get("field"));
-            if (column != null && !row.cellErrors().containsKey(column)) {
-                byColumn.computeIfAbsent(column, k -> new ArrayList<>()).add(e.get("message"));
+    private List<PreviewRow> previewRows(Plan plan) {
+        Set<Integer> acceptedRows = new HashSet<>();
+        plan.accepted().forEach(c -> c.rows().forEach(row -> acceptedRows.add(row.row())));
+        List<PreviewRow> rows = new ArrayList<>();
+        for (Candidate candidate : plan.candidates()) {
+            List<NewVariant> checked = candidate.variants();
+            String unit = candidate.product() != null ? candidate.product().unit()
+                    : candidate.variantProduct() != null ? candidate.variantProduct().unit()
+                    : candidate.common().get(ImportColumn.UNIT);
+            for (int i = 0; i < candidate.rows().size(); i++) {
+                ImportRow row = candidate.rows().get(i);
+                NewVariant variant = i < checked.size() ? checked.get(i) : null;
+                Map<String, String> attributes = variant == null
+                        ? ProductImportPlanner.attributes(row, new ArrayList<>()) : variant.attributes();
+                String variantName = variant == null ? normalized(row, ImportColumn.VARIANT_NAME) : variant.name();
+                if (variantName == null && !attributes.isEmpty()) {
+                    variantName = String.join(VariantFields.LABEL_SEPARATOR, attributes.values());
+                }
+                rows.add(new PreviewRow(row.row(), candidate.parentCode(), candidate.common().get(ImportColumn.NAME),
+                        variantName, attributes,
+                        variant == null ? upper(row, ImportColumn.SKU) : variant.sku(),
+                        variant == null ? upper(row, ImportColumn.BARCODE) : variant.barcode(),
+                        candidate.categoryName() == null ? candidate.common().get(ImportColumn.CATEGORY)
+                                : candidate.categoryName(), unit,
+                        candidate.common().get(ImportColumn.DESCRIPTION),
+                        variant == null ? row.numbers().get(ImportColumn.SALE_PRICE) : BigDecimal.valueOf(variant.salePrice()),
+                        variant == null ? row.numbers().get(ImportColumn.OPENING_QUANTITY)
+                                : BigDecimal.valueOf(variant.openingQuantity()),
+                        variant == null ? row.numbers().get(ImportColumn.OPENING_UNIT_COST)
+                                : BigDecimal.valueOf(variant.openingUnitCost()), acceptedRows.contains(row.row())));
             }
         }
-        List<RowError> errors = new ArrayList<>();
-        byColumn.entrySet().stream().sorted(Map.Entry.comparingByKey(Comparator.comparingInt(Enum::ordinal)))
-                .forEach(entry -> entry.getValue().forEach(m -> errors.add(error(row.row(), entry.getKey(), m))));
-        if (!errors.isEmpty()) {
-            return new Checked(row, null, null, errors);
-        }
-        String category = categoryName.isEmpty() ? null : categoryName.replaceAll(" {2,}", " ");
-        return new Checked(row, product, category, List.of());
+        return rows.stream().sorted(Comparator.comparingInt(PreviewRow::row)).toList();
     }
 
-    /** Giá trị ô số, {@code null} khi trống hoặc ô không đọc được (lỗi ô đã ghi ở {@code cellErrors}). */
-    private static BigDecimal number(ImportRow row, ImportColumn column) {
-        return row.numbers().get(column);
+    private record PreviewFingerprint(String fileHash, UUID storeId, List<PreviewRow> rows, List<RowError> errors) {
+    }
+
+    private String previewToken(ImportFile file, Plan plan, List<PreviewRow> rows) {
+        return sha256(json.writeValueAsString(new PreviewFingerprint(file.sha256(), context.storeId(), rows,
+                plan.errors())).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String normalized(ImportRow row, ImportColumn column) {
+        String value = TextFields.normalize(row.texts().get(column), column == ImportColumn.DESCRIPTION);
+        return value.isEmpty() ? null : value;
+    }
+
+    private static String upper(ImportRow row, ImportColumn column) {
+        String value = normalized(row, column);
+        return value == null ? null : value.toUpperCase(Locale.ROOT);
     }
 
     /**
      * Ghi các dòng hợp lệ theo thứ tự dòng; trả tên các Danh mục vừa tạo. {@code reservedSkus}: SKU người dùng nhập
      * ở các dòng hợp lệ, để SKU tự sinh của dòng trước không lấy mất SKU của dòng sau.
      */
-    private List<String> insert(UUID storeId, List<Accepted> accepted, Set<String> reservedSkus) {
+    private List<String> insert(UUID storeId, List<Candidate> accepted, Set<String> reservedSkus) {
         Map<String, UUID> categoryIds = existingCategories(storeId);
         List<String> created = new ArrayList<>();
         Set<String> reserved = Set.copyOf(reservedSkus);
-        for (Accepted a : accepted) {
+        for (Candidate a : accepted) {
             UUID categoryId = null;
-            if (a.categoryKey() != null) {
-                categoryId = categoryIds.get(a.categoryKey());
+            String categoryKey = a.categoryName() == null ? null : categoryKey(a.categoryName());
+            if (categoryKey != null) {
+                categoryId = categoryIds.get(categoryKey);
                 if (categoryId == null) {
-                    categoryId = createCategory(a.row(), a.categoryName());
-                    categoryIds.put(a.categoryKey(), categoryId);
+                    categoryId = createCategory(a.firstRow(), a.categoryName());
+                    categoryIds.put(categoryKey, categoryId);
                     created.add(a.categoryName());
                 }
             }
             try {
-                products.insertInCurrentTransaction(a.product().withCategory(categoryId), reserved::contains);
+                if (a.variantProduct() != null) {
+                    products.insertWithVariantsInCurrentTransaction(a.variantProduct().withCategory(categoryId),
+                            reserved::contains);
+                } else {
+                    products.insertInCurrentTransaction(a.product().withCategory(categoryId), reserved::contains);
+                }
             } catch (ProblemException conflict) {
                 // Người khác vừa tạo cùng mã sau lúc kiểm: cả lần nhập rollback, nêu dòng nào
                 throw new ProblemException(conflict.status(), conflict.type(), conflict.title(),
-                        "Dòng " + a.row() + ": " + conflict.getMessage() + " Không dòng nào được nhập; hãy sửa "
+                        "Dòng " + a.firstRow() + ": " + conflict.getMessage() + " Không dòng nào được nhập; hãy sửa "
                                 + "file rồi nhập lại.", conflict.properties());
             }
             // Đã flush: bỏ các entity đã ghi khỏi persistence context, để mỗi lần flush sau không phải duyệt lại

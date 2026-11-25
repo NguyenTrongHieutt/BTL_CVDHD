@@ -145,4 +145,23 @@ class ProductServiceTest {
         verify(events).publishEvent(new VariantCreated(STORE, later, 0, 0));
         assertThat(ids).isEmpty();
     }
+
+    @Test
+    void aGeneratedSkuInAVariantGroupAvoidsACodeReservedByAnotherImportedProduct() {
+        UUID later = UUID.fromString("cccccccc-0000-4000-8000-000000000004");
+        ArrayDeque<UUID> ids = new ArrayDeque<>(List.of(PRODUCT, TAKEN, FREE, later));
+        ProductService service = new ProductService(em, mock(CategoryRepository.class), jdbc, context,
+                Clock.fixed(Instant.parse("2026-11-10T03:00:00Z"), ZoneOffset.UTC), events, idempotency,
+                mock(AuditLog.class), JsonMapper.builder().build(), ids::removeFirst);
+        when(context.storeId()).thenReturn(STORE);
+        when(jdbc.queryForObject(contains("sku = ?"), eq(Boolean.class), eq(STORE), anyString())).thenReturn(false);
+        service.insertWithVariantsInCurrentTransaction(new ProductService.NewVariantProduct("Áo", null, "cái", null,
+                List.of(new VariantFields.NewVariant("S", java.util.Map.of(), null, null, 1000, 0, 0),
+                        new VariantFields.NewVariant("M", java.util.Map.of(), "AO-M", null, 1000, 0, 0))),
+                "SP-AAAAAAAA"::equals);
+
+        verify(jdbc).update(contains("insert into app.product_variant"), eq(FREE), eq(STORE), eq(PRODUCT),
+                eq("SP-BBBBBBBB"), isNull(), eq("S"), anyString(), eq(1000L), eq(true), eq("ACTIVE"), any(), any());
+        assertThat(ids).isEmpty();
+    }
 }

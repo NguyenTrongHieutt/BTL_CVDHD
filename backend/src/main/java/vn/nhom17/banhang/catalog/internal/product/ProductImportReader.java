@@ -4,12 +4,18 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.MathContext;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -31,15 +37,16 @@ import vn.nhom17.banhang.platform.ProblemException;
  * {@link ProductService#check}), chưa đụng database.
  *
  * <ul>
- *   <li><b>Tệp:</b> chỉ {@code .xlsx}. Kiểm byte đầu là ZIP ({@code PK\3\4}; {@code .xls}, file có mật khẩu là OLE2,
- *       {@code .csv} là chữ: đều bị từ chối), rồi kiểm gói ZIP có {@code [Content_Types].xml} và
+ *   <li><b>Tệp:</b> {@code .csv} đọc UTF-8, nhận BOM, dấu phẩy hoặc chấm phẩy, ô có ngoặc kép và xuống dòng.
+ *       Với XLSX, kiểm byte đầu là ZIP ({@code PK\3\4}; {@code .xls}, file có mật khẩu là OLE2 bị từ chối),
+ *       rồi kiểm gói ZIP có {@code [Content_Types].xml} và
  *       {@code xl/workbook.xml} và giải nén không quá {@value #MAX_UNZIPPED_BYTES} byte (chặn file nén kiểu "bom" trước
  *       khi Apache POI dựng cả file trong bộ nhớ). Sai: {@code 400 /errors/catalog/import-invalid-file}.</li>
  *   <li><b>Trang tính:</b> trang đầu tiên. Dòng 1 là tiêu đề, đọc theo tên ({@link ImportColumn#ofHeader}); thiếu cột
  *       bắt buộc hoặc một cột xuất hiện hai lần: {@code 400 import-invalid-file} nêu tên cột.</li>
  *   <li><b>Dòng:</b> dữ liệu từ dòng 2; dòng mà mọi ô của các cột nhận ra đều trống (hoặc chỉ có khoảng trắng) bị bỏ
  *       qua. Quá {@value #MAX_ROWS} dòng dữ liệu: {@code 400 import-invalid-file}. Số dòng báo lỗi là số dòng của
- *       Excel (dòng 1 là tiêu đề).</li>
+ *       Excel hoặc dòng vật lý bắt đầu bản ghi CSV (dòng 1 là tiêu đề).</li>
  *   <li><b>Ô chữ:</b> lấy chuỗi như đã nhập; ô số trong cột chữ (mã vạch gõ thành số) đổi thành chữ số, không có dạng
  *       {@code 8.9E12}.</li>
  *   <li><b>Tiêu đề:</b> ngoài tên của file mẫu còn nhận tên khác của cùng cột ({@link ImportColumn#aliases}, ví dụ
@@ -87,6 +94,174 @@ final class ProductImportReader {
                      Map<ImportColumn, String> cellErrors) {
     }
 
+    /** CSV phải được chọn với đuôi .csv; XLSX vẫn kiểm nội dung như phiên bản trước. */
+    static List<ImportRow> read(byte[] content, String filename) {
+        return filename != null && filename.toLowerCase(Locale.ROOT).endsWith(".csv")
+                ? readCsv(content) : read(content);
+    }
+
+    private record CsvRecord(int row, List<String> cells) {
+    }
+
+    /** UTF-8, có thể có BOM; số dòng là dòng vật lý bắt đầu bản ghi, kể cả ô chứa xuống dòng. */
+    static List<ImportRow> readCsv(byte[] content) {
+        String text;
+        try {
+            text = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(content)).toString();
+        } catch (CharacterCodingException invalidUtf8) {
+            throw invalid("CSV phải dùng mã hóa UTF-8. Hãy lưu lại dạng CSV UTF-8 rồi thử lại.");
+        }
+        if (text.startsWith("\ufeff")) {
+            text = text.substring(1);
+        }
+        CsvRows records = new CsvRows();
+        csvRecords(text, csvDelimiter(text), records::accept);
+        if (records.columns == null) {
+            headerColumns(List.of());
+        }
+        return List.copyOf(records.rows);
+    }
+
+    /** Xử lý từng bản ghi ngay; hàng triệu dòng trống trong 2 MB không tạo hàng triệu object chờ đọc. */
+    private static final class CsvRows {
+        private Map<ImportColumn, Integer> columns;
+        private final List<ImportRow> rows = new ArrayList<>();
+
+        private void accept(CsvRecord record) {
+            if (columns == null) {
+                columns = headerColumns(record.cells());
+                return;
+            }
+            ImportRow row = readCsvRow(record, columns);
+            if (row != null) {
+                if (rows.size() == MAX_ROWS) {
+                    throw invalid("File có hơn " + MAX_ROWS + " dòng dữ liệu. Hãy tách thành nhiều file.");
+                }
+                rows.add(row);
+            }
+        }
+    }
+
+    private static ImportRow readCsvRow(CsvRecord record, Map<ImportColumn, Integer> columns) {
+        Map<ImportColumn, String> texts = new EnumMap<>(ImportColumn.class);
+        Map<ImportColumn, BigDecimal> numbers = new EnumMap<>(ImportColumn.class);
+        Map<ImportColumn, String> errors = new EnumMap<>(ImportColumn.class);
+        for (Map.Entry<ImportColumn, Integer> entry : columns.entrySet()) {
+            if (entry.getValue() >= record.cells().size()) {
+                continue;
+            }
+            ImportColumn column = entry.getKey();
+            String value = record.cells().get(entry.getValue());
+            if (TextFields.normalize(value, true).isEmpty()) {
+                continue;
+            }
+            if (column.kind == ImportColumn.Kind.TEXT) {
+                texts.put(column, value);
+            } else {
+                BigDecimal number = parseNumber(value);
+                if (number == null) {
+                    errors.put(column, numberProblem(column, value));
+                } else {
+                    numbers.put(column, number);
+                }
+            }
+        }
+        if (!texts.isEmpty() || !numbers.isEmpty() || !errors.isEmpty()) {
+            return new ImportRow(record.row(), texts, numbers, errors);
+        }
+        return null;
+    }
+
+    /** Chỉ xét dấu phân cách ở tiêu đề, ngoài dấu ngoặc kép; nhận cả CSV xuất từ Excel dùng dấu chấm phẩy. */
+    private static char csvDelimiter(String text) {
+        boolean quoted = false;
+        int commas = 0;
+        int semicolons = 0;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == '"') {
+                if (quoted && i + 1 < text.length() && text.charAt(i + 1) == '"') {
+                    i++;
+                } else {
+                    quoted = !quoted;
+                }
+            } else if (!quoted) {
+                if (c == '\r' || c == '\n') {
+                    break;
+                }
+                commas += c == ',' ? 1 : 0;
+                semicolons += c == ';' ? 1 : 0;
+            }
+        }
+        return semicolons > commas ? ';' : ',';
+    }
+
+    private static void csvRecords(String text, char delimiter, Consumer<CsvRecord> consumer) {
+        List<String> cells = new ArrayList<>();
+        StringBuilder cell = new StringBuilder();
+        boolean quoted = false;
+        boolean closedQuote = false;
+        boolean started = false;
+        int line = 1;
+        int recordLine = 1;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (quoted) {
+                if (c == '"') {
+                    if (i + 1 < text.length() && text.charAt(i + 1) == '"') {
+                        cell.append('"');
+                        i++;
+                    } else {
+                        quoted = false;
+                        closedQuote = true;
+                    }
+                } else if (c == '\r' || c == '\n') {
+                    if (c == '\r' && i + 1 < text.length() && text.charAt(i + 1) == '\n') {
+                        i++;
+                    }
+                    cell.append('\n');
+                    line++;
+                } else {
+                    cell.append(c);
+                }
+                continue;
+            }
+            if (c == delimiter || c == '\r' || c == '\n') {
+                cells.add(cell.toString());
+                cell.setLength(0);
+                closedQuote = false;
+                started = false;
+                if (c != delimiter) {
+                    consumer.accept(new CsvRecord(recordLine, List.copyOf(cells)));
+                    cells.clear();
+                    if (c == '\r' && i + 1 < text.length() && text.charAt(i + 1) == '\n') {
+                        i++;
+                    }
+                    recordLine = ++line;
+                }
+            } else if (c == '"' && !started && !closedQuote) {
+                quoted = true;
+                started = true;
+            } else {
+                if (c == '"' || closedQuote && c != ' ' && c != '\t') {
+                    throw invalid("CSV dòng " + recordLine + ": dấu ngoặc kép không hợp lệ.");
+                }
+                if (!closedQuote) {
+                    cell.append(c);
+                    started = true;
+                }
+            }
+        }
+        if (quoted) {
+            throw invalid("CSV dòng " + recordLine + ": ô có dấu ngoặc kép chưa đóng.");
+        }
+        if (started || closedQuote || !cells.isEmpty() || !cell.isEmpty()) {
+            cells.add(cell.toString());
+            consumer.accept(new CsvRecord(recordLine, List.copyOf(cells)));
+        }
+    }
+
     /** Đọc {@code content} (đã kiểm cỡ). Tệp không đọc được, sai mẫu, quá nhiều dòng: {@code 400 import-invalid-file}. */
     static List<ImportRow> read(byte[] content) {
         checkContainer(content);
@@ -110,7 +285,7 @@ final class ProductImportReader {
                     + "hãy mở bằng Excel, bỏ mật khẩu (nếu có) rồi lưu lại dạng .xlsx.");
         }
         if (!startsWith(content, ZIP_MAGIC)) {
-            throw invalid("Chỉ nhận file Excel .xlsx (không nhận .xls, .csv). Hãy tải file mẫu, điền dữ liệu rồi chọn "
+            throw invalid("Chỉ nhận file .xlsx hoặc CSV UTF-8 có đuôi .csv. Hãy tải file mẫu, điền dữ liệu rồi chọn "
                     + "lại file.");
         }
         boolean contentTypes = false;
@@ -163,13 +338,23 @@ final class ProductImportReader {
 
     /** Vị trí cột của từng tiêu đề nhận ra ở dòng 1; thiếu cột bắt buộc, cột lặp: {@code 400}. */
     private static Map<ImportColumn, Integer> headerColumns(Row header) {
+        List<String> cells = new ArrayList<>();
+        if (header != null) {
+            for (int i = 0; i < header.getLastCellNum(); i++) {
+                cells.add(cellText(header.getCell(i)));
+            }
+        }
+        return headerColumns(cells);
+    }
+
+    private static Map<ImportColumn, Integer> headerColumns(List<String> header) {
         Map<ImportColumn, Integer> columns = new EnumMap<>(ImportColumn.class);
         Set<String> repeated = new LinkedHashSet<>();
         if (header != null) {
-            for (Cell cell : header) {
-                String text = cellText(cell);
+            for (int i = 0; i < header.size(); i++) {
+                String text = header.get(i);
                 ImportColumn column = text == null ? null : ImportColumn.ofHeader(text);
-                if (column != null && columns.putIfAbsent(column, cell.getColumnIndex()) != null) {
+                if (column != null && columns.putIfAbsent(column, i) != null) {
                     repeated.add(column.header);
                 }
             }

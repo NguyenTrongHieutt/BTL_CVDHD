@@ -273,22 +273,48 @@ export function useUploadProductImage() {
   });
 }
 
-/** File mẫu nhập Sản phẩm từ Excel (SP-06), chỉ Chủ cửa hàng. */
+/** Nhập danh mục từ file (SP-06), chỉ Chủ cửa hàng. */
 export const PRODUCT_IMPORT_TEMPLATE_PATH = `${PRODUCTS_PATH}/import-template`;
 export const PRODUCT_IMPORT_PATH = `${PRODUCTS_PATH}/import`;
-/** Tên file mẫu khi tải về (như `Content-Disposition` của backend). */
-export const PRODUCT_IMPORT_TEMPLATE_FILENAME = 'mau-nhap-san-pham.xlsx';
+export const PRODUCT_IMPORT_PREVIEW_PATH = `${PRODUCT_IMPORT_PATH}/preview`;
+export const IMPORT_PREVIEW_STALE = '/errors/catalog/import-preview-stale';
 /** File nhập tối đa 2 MB, tối đa 1000 dòng dữ liệu, như backend. */
 export const PRODUCT_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 export const PRODUCT_IMPORT_MAX_ROWS = 1000;
 /** File không đọc được, sai mẫu (thiếu cột bắt buộc, quá 1000 dòng…): `detail` của backend nêu lý do cụ thể. */
 export const IMPORT_INVALID_FILE = '/errors/catalog/import-invalid-file';
 
-/** Một lỗi của dòng không nhập được: số dòng Excel (dòng 1 là tiêu đề), tiêu đề cột như file mẫu, lý do. */
+/** Một lỗi của dòng dữ liệu: số dòng trong file, tiêu đề cột như file mẫu và lý do. */
 export interface ProductImportRowError {
   row: number;
   column: string | null;
   message: string;
+}
+
+export interface ProductImportPreviewRow {
+  row: number;
+  parentCode: string | null;
+  productName: string | null;
+  variantName: string | null;
+  attributes: Record<string, string>;
+  sku: string | null;
+  barcode: string | null;
+  categoryName: string | null;
+  unit?: string | null;
+  description?: string | null;
+  salePrice: number | null;
+  openingQuantity: number | null;
+  openingUnitCost: number | null;
+  valid: boolean;
+}
+
+export interface ProductImportPreview {
+  totalRows: number;
+  validProducts: number;
+  validRows: number;
+  rows: ProductImportPreviewRow[];
+  errors: ProductImportRowError[];
+  previewToken: string;
 }
 
 /** Kết quả một lần nhập: số Sản phẩm đã tạo, các dòng lỗi (theo dòng), tên Danh mục vừa tạo. */
@@ -298,27 +324,36 @@ export interface ProductImportResult {
   createdCategories: string[];
 }
 
-/** Tải file mẫu `.xlsx` (`GET /api/v1/catalog/products/import-template`). */
-export function fetchProductImportTemplate(): Promise<Blob> {
-  return api.get<Blob>(PRODUCT_IMPORT_TEMPLATE_PATH, { responseType: 'blob' });
+export type ProductImportFormat = 'xlsx' | 'csv';
+
+export function fetchProductImportTemplate(format: ProductImportFormat): Promise<Blob> {
+  return api.get<Blob>(PRODUCT_IMPORT_TEMPLATE_PATH, {
+    responseType: 'blob',
+    query: format === 'csv' ? { format } : undefined,
+  });
 }
 
-/**
- * Nhập Sản phẩm từ Excel (FR-6, SP-06), chỉ Chủ cửa hàng: `POST /api/v1/catalog/products/import`,
- * `multipart/form-data` với file ở phần `file` → `200 ProductImportResult` (kể cả khi không dòng nào nhập được). Một
- * lần nhập là một chứng từ (`Idempotency-Key`, AD-7): giữ khóa cho cùng một file qua các lần gửi lại sau lỗi mạng, 5xx
- * (backend trả lại kết quả lần đầu, không nhập hai lần); chọn file khác, nhập xong, hay lỗi khác thì dùng khóa mới. Xong,
- * kể cả khi lỗi (mất phản hồi có thể là máy chủ đã nhập rồi), thì tải lại bảng Sản phẩm, Danh mục, Tồn kho, sổ kho.
- */
+export function previewProductImport(file: File): Promise<ProductImportPreview> {
+  const form = new FormData();
+  form.append('file', file);
+  return api.post<ProductImportPreview>(PRODUCT_IMPORT_PREVIEW_PATH, form);
+}
+
+/** Giữ cùng khóa cho lần gửi lại sau lỗi mạng, với đúng file và bản xem trước đã xác nhận. */
 export function useImportProducts() {
   const queryClient = useQueryClient();
-  const idempotency = useRef<{ file: File; key: string } | null>(null);
+  const idempotency = useRef<{ file: File; previewToken: string; key: string } | null>(null);
   return useMutation({
-    mutationFn: (file: File) => {
-      if (idempotency.current?.file !== file) idempotency.current = { file, key: newIdempotencyKey() };
+    mutationFn: ({ file, previewToken }: { file: File; previewToken: string }) => {
+      if (idempotency.current?.file !== file || idempotency.current.previewToken !== previewToken) {
+        idempotency.current = { file, previewToken, key: newIdempotencyKey() };
+      }
       const form = new FormData();
       form.append('file', file);
-      return api.post<ProductImportResult>(PRODUCT_IMPORT_PATH, form, { idempotencyKey: idempotency.current.key });
+      return api.post<ProductImportResult>(PRODUCT_IMPORT_PATH, form, {
+        headers: { 'X-Import-Preview': previewToken },
+        idempotencyKey: idempotency.current.key,
+      });
     },
     onSuccess: () => {
       idempotency.current = null;

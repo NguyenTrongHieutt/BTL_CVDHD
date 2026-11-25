@@ -15,7 +15,6 @@
  * />
  */
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Select } from 'antd';
 import { useState } from 'react';
 import { DEFAULT_PAGE_SIZE, clampPageSize } from '../api/pagination';
 import type { PageRequest, PageResponse } from '../api/pagination';
@@ -77,8 +76,12 @@ export function DataTable<T extends object>({
       {compact && compactSortOptions && (
         <label className="compact-sort">
           <span className="filter-field-label">Sắp xếp</span>
-          <Select aria-label="Sắp xếp" options={compactSortOptions} value={request.sort ?? ''}
-            onChange={(sort) => setState({ paramsKey, request: { ...request, page: 0, sort: sort || undefined } })} />
+          <select value={request.sort ?? ''}
+            onChange={(event) => setState({
+              paramsKey, request: { ...request, page: 0, sort: event.target.value || undefined },
+            })}>
+            {compactSortOptions.map(({ label, value }) => <option key={value} value={value}>{label}</option>)}
+          </select>
         </label>
       )}
       <RecordTable<T>

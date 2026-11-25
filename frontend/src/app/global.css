@@ -483,6 +483,17 @@ textarea {
   margin-block: 12px;
 }
 
+.compact-sort select {
+  width: 100%;
+  min-height: 44px;
+  padding-inline: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
 .orders-filters,
 .orders-extra-filters {
   display: grid;

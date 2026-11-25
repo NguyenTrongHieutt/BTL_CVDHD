@@ -32,8 +32,9 @@ const columns: TableColumnsType<CustomerOrder> = [
   { title: 'Người bán', dataIndex: 'sellerName' },
 ];
 
-export function CustomerHistoryModal({ customer, onClose }: { customer: Customer; onClose: () => void }) {
+export function CustomerHistoryModal({ customer, onClosed }: { customer: Customer; onClosed: () => void }) {
   const { customerId } = customer;
+  const [open, setOpen] = useState(true);
   const [request, setRequest] = useState({ page: 0, size: DEFAULT_PAGE_SIZE });
   const summary = useQuery({
     queryKey: ['sales', 'purchase-summary', customerId],
@@ -47,8 +48,9 @@ export function CustomerHistoryModal({ customer, onClose }: { customer: Customer
   });
 
   return (
-    <Modal open title={`Lịch sử mua · ${customerLabel(customer)}`} width={800} onCancel={onClose}
-      footer={<Button onClick={onClose}>Đóng</Button>}>
+    <Modal open={open} title={`Lịch sử mua · ${customerLabel(customer)}`} width={800}
+      onCancel={() => setOpen(false)} afterOpenChange={(visible) => { if (!visible) onClosed(); }}
+      footer={<Button onClick={() => setOpen(false)}>Đóng</Button>}>
       <Typography.Title level={5}>Tổng quan mua hàng</Typography.Title>
       {summary.isError ? (
         <>
@@ -56,7 +58,7 @@ export function CustomerHistoryModal({ customer, onClose }: { customer: Customer
           <Button onClick={() => void summary.refetch()}>Tải lại tổng quan</Button>
         </>
       ) : summary.data ? (
-        <Descriptions items={[
+        <Descriptions column={{ xs: 1, sm: 2, lg: 3 }} items={[
           { key: 'count', label: 'Số đơn', children: summary.data.orderCount },
           { key: 'spent', label: 'Tổng chi tiêu', children: <MoneyText value={summary.data.totalSpent} /> },
           { key: 'last', label: 'Lần mua gần nhất', children: summary.data.lastPurchaseAt ? formatTime(summary.data.lastPurchaseAt) : 'Chưa mua hàng' },

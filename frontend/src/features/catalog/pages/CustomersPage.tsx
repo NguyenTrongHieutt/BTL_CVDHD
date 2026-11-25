@@ -148,7 +148,7 @@ export function CustomersPage() {
           ),
         }}
       />
-      {history && <CustomerHistoryModal key={history.customerId} customer={history} onClose={() => setHistory(null)} />}
+      {history && <CustomerHistoryModal key={history.customerId} customer={history} onClosed={() => setHistory(null)} />}
       {editing ? (
         <CustomerFormModal
           key={editing.mode === 'edit' ? editing.customer.customerId : 'create'}

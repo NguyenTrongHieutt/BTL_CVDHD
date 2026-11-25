@@ -17,9 +17,9 @@ const anOrders = Array.from({ length: 21 }, (_, i) => order(`AN-${i + 1}`, 10_00
 anOrders[1].status = 'CANCELLED';
 const haOrders = [order('HA-1', 85_000)];
 
-// An has 21 history rows. One sale was cancelled, and AN-1 was refunded 4,000 of its 10,000.
+// An has 21 history rows. The purchase summary includes only the 20 completed orders.
 const histories = [
-  { orders: anOrders, summary: { orderCount: 20, totalSpent: 196_000, lastPurchaseAt: purchasedAt } },
+  { orders: anOrders, summary: { orderCount: 20, totalSpent: 200_000, lastPurchaseAt: purchasedAt } },
   { orders: haOrders, summary: { orderCount: 1, totalSpent: 85_000, lastPurchaseAt: purchasedAt } },
 ];
 
@@ -54,7 +54,7 @@ for (const role of ['OWNER', 'STAFF'] as const) {
     await page.getByRole('button', { name: 'Lịch sử mua của Anh An' }).click();
     const an = page.getByRole('dialog', { name: 'Lịch sử mua · Anh An' });
     await expect(an.getByRole('cell', { name: /Số đơn/ })).toHaveText(/Số đơn\s*20$/);
-    await expect(an.getByRole('cell', { name: /Tổng chi tiêu/ })).toContainText('196.000');
+    await expect(an.getByRole('cell', { name: /Tổng chi tiêu/ })).toContainText('200.000');
     await expect(an.getByRole('row', { name: /AN-1\s/ })).toContainText(/Hoàn tất.*10\.000.*Lan/);
     await expect(an.getByRole('row', { name: /AN-2\s/ })).toContainText('Đã hủy');
     await expect(an.getByRole('cell', { name: 'AN-21', exact: true })).toHaveCount(0);

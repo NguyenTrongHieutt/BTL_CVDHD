@@ -177,6 +177,7 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/inventory/stocktakes", U, F, A),
                 row("PUT", "/api/v1/inventory/stock/{id}/min-quantity", U, F, A),
                 // reporting: chỉ Chủ cửa hàng
+                row("GET", "/api/v1/reporting/dashboard", U, F, A),
                 row("GET", "/api/v1/reporting/q/{id}", U, F, A),
                 // Chỉ dịch vụ AI, bằng X-Service-Key: token người dùng không đủ (xem serviceKey…)
                 row("GET", "/internal/catalog/product-changes", U, F, F),

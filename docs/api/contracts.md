@@ -175,6 +175,8 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 
 ### 3.5 reporting (Lân) — GĐ1–GĐ2
 
+`GET /api/v1/reporting/dashboard` (BC-01), chỉ Chủ cửa hàng, trả `{date, today: {revenue, orderCount}, top5Last7Days: [{productId, name, quantity, revenue}]}`. `date` là hôm nay theo giờ Việt Nam. Doanh thu tính đơn sau giảm giá, bỏ đơn hủy và trừ tiền hoàn theo ngày trả. Xếp hạng gộp biến thể theo sản phẩm, tính số bán ròng trong 7 ngày gồm hôm nay và lấy tối đa 5 sản phẩm. Màn tổng quan lấy cảnh báo tồn thấp qua `/api/v1/inventory/low-stock`.
+
 `GET /api/v1/reporting/q/{Qn}` với `Qn` từ `Q1` đến `Q9` (enum `QueryId`), chỉ Chủ cửa hàng. Tham số của từng Qn theo PRD mục 4.6.1 và JSON schema trong `ai-service/app/qa/tools.py` (hai nơi phải khớp; golden test kiểm). Phản hồi dùng chung một khung:
 
 ```json

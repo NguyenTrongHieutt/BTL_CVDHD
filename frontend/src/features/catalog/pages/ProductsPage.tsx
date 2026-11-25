@@ -143,6 +143,7 @@ const columns: TableColumnsType<Product> = [
     dataIndex: 'createdAt',
     key: 'createdAt',
     width: 100,
+    className: 'product-created-at',
     sorter: true,
     render: (createdAt: string) => createdDateFormatter.format(new Date(createdAt)),
   },

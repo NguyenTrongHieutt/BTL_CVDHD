@@ -447,6 +447,14 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.products-table:not(.record-table) .ant-table-cell {
+  padding-inline: 10px;
+}
+
+.products-table .product-created-at {
+  white-space: nowrap;
+}
+
 [aria-labelledby="dashboard-today"] .money-text {
   font-size: inherit;
 }

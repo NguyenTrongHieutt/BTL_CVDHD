@@ -25,6 +25,16 @@ public interface VariantLookup {
      */
     List<SellableVariant> getForSale(Collection<UUID> variantIds);
 
+    /**
+     * Hàng còn bán của các ID Sản phẩm từ tìm kiếm AI. Giữ thứ tự Sản phẩm theo lần xuất hiện đầu tiên; mỗi
+     * Sản phẩm có Biến thể mặc định trước, rồi theo ngày tạo và ID. Bỏ qua ID null, lạ, khác Cửa hàng và hàng
+     * đã ngừng hoặc xóa mềm. Phân trang trên các dòng Biến thể, total là tổng số Biến thể còn bán.
+     * Danh sách null hoặc rỗng trả trang rỗng; page, size chuẩn hóa như searchForSale.
+     *
+     * @throws IllegalStateException không có ngữ cảnh Cửa hàng, kể cả khi productIds rỗng
+     */
+    PageResponse<SellableVariant> getForSaleByProductIds(Collection<UUID> productIds, int page, int size);
+
     /** Biến thể chưa xóa mềm khớp bộ lọc của màn Tồn kho. */
     List<SellableVariant> findForInventory(String query, UUID categoryId, boolean includeInactive);
 

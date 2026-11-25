@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Input, Pagination, Space, Table, Tag } from 'antd';
+import { Button, Input, Pagination, Radio, Space, Table, Tag, Typography } from 'antd';
+import { searchSemanticProductIds } from '../api/aiSearch';
 import { api } from '../api/client';
 import type { PageResponse } from '../api/client';
 import type { SellableItem } from '../types/sales';
@@ -30,35 +31,63 @@ interface SellableResponse {
 const pageSize = 20;
 
 export function ProductPicker({
-  onPick, allowOutOfStock, autoFocus, disabled,
+  onPick, allowOutOfStock, semantic, autoFocus, disabled,
   placeholder = 'Tìm theo tên, SKU hoặc mã vạch',
 }: ProductPickerProps) {
   const [q, setQuery] = useState('');
   const [page, setPage] = useState(0);
-  const products = useQuery({
-    queryKey: ['sales', 'sellable', { q, page, size: pageSize }],
-    queryFn: ({ signal }) => api.get<PageResponse<SellableResponse>>('/api/v1/sales/sellable', {
-      signal, query: { q, page, size: pageSize },
-    }),
-    enabled: Boolean(q) && !disabled,
+  const [byDescription, setByDescription] = useState(false);
+  const useAi = Boolean(semantic && byDescription);
+  const suggested = useQuery({
+    queryKey: ['sales', 'semantic-products', q],
+    queryFn: ({ signal }) => searchSemanticProductIds(q, { signal }),
+    enabled: useAi && Boolean(q) && !disabled,
+    retry: false,
   });
+  const ids = useAi && !suggested.isError ? suggested.data : undefined;
+  const products = useQuery({
+    queryKey: ['sales', 'sellable', { q, page, size: pageSize, ids }],
+    queryFn: ({ signal }) => {
+      if (ids?.length === 0) return { items: [], total: 0, page, size: pageSize };
+      return api.get<PageResponse<SellableResponse>>('/api/v1/sales/sellable', {
+        signal, query: { ...(ids ? { ids } : { q }), page, size: pageSize },
+      });
+    },
+    enabled: Boolean(q) && !disabled && (!useAi || suggested.isSuccess || suggested.isError),
+  });
+  const aiLoading = useAi && Boolean(q) && suggested.isPending && !disabled;
 
   return (
     <Space orientation="vertical" style={{ width: '100%' }}>
+      {semantic && (
+        <Radio.Group aria-label="Cách tìm sản phẩm" disabled={disabled} value={byDescription}
+          onChange={(event) => { setPage(0); setByDescription(event.target.value === true); }}
+          options={[{ label: 'Tên hoặc mã hàng', value: false }, { label: 'Theo mô tả (AI)', value: true }]} />
+      )}
       <Input.Search
         aria-label="Tìm hàng"
         allowClear
         autoFocus={autoFocus}
         disabled={disabled}
-        placeholder={placeholder}
+        placeholder={useAi ? 'Ví dụ: đồ uống ít đường' : placeholder}
         enterButton="Tìm"
         onSearch={(value) => {
+          const next = value.trim();
+          if (next && next === q && page === 0) {
+            if (useAi) void suggested.refetch();
+            else void products.refetch();
+            return;
+          }
           setPage(0);
-          setQuery(value.trim());
+          setQuery(next);
         }}
       />
+      {useAi && q && suggested.isError && (
+        <Typography.Text role="status">AI đang gián đoạn. Đang dùng tìm kiếm theo tên hoặc mã hàng.</Typography.Text>
+      )}
+      {aiLoading && <Typography.Text role="status">Đang tìm theo mô tả…</Typography.Text>}
       {q && products.isError && <ErrorAlert error={products.error} />}
-      {q && !products.isError && (
+      {q && !products.isError && !aiLoading && (
         <Table<SellableResponse>
           rowKey="variantId"
           size="small"

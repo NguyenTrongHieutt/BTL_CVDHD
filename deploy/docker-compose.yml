@@ -57,7 +57,7 @@ services:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
       BACKEND_URL: http://backend:8080
-      SYNC_ENABLED: ${AI_SYNC_ENABLED:-false}
+      SYNC_ENABLED: ${AI_SYNC_ENABLED:-true}
     depends_on:
       db:
         condition: service_healthy

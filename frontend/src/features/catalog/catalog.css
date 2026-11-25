@@ -1,0 +1,45 @@
+.catalog-page,
+.stock-ledger-product-filter,
+.product-filter-bar > .filter-field {
+  min-width: 0;
+}
+
+.stock-ledger-product-filter {
+  max-width: 100%;
+}
+
+.stock-ledger-dates {
+  width: min(100%, 320px);
+  min-width: 0;
+}
+
+.stock-ledger-dates .ant-picker-input {
+  min-width: 0;
+}
+
+@media (max-width: 767px) {
+  .catalog-page :is(.ant-input-affix-wrapper, .ant-select, .ant-picker),
+  .catalog-dialog :is(.ant-input, .ant-input-affix-wrapper, .ant-select, .ant-btn) {
+    min-height: 44px;
+  }
+
+  .catalog-dialog input.ant-input {
+    font-size: 16px;
+  }
+
+  .catalog-dialog .ant-modal-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+
+  .catalog-dialog .ant-modal-footer .ant-btn + .ant-btn {
+    margin-inline-start: 0;
+  }
+
+  .catalog-page .price-range-fields > .ant-input-affix-wrapper {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+}

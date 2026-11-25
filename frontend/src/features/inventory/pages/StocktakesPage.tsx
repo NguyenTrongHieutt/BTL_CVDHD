@@ -1,9 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Input, InputNumber, Space, Table, Tag, Typography } from 'antd';
+import { Alert, Button, Card, Input, InputNumber, Space, Tag, Typography } from 'antd';
 import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
-import { ErrorAlert, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert, RecordTable, useDocumentTitle } from '../../../shared/components';
 import type { Uuid } from '../../../shared/types/common';
 
 const MAX_QUANTITY = 2_147_483_647;
@@ -84,10 +84,17 @@ export function StocktakesPage() {
   });
 
   const locked = pending !== null;
-  const canSubmit = lines.length > 0 && lines.every(line =>
+  const countsReady = lines.every(line =>
     line.countedQuantity !== null && Number.isInteger(line.countedQuantity) &&
-    line.countedQuantity >= 0 && line.countedQuantity <= MAX_QUANTITY &&
-    (line.countedQuantity === line.systemQuantity || line.reason.trim().length > 0));
+    line.countedQuantity >= 0 && line.countedQuantity <= MAX_QUANTITY);
+  const reasonsReady = lines.every(line => line.countedQuantity === line.systemQuantity || line.reason.trim().length > 0);
+  const canSubmit = lines.length > 0 && countsReady && reasonsReady;
+  let submitHint = '';
+  if (locked && save.isError) submitHint = 'Gửi lại cùng phiếu sau khi kết nối ổn định để tránh ghi nhận hai lần.';
+  else if (!locked && lines.length > 0 && !canSubmit) {
+    submitHint = countsReady ? 'Nhập lý do cho từng dòng có chênh lệch trước khi lưu.'
+      : 'Nhập số đếm thực tế cho tất cả các dòng trước khi lưu.';
+  }
 
   function add(stock: StockCandidate) {
     setLines(current => current.some(line => line.variantId === stock.variantId) ? current : [
@@ -128,33 +135,37 @@ export function StocktakesPage() {
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-      <Typography.Title level={2} style={{ margin: 0 }}>Kiểm kho</Typography.Title>
+      <Typography.Title level={1} style={{ margin: 0 }}>Kiểm kho</Typography.Title>
       {save.data && (
         <Alert type="success" showIcon title="Đã lưu phiếu kiểm kho"
           description={save.data.lines.filter(line => line.delta !== 0).length + ' dòng đã điều chỉnh tồn.'} />
       )}
       <Card title="Chọn hàng cần kiểm">
-        <Input.Search
-          aria-label="Tìm hàng cần kiểm"
-          placeholder="Tên sản phẩm, SKU hoặc mã vạch"
-          enterButton="Tìm hàng"
-          allowClear
-          disabled={locked}
-          style={{ maxWidth: 460, marginBottom: search.q ? 12 : 0 }}
-          onSearch={value => {
-            const q = value.trim();
-            if (q && q === search.q && search.page === 0) void stocks.refetch();
-            else setSearch(current => ({ ...current, q, page: 0 }));
-          }}
-        />
-        {search.q && stocks.isError && <ErrorAlert error={stocks.error} />}
-        {search.q && (
-          <Table<StockCandidate>
+        <Space orientation="vertical" size={4} style={{ display: 'flex', maxWidth: 460, marginBottom: search.q ? 12 : 0 }}>
+          <label htmlFor="stocktake-search">Tìm hàng cần kiểm</label>
+          <Input.Search
+            id="stocktake-search"
+            placeholder="Tên sản phẩm, SKU hoặc mã vạch"
+            enterButton="Tìm hàng"
+            allowClear
+            disabled={locked}
+            onSearch={value => {
+              const q = value.trim();
+              if (q && q === search.q && search.page === 0) void stocks.refetch();
+              else setSearch(current => ({ ...current, q, page: 0 }));
+            }}
+          />
+        </Space>
+        {search.q && stocks.isError && <ErrorAlert error={stocks.error} retryLabel="Thử lại tìm hàng"
+          onRetry={() => void stocks.refetch()} retrying={stocks.isFetching} />}
+        {search.q && !stocks.isError && (
+          <RecordTable<StockCandidate>
+            compactColumns={{ title: 'name', status: 'status', actions: 'actions' }}
             rowKey="variantId"
             loading={stocks.isFetching}
             dataSource={stocks.data?.items ?? []}
             scroll={{ x: 'max-content' }}
-            locale={{ emptyText: 'Không tìm thấy hàng tồn kho.' }}
+            locale={{ emptyText: stocks.isPending ? 'Đang tìm hàng…' : 'Không tìm thấy hàng tồn kho.' }}
             pagination={{
               current: search.page + 1,
               pageSize: search.size,
@@ -163,13 +174,15 @@ export function StocktakesPage() {
               onChange: page => setSearch(current => ({ ...current, page: page - 1 })),
             }}
             columns={[
-              { title: 'Sản phẩm', render: (_, row) => [row.productName, row.variantName].filter(Boolean).join(' · ') },
+              { title: 'Sản phẩm', key: 'name', render: (_, row) => [row.productName, row.variantName].filter(Boolean).join(' · ') },
               { title: 'SKU', dataIndex: 'sku' },
               { title: 'Tồn hệ thống', dataIndex: 'quantity', align: 'right' },
-              { title: 'Trạng thái', render: (_, row) => row.isActive ? 'Đang kinh doanh' : <Tag>Ngừng kinh doanh</Tag> },
-              { title: 'Thao tác', render: (_, row) => {
+              { title: 'Trạng thái', key: 'status', render: (_, row) => row.isActive
+                ? <Tag color="success">Đang kinh doanh</Tag> : <Tag>Ngừng kinh doanh</Tag> },
+              { title: 'Thao tác', key: 'actions', render: (_, row) => {
                 const added = lines.some(line => line.variantId === row.variantId);
-                return <Button disabled={added || locked || stocks.isFetching} onClick={() => add(row)}>
+                return <Button aria-label={`${added ? 'Đã thêm' : 'Thêm'} ${row.productName} · ${row.sku}`}
+                  disabled={added || locked || stocks.isFetching} onClick={() => add(row)}>
                   {added ? 'Đã thêm' : 'Thêm'}
                 </Button>;
               } },
@@ -182,7 +195,8 @@ export function StocktakesPage() {
         <Space orientation="vertical" style={{ width: '100%' }}>
           <Typography.Text>Nhập số đếm thực tế, kể cả 0. Dòng có chênh lệch cần nhập lý do.</Typography.Text>
           {save.isError && <ErrorAlert error={save.error} />}
-          <Table<DraftLine>
+          <RecordTable<DraftLine>
+            compactColumns={{ title: 'label', actions: 'actions' }}
             rowKey="variantId"
             dataSource={lines}
             pagination={false}
@@ -191,9 +205,11 @@ export function StocktakesPage() {
             columns={[
               { title: 'Hàng kiểm', dataIndex: 'label' },
               { title: 'Tồn hệ thống', dataIndex: 'systemQuantity', align: 'right' },
-              { title: 'Số đếm thực tế', render: (_, line, index) => (
+              { title: 'Số đếm thực tế', key: 'countedQuantity', render: (_, line, index) => (
                 <InputNumber
                   aria-label={'Số đếm thực tế dòng ' + (index + 1)}
+                  aria-required="true"
+                  inputMode="numeric"
                   min={0}
                   max={MAX_QUANTITY}
                   precision={0}
@@ -202,14 +218,15 @@ export function StocktakesPage() {
                   onChange={countedQuantity => edit(line.variantId, { countedQuantity })}
                 />
               ) },
-              { title: 'Chênh lệch', align: 'right', render: (_, line) => {
+              { title: 'Chênh lệch', key: 'delta', align: 'right', render: (_, line) => {
                 if (line.countedQuantity === null) return '—';
                 const delta = line.countedQuantity - line.systemQuantity;
                 return delta > 0 ? '+' + delta : delta;
               } },
-              { title: 'Lý do chênh lệch', render: (_, line, index) => (
+              { title: 'Lý do chênh lệch', key: 'reason', render: (_, line, index) => (
                 <Input
                   aria-label={'Lý do chênh lệch dòng ' + (index + 1)}
+                  aria-required={line.countedQuantity !== null && line.countedQuantity !== line.systemQuantity}
                   placeholder="Bắt buộc nếu lệch"
                   maxLength={200}
                   value={line.reason}
@@ -217,24 +234,23 @@ export function StocktakesPage() {
                   onChange={event => edit(line.variantId, { reason: event.target.value })}
                 />
               ) },
-              { title: 'Thao tác', render: (_, line) => (
-                <Button danger disabled={locked} onClick={() =>
+              { title: 'Thao tác', key: 'actions', render: (_, line, index) => (
+                <Button danger aria-label={`Bỏ dòng ${index + 1}`} disabled={locked} onClick={() =>
                   setLines(current => current.filter(row => row.variantId !== line.variantId))}>Bỏ dòng</Button>
               ) },
             ]}
           />
-          <Input
-            aria-label="Ghi chú phiếu kiểm kho"
-            placeholder="Ghi chú phiếu kiểm kho (nếu có)"
-            maxLength={200}
-            value={note}
-            disabled={locked}
-            onChange={event => setNote(event.target.value)}
-          />
+          <Space orientation="vertical" size={4} style={{ display: 'flex' }}>
+            <label htmlFor="stocktake-note">Ghi chú phiếu kiểm kho (không bắt buộc)</label>
+            <Input id="stocktake-note" maxLength={200} value={note} disabled={locked}
+              onChange={event => setNote(event.target.value)} />
+          </Space>
+          {submitHint && <Typography.Text id="stocktake-submit-hint">{submitHint}</Typography.Text>}
           <Button
             type="primary"
             loading={save.isPending}
             disabled={!pending && !canSubmit}
+            aria-describedby={submitHint ? 'stocktake-submit-hint' : undefined}
             onClick={submit}
           >
             {pending && save.isError ? 'Thử lại lưu phiếu' : 'Lưu phiếu kiểm kho'}

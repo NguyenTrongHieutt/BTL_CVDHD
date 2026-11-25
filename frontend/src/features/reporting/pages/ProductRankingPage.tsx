@@ -8,7 +8,6 @@ export function ProductRankingPage() {
       frs={['FR-32 (BC-04)']}
       phase="GĐ1"
       owner="Lân"
-      description="Xếp hạng theo số lượng bán và theo doanh thu trong khoảng thời gian được chọn (Q4)."
     />
   );
 }

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { App as AntdApp } from 'antd';
+import { App as AntdApp, ConfigProvider } from 'antd';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -245,11 +245,13 @@ function renderPage() {
   const router = createMemoryRouter([{ path: PAGE_PATH, Component: ProductsPage }], { initialEntries: [PAGE_PATH] });
   render(
     <QueryClientProvider client={queryClient}>
-      <AntdApp>
-        <CurrentUserContext value={me()}>
-          <RouterProvider router={router} />
-        </CurrentUserContext>
-      </AntdApp>
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <CurrentUserContext value={me()}>
+            <RouterProvider router={router} />
+          </CurrentUserContext>
+        </AntdApp>
+      </ConfigProvider>
     </QueryClientProvider>,
   );
   return { queryClient };

@@ -7,7 +7,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.time.Clock;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import jakarta.servlet.http.Cookie;
@@ -39,6 +41,7 @@ class OrderHistoryIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
+    @Autowired Clock clock;
 
     private final String phone = "09" + ThreadLocalRandom.current().nextInt(10_000_000, 90_000_000);
     private final UUID customerA = UUID.randomUUID();
@@ -253,9 +256,9 @@ class OrderHistoryIntegrationTest {
             jdbc.update("UPDATE app.sales_order SET created_by = ? WHERE id = ?",
                     ownerA.userId(), returnedSale.orderId());
             jdbc.update("""
-                    INSERT INTO app.sales_return (store_id, order_id, refund_amount, refund_method, created_by)
-                    VALUES (?, ?, 1000, 'CASH', ?)
-                    """, staffA.storeId(), returnedSale.orderId(), staffA.userId());
+                    INSERT INTO app.sales_return (store_id, order_id, refund_amount, refund_method, created_by, created_at)
+                    VALUES (?, ?, 1000, 'CASH', ?, ?)
+                    """, staffA.storeId(), returnedSale.orderId(), staffA.userId(), clock.instant().atOffset(ZoneOffset.UTC));
             return null;
         }));
 

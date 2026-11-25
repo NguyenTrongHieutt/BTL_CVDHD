@@ -1,12 +1,15 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
+import type { Ref } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Input, Pagination, Radio, Space, Table, Tag, Typography } from 'antd';
+import { Button, Input, Pagination, Radio, Space, Tag, Typography } from 'antd';
+import type { InputRef } from 'antd';
 import { searchSemanticProductIds } from '../api/aiSearch';
 import { api } from '../api/client';
 import type { PageResponse } from '../api/client';
 import type { SellableItem } from '../types/sales';
 import { ErrorAlert } from './ErrorAlert';
 import { MoneyText } from './MoneyText';
+import { RecordTable } from './RecordTable';
 
 export interface ProductPickerProps {
   onPick: (item: SellableItem) => void;
@@ -15,6 +18,7 @@ export interface ProductPickerProps {
   autoFocus?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  searchRef?: Ref<InputRef>;
 }
 
 interface SellableResponse {
@@ -30,10 +34,15 @@ interface SellableResponse {
 
 const pageSize = 20;
 
+function itemLabel(item: SellableResponse) {
+  return [item.productName, item.variantName].filter(Boolean).join(' · ');
+}
+
 export function ProductPicker({
-  onPick, allowOutOfStock, semantic, autoFocus, disabled,
+  onPick, allowOutOfStock, semantic, autoFocus, disabled, searchRef,
   placeholder = 'Tìm theo tên, SKU hoặc mã vạch',
 }: ProductPickerProps) {
+  const inputId = useId();
   const [q, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const [byDescription, setByDescription] = useState(false);
@@ -58,37 +67,48 @@ export function ProductPicker({
   const aiLoading = useAi && Boolean(q) && suggested.isPending && !disabled;
 
   return (
-    <Space orientation="vertical" style={{ width: '100%' }}>
+    <Space className="product-picker" orientation="vertical" style={{ width: '100%' }}>
       {semantic && (
         <Radio.Group aria-label="Cách tìm sản phẩm" disabled={disabled} value={byDescription}
-          onChange={(event) => { setPage(0); setByDescription(event.target.value === true); }}
+          onChange={(event) => {
+            setPage(0);
+            setByDescription(event.target.value === true);
+          }}
           options={[{ label: 'Tên hoặc mã hàng', value: false }, { label: 'Theo mô tả (AI)', value: true }]} />
       )}
-      <Input.Search
-        aria-label="Tìm hàng"
-        allowClear
-        autoFocus={autoFocus}
-        disabled={disabled}
-        placeholder={useAi ? 'Ví dụ: đồ uống ít đường' : placeholder}
-        enterButton="Tìm"
-        onSearch={(value) => {
-          const next = value.trim();
-          if (next && next === q && page === 0) {
-            if (useAi) void suggested.refetch();
-            else void products.refetch();
-            return;
-          }
-          setPage(0);
-          setQuery(next);
-        }}
-      />
+      <div>
+        <label className="filter-field-label" htmlFor={inputId}>Tìm hàng</label>
+        <Input.Search
+          ref={searchRef}
+          id={inputId}
+          allowClear
+          autoFocus={autoFocus}
+          disabled={disabled}
+          placeholder={useAi ? 'Ví dụ: đồ uống ít đường' : placeholder}
+          enterButton="Tìm"
+          onSearch={(value) => {
+            const next = value.trim();
+            if (next && next === q && page === 0) {
+              if (useAi) void suggested.refetch();
+              else void products.refetch();
+              return;
+            }
+            setPage(0);
+            setQuery(next);
+          }}
+        />
+      </div>
       {useAi && q && suggested.isError && (
         <Typography.Text role="status">AI đang gián đoạn. Đang dùng tìm kiếm theo tên hoặc mã hàng.</Typography.Text>
       )}
       {aiLoading && <Typography.Text role="status">Đang tìm theo mô tả…</Typography.Text>}
-      {q && products.isError && <ErrorAlert error={products.error} />}
-      {q && !products.isError && !aiLoading && (
-        <Table<SellableResponse>
+      {q && !aiLoading && products.isError && (
+        <ErrorAlert error={products.error} onRetry={() => void products.refetch()}
+          retrying={products.isFetching} retryLabel="Thử tìm lại" />
+      )}
+      {q && !aiLoading && !products.isError && (
+        <RecordTable<SellableResponse>
+          compactColumns={{ title: 'productName', actions: 'actions' }}
           rowKey="variantId"
           size="small"
           loading={products.isFetching}
@@ -97,13 +117,14 @@ export function ProductPicker({
           scroll={{ x: true }}
           locale={{ emptyText: products.isFetching ? 'Đang tìm…' : 'Không tìm thấy sản phẩm.' }}
           columns={[
-            { title: 'Sản phẩm', render: (_, row) => [row.productName, row.variantName].filter(Boolean).join(' · ') },
-            { title: 'Giá bán', render: (_, row) => <MoneyText value={row.salePrice} /> },
-            { title: 'Tồn', render: (_, row) => (
-              <Space>{row.quantity}{row.belowMin && <Tag color="warning">Tồn thấp</Tag>}</Space>
+            { title: 'Sản phẩm', key: 'productName', render: (_, row) => itemLabel(row) },
+            { title: 'Giá bán', key: 'salePrice', render: (_, row) => <MoneyText value={row.salePrice} /> },
+            { title: 'Tồn hiện tại', key: 'quantity', render: (_, row) => (
+              <Space wrap>{row.quantity}{row.belowMin && <Tag color="warning">Tồn thấp</Tag>}</Space>
             ) },
-            { title: 'Thao tác', render: (_, row) => (
-              <Button disabled={disabled || (!allowOutOfStock && row.quantity <= 0)} onClick={() => onPick({
+            { title: 'Thao tác', key: 'actions', render: (_, row) => (
+              <Button aria-label={`Thêm ${itemLabel(row)}`} disabled={disabled || (!allowOutOfStock && row.quantity <= 0)}
+                onClick={() => onPick({
                 productId: row.productId,
                 variantId: row.variantId,
                 name: row.productName,
@@ -117,7 +138,7 @@ export function ProductPicker({
           ]}
         />
       )}
-      {q && products.data && products.data.total > pageSize && (
+      {q && !aiLoading && products.data && products.data.total > pageSize && (
         <Pagination current={page + 1} pageSize={pageSize} total={products.data.total}
           showSizeChanger={false} onChange={(value) => setPage(value - 1)} />
       )}

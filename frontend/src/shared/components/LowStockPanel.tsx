@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Space, Table } from 'antd';
+import { Card, Table, Typography } from 'antd';
 import { api } from '../api/client';
 import { ErrorAlert } from './ErrorAlert';
 import { lowStockQueryKey } from './lowStockQueryKey';
@@ -21,26 +21,24 @@ export function LowStockPanel() {
   return (
     <Card title="Cảnh báo tồn thấp">
       {stock.isError ? (
-        <Space orientation="vertical">
-          <ErrorAlert error={stock.error} />
-          <Button onClick={() => void stock.refetch()}>Thử lại</Button>
-        </Space>
+        <ErrorAlert error={stock.error} onRetry={() => void stock.refetch()} retrying={stock.isFetching} />
       ) : (
         <Table<LowStockItem>
           rowKey="variantId"
           dataSource={stock.data ?? []}
           loading={stock.isPending}
           size="small"
-          scroll={{ x: 'max-content' }}
+          showHeader={false}
           pagination={stock.data && stock.data.length > 5 ? { pageSize: 5, showSizeChanger: false } : false}
           locale={{ emptyText: stock.isPending ? 'Đang tải…' : 'Không có hàng dưới ngưỡng.' }}
-          columns={[
-            { title: 'Sản phẩm', render: (_, item) => item.variantName
-              ? `${item.productName} · ${item.variantName}`
-              : item.productName },
-            { title: 'Tồn hiện tại', dataIndex: 'quantity', align: 'right' },
-            { title: 'Ngưỡng tối thiểu', dataIndex: 'minQuantity', align: 'right' },
-          ]}
+          columns={[{ key: 'stock', render: (_, item) => (
+            <div className="low-stock-item">
+              <Typography.Text strong>{[item.productName, item.variantName].filter(Boolean).join(' · ')}</Typography.Text>
+              <Typography.Text type="secondary">
+                Tồn <strong>{item.quantity.toLocaleString('vi-VN')}</strong> · Ngưỡng {item.minQuantity.toLocaleString('vi-VN')}
+              </Typography.Text>
+            </div>
+          ) }]}
         />
       )}
     </Card>

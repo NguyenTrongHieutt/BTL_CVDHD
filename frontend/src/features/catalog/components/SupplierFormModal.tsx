@@ -21,6 +21,7 @@ import {
   useUpdateSupplier,
 } from '../api/suppliers';
 import { hasInvalidChars, normalizeText, textLength } from './textUtils';
+import { useCatalogDialog } from './useCatalogDialog';
 
 const NAME_MAX = 200;
 const CODE_MAX = 30;
@@ -119,6 +120,7 @@ export interface SupplierFormModalProps {
 
 export function SupplierFormModal({ editing, onClose, onCreated }: SupplierFormModalProps) {
   const [form] = Form.useForm<SupplierFormValues>();
+  const { initialInput, close, modalProps } = useCatalogDialog(onClose);
   const { message } = App.useApp();
   const create = useCreateSupplier();
   const update = useUpdateSupplier();
@@ -144,14 +146,14 @@ export function SupplierFormModal({ editing, onClose, onCreated }: SupplierFormM
         onSuccess: (supplier) => {
           void message.success(`Đã thêm Nhà cung cấp "${supplier.name}"`);
           onCreated(supplier);
-          onClose();
+          close();
         },
         onError: showErrors,
       });
       return;
     }
     if (isUnchanged(editing.supplier, request)) {
-      onClose();
+      close();
       return;
     }
     update.mutate(
@@ -159,7 +161,7 @@ export function SupplierFormModal({ editing, onClose, onCreated }: SupplierFormM
       {
         onSuccess: (supplier) => {
           void message.success(`Đã lưu Nhà cung cấp "${supplier.name}"`);
-          onClose();
+          close();
         },
         onError: showErrors,
       },
@@ -179,13 +181,13 @@ export function SupplierFormModal({ editing, onClose, onCreated }: SupplierFormM
 
   return (
     <Modal
-      open
+      {...modalProps}
       title={editing.mode === 'create' ? 'Thêm Nhà cung cấp' : 'Sửa Nhà cung cấp'}
       okText={editing.mode === 'create' ? 'Thêm' : 'Lưu'}
       cancelText="Hủy"
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!pending) onClose();
+        if (!pending) close();
       }}
       confirmLoading={pending}
       cancelButtonProps={{ disabled: pending }}
@@ -197,17 +199,18 @@ export function SupplierFormModal({ editing, onClose, onCreated }: SupplierFormM
       <Form<SupplierFormValues>
         form={form}
         layout="vertical"
-        requiredMark={false}
         onFinish={onFinish}
+        scrollToFirstError={{ focus: true }}
         disabled={pending}
         initialValues={initialValues}
       >
         <Form.Item
           name="name"
           label="Tên Nhà cung cấp"
+          required
           rules={[nameRequired, ...textRules('Tên Nhà cung cấp', NAME_MAX)]}
         >
-          <Input autoFocus autoComplete="off" />
+          <Input ref={initialInput} autoComplete="off" />
         </Form.Item>
         <Form.Item
           name="code"
@@ -218,7 +221,7 @@ export function SupplierFormModal({ editing, onClose, onCreated }: SupplierFormM
           <Input placeholder="Ví dụ NCC-01" autoComplete="off" />
         </Form.Item>
         <Form.Item name="phone" label="Số điện thoại" rules={[...textRules('Số điện thoại', PHONE_MAX), phoneChars]}>
-          <Input placeholder="Không bắt buộc" inputMode="tel" autoComplete="off" />
+          <Input placeholder="Không bắt buộc" type="tel" autoComplete="off" />
         </Form.Item>
         <Form.Item name="address" label="Địa chỉ" rules={textRules('Địa chỉ', ADDRESS_MAX)}>
           <Input placeholder="Không bắt buộc" autoComplete="off" />

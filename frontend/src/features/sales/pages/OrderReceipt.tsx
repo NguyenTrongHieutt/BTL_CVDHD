@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Button, Space, Spin } from 'antd';
+import { Button, Space, Typography } from 'antd';
 import { api } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
 import { formatMoney } from '../../../shared/components/money';
@@ -24,23 +24,29 @@ const receiptDate = new Intl.DateTimeFormat('vi-VN', {
   timeZone: 'Asia/Ho_Chi_Minh',
 });
 
-export function OrderReceipt({ orderId, onBack }: { orderId: Uuid; onBack: () => void }) {
+export function OrderReceipt({ orderId, onBack, backLabel = 'Quay lại bán hàng' }: {
+  orderId: Uuid;
+  onBack: () => void;
+  backLabel?: string;
+}) {
   const receipt = useQuery({
     queryKey: ['sales', 'receipt', orderId],
-    queryFn: ({ signal }) => api.get<Receipt>('/api/v1/sales/orders/' + orderId + '/receipt', { signal }),
+    queryFn: ({ signal }) => api.get<Receipt>('/api/v1/sales/orders/' + encodeURIComponent(orderId) + '/receipt', { signal }),
     retry: false,
   });
   const data = receipt.data;
 
   return (
     <>
-      <Space className="no-print" style={{ marginBottom: 16 }}>
-        <Button onClick={onBack}>Quay lại bán hàng</Button>
+      <Space wrap className="no-print" style={{ marginBottom: 16 }}>
+        <Button autoFocus onClick={onBack}>{backLabel}</Button>
         {data && <Button type="primary" onClick={() => window.print()}>In hóa đơn</Button>}
-        {receipt.isError && <Button onClick={() => void receipt.refetch()} loading={receipt.isFetching}>Thử lại</Button>}
       </Space>
-      {receipt.isPending && <div className="no-print"><Spin /></div>}
-      {receipt.isError && <div className="no-print"><ErrorAlert error={receipt.error} /></div>}
+      {receipt.isPending && <div className="no-print"><Typography.Text role="status">Đang tải hóa đơn…</Typography.Text></div>}
+      {receipt.isError && <div className="no-print">
+        <ErrorAlert error={receipt.error} retryLabel="Tải lại hóa đơn"
+          onRetry={() => void receipt.refetch()} retrying={receipt.isFetching} />
+      </div>}
       {data && (
         <section className="print-receipt" aria-label="Hóa đơn bán hàng">
           <header>

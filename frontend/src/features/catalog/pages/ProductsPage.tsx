@@ -76,85 +76,78 @@ function PriceCell({ product }: { product: Product }) {
   return <MoneyText value={product.hasVariants && range ? range.min : defaultVariant(product)?.salePrice} />;
 }
 
-/** Chiều sắp ban đầu của cột `key` khi bảng mở với `sort` (`<field>,asc|desc`), để cột hiện đúng mũi tên. */
-function sortOrderOf(sort: string | undefined, key: string): 'ascend' | 'descend' | null {
-  if (sort === `${key},asc`) return 'ascend';
-  if (sort === `${key},desc`) return 'descend';
-  return null;
-}
-
 /**
  * Cột của bảng. Tên, giá bán, ngày tạo sắp được (phía server, `sort=name|salePrice|createdAt,asc|desc`); bỏ sắp thì
  * về mặc định của backend (theo tên không dấu).
  */
-function buildColumns(initialSort: string | undefined): TableColumnsType<Product> {
-  const sortable = (key: string) => ({ sorter: true, defaultSortOrder: sortOrderOf(initialSort, key) });
-  return [
-    {
-      title: 'Tên Sản phẩm',
-      dataIndex: 'name',
-      key: 'name',
-      ...sortable('name'),
-      // Ảnh thu nhỏ (SP-01b) đứng trước tên; ô vẫn chỉ có chữ là tên Sản phẩm
-      render: (name: string, product) => (
-        <Flex align="center" gap={12}>
-          <ProductThumbnail src={product.imageUrl} />
-          <span className="product-name-cell"
-            data-status={product.status === 'ACTIVE' ? 'Đang bán' : 'Ngừng kinh doanh'}
-            aria-label={`${name}. ${product.status === 'ACTIVE' ? 'Đang bán' : 'Ngừng kinh doanh'}`}>
-            {name}
-          </span>
-        </Flex>
+const columns: TableColumnsType<Product> = [
+  {
+    title: 'Tên Sản phẩm',
+    dataIndex: 'name',
+    key: 'name',
+    sorter: true,
+    // Ảnh thu nhỏ (SP-01b) đứng trước tên; ô vẫn chỉ có chữ là tên Sản phẩm
+    render: (name: string, product) => (
+      <Flex align="center" gap={12}>
+        <ProductThumbnail src={product.imageUrl} />
+        <span>{name}</span>
+      </Flex>
+    ),
+  },
+  {
+    title: 'Danh mục',
+    dataIndex: 'categoryName',
+    key: 'categoryName',
+    width: 110,
+    render: (name: string | null) => name ?? EMPTY,
+  },
+  {
+    title: 'SKU',
+    key: 'sku',
+    width: 90,
+    // Sản phẩm nhiều Biến thể (SP-07): mỗi Biến thể một SKU, nên hiện số Biến thể đang bán
+    render: (_, product) =>
+      product.hasVariants ? (
+        <Typography.Text type="secondary">
+          {product.variants.filter((v) => v.status === 'ACTIVE').length} Biến thể
+        </Typography.Text>
+      ) : (
+        (defaultVariant(product)?.sku ?? EMPTY)
       ),
-    },
-    {
-      title: 'Danh mục',
-      dataIndex: 'categoryName',
-      key: 'categoryName',
-      render: (name: string | null) => name ?? EMPTY,
-    },
-    {
-      title: 'SKU',
-      key: 'sku',
-      // Sản phẩm nhiều Biến thể (SP-07): mỗi Biến thể một SKU, nên hiện số Biến thể đang bán
-      render: (_, product) =>
-        product.hasVariants ? (
-          <Typography.Text type="secondary">
-            {product.variants.filter((v) => v.status === 'ACTIVE').length} Biến thể
-          </Typography.Text>
-        ) : (
-          (defaultVariant(product)?.sku ?? EMPTY)
-        ),
-    },
-    {
-      title: 'Mã vạch',
-      key: 'barcode',
-      render: (_, product) => (product.hasVariants ? EMPTY : (defaultVariant(product)?.barcode ?? EMPTY)),
-    },
-    { title: 'Đơn vị tính', dataIndex: 'unit', key: 'unit' },
-    {
-      title: 'Giá bán',
-      key: 'salePrice',
-      align: 'right',
-      ...sortable('salePrice'),
-      render: (_, product) => <PriceCell product={product} />,
-    },
-    {
-      title: 'Trạng thái',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: Product['status']) =>
-        status === 'ACTIVE' ? <Tag color="green">Đang bán</Tag> : <Tag>Ngừng kinh doanh</Tag>,
-    },
-    {
-      title: 'Ngày tạo',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      ...sortable('createdAt'),
-      render: (createdAt: string) => createdDateFormatter.format(new Date(createdAt)),
-    },
-  ];
-}
+  },
+  {
+    title: 'Mã vạch',
+    key: 'barcode',
+    width: 112,
+    render: (_, product) => (product.hasVariants ? EMPTY : (defaultVariant(product)?.barcode ?? EMPTY)),
+  },
+  { title: 'Đơn vị tính', dataIndex: 'unit', key: 'unit', width: 76 },
+  {
+    title: 'Giá bán',
+    key: 'salePrice',
+    width: 117,
+    align: 'right',
+    sorter: true,
+    render: (_, product) => <PriceCell product={product} />,
+  },
+  {
+    title: 'Trạng thái',
+    dataIndex: 'status',
+    key: 'status',
+    width: 122,
+    render: (status: Product['status']) =>
+      status === 'ACTIVE' ? <Tag color="green">Đang bán</Tag> : <Tag>Ngừng kinh doanh</Tag>,
+  },
+  {
+    title: 'Ngày tạo',
+    dataIndex: 'createdAt',
+    key: 'createdAt',
+    width: 100,
+    className: 'product-created-at',
+    sorter: true,
+    render: (createdAt: string) => createdDateFormatter.format(new Date(createdAt)),
+  },
+];
 
 export function ProductsPage() {
   useDocumentTitle('Sản phẩm');
@@ -165,7 +158,6 @@ export function ProductsPage() {
   // Đổi key thì DataTable dựng lại từ trang đầu với thứ tự `initialSort` (sau khi thêm Sản phẩm).
   const [tableKey, setTableKey] = useState(0);
   const [initialSort, setInitialSort] = useState<string | undefined>(undefined);
-  const columns = useMemo(() => buildColumns(initialSort), [initialSort]);
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => productFiltersFromSearchParams(searchParams), [searchParams]);
   const filtered = hasProductFilters(filters);
@@ -205,23 +197,23 @@ export function ProductsPage() {
   const actionsColumn: TableColumnsType<Product>[number] = {
     title: 'Thao tác',
     key: 'actions',
+    width: 126,
     // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại; lịch sử kho
     // vẫn xem được
-    render: (_, product) => (
-      <>
-      <Flex className="desktop-product-actions" wrap align="center">
-        {/* Sản phẩm nhiều Biến thể: lịch sử kho theo từng Biến thể, ở phần Biến thể của form sửa (SP-07) */}
-        {product.hasVariants ? null : (
-          <Link
-            to={stockLedgerLink(product.id, defaultVariant(product)?.id)}
-            aria-label={`Lịch sử kho ${product.name}`}
-            style={{ padding: '0 7px', whiteSpace: 'nowrap' }}
-          >
-            Lịch sử kho
-          </Link>
-        )}
-        {product.status === 'ACTIVE' ? (
-          <>
+    render: (_, product) => {
+      // Sản phẩm nhiều Biến thể xem lịch sử theo từng Biến thể trong form sửa (SP-07).
+      const historyUrl = product.hasVariants ? null : stockLedgerLink(product.id, defaultVariant(product)?.id);
+      const historyLink = historyUrl ? (
+        <Link className="product-stock-history" to={historyUrl} aria-label={`Lịch sử kho ${product.name}`}>
+          Lịch sử<span> kho</span>
+        </Link>
+      ) : null;
+      if (product.status !== 'ACTIVE') return historyLink;
+
+      return (
+        <>
+          <Flex className="desktop-product-actions" wrap align="center">
+            {historyLink}
             <Button
               type="link"
               size="small"
@@ -240,37 +232,30 @@ export function ProductsPage() {
               loading={deactivate.isPending && deactivate.variables === product.id}
               onClick={() => void onDeactivate(product)}
             >
-              Ngừng kinh doanh
+              Ngừng bán
             </Button>
-          </>
-        ) : null}
-      </Flex>
-      {product.status === 'ACTIVE' ? (
-        <Dropdown menu={{ items: [
-          ...(!product.hasVariants ? [{
-            key: 'history',
-            label: <Link to={stockLedgerLink(product.id, defaultVariant(product)?.id)}>Xem lịch sử kho</Link>,
-          }] : []),
-          { key: 'edit', label: 'Chỉnh sửa', onClick: () => setEditing({ mode: 'edit', product }) },
-          { key: 'deactivate', label: 'Ngừng bán', danger: true,
-            onClick: () => void onDeactivate(product) },
-        ] }} trigger={['click']}>
-          <Button className="mobile-product-actions" icon={<MoreOutlined />}
-            aria-label={`Thao tác ${product.name}`} disabled={deactivate.isPending} />
-        </Dropdown>
-      ) : null}
-      {product.status !== 'ACTIVE' && !product.hasVariants ? (
-        <Link className="mobile-product-history" to={stockLedgerLink(product.id, defaultVariant(product)?.id)}
-          aria-label={`Lịch sử kho ${product.name}`}>Lịch sử</Link>
-      ) : null}
-      </>
-    ),
+          </Flex>
+          <Dropdown menu={{ items: [
+            ...(historyUrl ? [{
+              key: 'history',
+              label: <Link to={historyUrl}>Xem lịch sử kho</Link>,
+            }] : []),
+            { key: 'edit', label: 'Chỉnh sửa', onClick: () => setEditing({ mode: 'edit', product }) },
+            { key: 'deactivate', label: 'Ngừng bán', danger: true,
+              onClick: () => void onDeactivate(product) },
+          ] }} trigger={['click']}>
+            <Button className="mobile-product-actions" icon={<MoreOutlined />}
+              aria-label={`Thao tác ${product.name}`} disabled={deactivate.isPending} />
+          </Dropdown>
+        </>
+      );
+    },
   };
 
   return (
-    <div>
+    <div className="catalog-page">
       <Flex className="page-heading" justify="space-between" align="center" wrap gap={12}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
+        <Typography.Title level={1} style={{ margin: 0 }}>
           Sản phẩm
         </Typography.Title>
         {isOwner ? (
@@ -290,6 +275,16 @@ export function ProductsPage() {
         <ProductFilterBar value={filters} onChange={onFiltersChange} />
       </div>
       <DataTable<Product>
+        compactColumns={{ title: 'name', status: 'status', actions: 'actions' }}
+        compactSortOptions={[
+          { label: 'Mặc định', value: '' },
+          { label: 'Tên từ A đến Z', value: 'name,asc' },
+          { label: 'Tên từ Z đến A', value: 'name,desc' },
+          { label: 'Giá từ thấp đến cao', value: 'salePrice,asc' },
+          { label: 'Giá từ cao đến thấp', value: 'salePrice,desc' },
+          { label: 'Ngày tạo mới nhất', value: 'createdAt,desc' },
+          { label: 'Ngày tạo cũ nhất', value: 'createdAt,asc' },
+        ]}
         className="products-table"
         key={tableKey}
         rowKey="id"
@@ -297,7 +292,8 @@ export function ProductsPage() {
         fetchPage={(request, signal) => fetchProducts(request, filters, signal)}
         defaultSort={initialSort}
         columns={isOwner ? [...columns, actionsColumn] : columns}
-        scroll={{ x: 'max-content' }}
+        tableLayout="fixed"
+        scroll={{ x: isOwner ? 1020 : 900 }}
         locale={{
           emptyText: filtered ? (
             <Flex vertical align="center" gap={8}>

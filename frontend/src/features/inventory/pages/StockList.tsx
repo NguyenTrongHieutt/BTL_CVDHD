@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Card, Checkbox, Input, Select, Space, Table, Tag } from 'antd';
+import { Card, Checkbox, Input, Select, Space, Tag } from 'antd';
 import { api } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
 import { MoneyText } from '../../../shared/components/MoneyText';
+import { RecordTable } from '../../../shared/components/RecordTable';
 import type { Category } from '../../../shared/types/catalog';
 import type { StockLevel } from '../../../shared/types/inventory';
 
@@ -55,22 +56,25 @@ export function StockList({ owner }: { owner: boolean }) {
 
   return (
     <Card title="Danh sách tồn kho">
-      <Space wrap style={{ marginBottom: 16 }}>
-        <Input.Search
-          aria-label="Tìm hàng tồn kho"
-          placeholder="Tên, SKU hoặc mã vạch"
-          onSearch={(q) => changeFilters({ q: q.trim() })}
-          allowClear
-        />
-        <Select<string>
-          aria-label="Danh mục"
-          placeholder="Tất cả danh mục"
-          allowClear
-          loading={categories.isPending}
-          style={{ minWidth: 180 }}
-          options={categories.data?.map((category) => ({ value: category.id, label: category.name }))}
-          onChange={(categoryId) => changeFilters({ categoryId })}
-        />
+      <Space wrap align="end" style={{ marginBottom: 16 }}>
+        <Space orientation="vertical" size={4}>
+          <label htmlFor="stock-search">Tìm hàng tồn kho</label>
+          <Input.Search id="stock-search" placeholder="Tên, SKU hoặc mã vạch"
+            onSearch={(q) => changeFilters({ q: q.trim() })} allowClear />
+        </Space>
+        <Space orientation="vertical" size={4}>
+          <label htmlFor="stock-category">Danh mục</label>
+          <Select<string>
+            id="stock-category"
+            placeholder="Tất cả danh mục"
+            allowClear
+            loading={categories.isFetching}
+            style={{ minWidth: 180 }}
+            options={categories.data?.map((category) => ({ value: category.id, label: category.name }))}
+            notFoundContent={categories.isError ? 'Chưa tải được danh mục.' : undefined}
+            onChange={(categoryId) => changeFilters({ categoryId })}
+          />
+        </Space>
         <Checkbox checked={filters.belowMin} onChange={(event) => changeFilters({ belowMin: event.target.checked })}>
           Chỉ hàng tồn thấp
         </Checkbox>
@@ -81,16 +85,16 @@ export function StockList({ owner }: { owner: boolean }) {
           Gồm hàng ngừng kinh doanh
         </Checkbox>
       </Space>
-      {categories.isError && <ErrorAlert error={categories.error} />}
+      {categories.isError && <ErrorAlert error={categories.error} retryLabel="Tải lại danh mục"
+        onRetry={() => void categories.refetch()} retrying={categories.isFetching} />}
       {stocks.isError ? (
-        <>
-          <ErrorAlert error={stocks.error} />
-          <Button onClick={() => void stocks.refetch()}>Thử lại</Button>
-        </>
+        <ErrorAlert error={stocks.error} retryLabel="Tải lại tồn kho"
+          onRetry={() => void stocks.refetch()} retrying={stocks.isFetching} />
       ) : (
-        <Table<StockItem>
+        <RecordTable<StockItem>
+          compactColumns={{ title: 'name', status: 'status' }}
           rowKey="variantId"
-          loading={stocks.isPending}
+          loading={stocks.isFetching}
           dataSource={stocks.data?.items ?? []}
           scroll={{ x: true }}
           locale={{ emptyText: stocks.isPending ? 'Đang tải…' : 'Không tìm thấy hàng tồn kho.' }}
@@ -107,6 +111,7 @@ export function StockList({ owner }: { owner: boolean }) {
           columns={[
             {
               title: 'Sản phẩm',
+              key: 'name',
               render: (_, item) => [item.productName, item.variantName].filter(Boolean).join(' · '),
             },
             { title: 'SKU', dataIndex: 'sku' },
@@ -114,13 +119,15 @@ export function StockList({ owner }: { owner: boolean }) {
             { title: 'Ngưỡng tối thiểu', dataIndex: 'minQuantity', align: 'right' },
             {
               title: 'Trạng thái',
+              key: 'status',
               render: (_, item) => {
                 if (!item.isActive) return <Tag>Ngừng kinh doanh</Tag>;
-                return item.belowMin ? <Tag color="warning">Tồn thấp</Tag> : 'Đang kinh doanh';
+                return item.belowMin ? <Tag color="warning">Tồn thấp</Tag> : <Tag color="success">Đang kinh doanh</Tag>;
               },
             },
             ...(owner ? [{
               title: 'Giá vốn bình quân',
+              key: 'avgUnitCost',
               align: 'right' as const,
               render: (_: unknown, item: StockItem) =>
                 item.avgUnitCost === undefined ? '—' : <MoneyText value={item.avgUnitCost} />,

@@ -77,7 +77,17 @@ it.each([
 ])('chặn khoảng ngày %s đến %s', async (from, to, message) => {
   const logs = openPage('?fromDate=' + from + '&toDate=' + to);
   expect(screen.getByRole('alert').textContent).toBe(message);
+  expect(screen.queryByText('Không có nhật ký thao tác')).toBeNull();
   expect(logs()).toHaveLength(0);
   fireEvent.click(screen.getByRole('button', { name: 'Xóa bộ lọc' }));
   await waitFor(() => expect(logs()).toHaveLength(1));
+});
+
+it('không tải nhật ký nếu liên kết chứa ngày không hợp lệ', async () => {
+  const logs = openPage('?fromDate=2026-02-30');
+  expect(screen.getByRole('alert').textContent).toContain('Ngày bắt đầu không hợp lệ');
+  expect(screen.getByLabelText('Từ ngày').getAttribute('aria-invalid')).toBe('true');
+  expect(logs()).toHaveLength(0);
+  fireEvent.change(screen.getByLabelText('Từ ngày'), { target: { value: '2026-02-28' } });
+  await waitFor(() => expect(logs().at(-1)?.searchParams.get('fromDate')).toBe('2026-02-28'));
 });

@@ -54,8 +54,9 @@ function StockThresholdForm() {
   return (
     <Card title="Đặt ngưỡng tồn tối thiểu">
       <Space orientation="vertical" style={{ width: '100%', maxWidth: 560 }}>
+        <label htmlFor="threshold-product-search">Tìm sản phẩm</label>
         <Input.Search
-          aria-label="Tìm sản phẩm"
+          id="threshold-product-search"
           placeholder="Tìm theo tên, SKU hoặc mã vạch"
           enterButton="Tìm"
           disabled={update.isPending}
@@ -66,7 +67,11 @@ function StockThresholdForm() {
             update.reset();
           }}
         />
-        {products.isError && <ErrorAlert error={products.error} />}
+        {products.isError && <ErrorAlert error={products.error} retryLabel="Tải lại sản phẩm"
+          onRetry={() => void products.refetch()} retrying={products.isFetching} />}
+        {products.isSuccess && variants.length === 0 && <Typography.Text role="status">
+          Không tìm thấy biến thể đang kinh doanh. Hãy đổi từ khóa hoặc xem trang khác.
+        </Typography.Text>}
         {(products.data?.total ?? 0) > PAGE_SIZE && (
           <Pagination
             size="small"
@@ -83,12 +88,13 @@ function StockThresholdForm() {
         )}
         {update.isError && <ErrorAlert error={update.error} onClose={update.reset} />}
         {update.isSuccess && <Alert type="success" showIcon title="Đã lưu ngưỡng tồn tối thiểu." />}
-        <Form form={form} layout="vertical" disabled={update.isPending} onFinish={(values) => update.mutate(values)}>
+        <Form form={form} layout="vertical" scrollToFirstError={{ focus: true }} disabled={update.isPending}
+          onFinish={(values) => update.mutate(values)}>
           <Form.Item name="variantId" label="Sản phẩm hoặc biến thể" rules={[{ required: true, message: 'Chọn một biến thể.' }]}>
             <Select
               options={variants}
-              loading={products.isPending}
-              disabled={products.isPending || products.isError || update.isPending}
+              loading={products.isFetching}
+              disabled={products.isFetching || products.isError || update.isPending || variants.length === 0}
               placeholder="Chọn sản phẩm hoặc biến thể"
               notFoundContent="Không tìm thấy biến thể đang kinh doanh."
             />
@@ -101,9 +107,10 @@ function StockThresholdForm() {
               { type: 'integer', min: 0, max: MAX_THRESHOLD, message: 'Nhập số nguyên từ 0 đến 2147483647.' },
             ]}
           >
-            <InputNumber min={0} max={MAX_THRESHOLD} style={{ width: '100%' }} />
+            <InputNumber inputMode="numeric" min={0} max={MAX_THRESHOLD} style={{ width: '100%' }} />
           </Form.Item>
-          <Button type="primary" htmlType="submit" loading={update.isPending}>Lưu ngưỡng</Button>
+          <Button type="primary" htmlType="submit" loading={update.isPending}
+            disabled={products.isFetching || products.isError || variants.length === 0}>Lưu ngưỡng</Button>
         </Form>
       </Space>
     </Card>
@@ -116,7 +123,7 @@ export function StockPage() {
 
   return (
     <Space orientation="vertical" size="large" style={{ width: '100%' }}>
-      <Typography.Title level={2} style={{ margin: 0 }}>Tồn kho</Typography.Title>
+      <Typography.Title level={1} style={{ margin: 0 }}>Tồn kho</Typography.Title>
       <StockList owner={user.role === 'OWNER'} />
       <LowStockPanel />
       {user.role === 'OWNER' && <StockThresholdForm />}

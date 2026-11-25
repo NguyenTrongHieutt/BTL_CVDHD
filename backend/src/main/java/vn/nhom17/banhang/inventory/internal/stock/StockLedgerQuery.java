@@ -42,7 +42,7 @@ public class StockLedgerQuery {
     }
 
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
-    public PageResponse<Entry> find(UUID variantId, StockDocumentType documentType, LocalDate fromDate,
+    public PageResponse<Entry> find(UUID variantId, StockDocumentType documentType, UUID actorId, LocalDate fromDate,
                                     LocalDate toDate, int page, Integer size) {
         validateRange(fromDate, toDate);
         int pageNo = Math.max(0, page);
@@ -58,6 +58,10 @@ public class StockLedgerQuery {
         if (documentType != null) {
             where.append(" AND document_type = ?");
             args.add(documentType.name());
+        }
+        if (actorId != null) {
+            where.append(" AND created_by = ?");
+            args.add(actorId);
         }
         if (fromDate != null) {
             where.append(" AND created_at >= ?");

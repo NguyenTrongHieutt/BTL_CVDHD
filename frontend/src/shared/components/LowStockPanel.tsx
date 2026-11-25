@@ -2,8 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Space, Table } from 'antd';
 import { api } from '../api/client';
 import { ErrorAlert } from './ErrorAlert';
-
-export const lowStockQueryKey = ['inventory', 'low-stock'] as const;
+import { lowStockQueryKey } from './lowStockQueryKey';
 
 interface LowStockItem {
   variantId: string;
@@ -32,6 +31,7 @@ export function LowStockPanel() {
           dataSource={stock.data ?? []}
           loading={stock.isPending}
           size="small"
+          scroll={{ x: 'max-content' }}
           pagination={stock.data && stock.data.length > 5 ? { pageSize: 5, showSizeChanger: false } : false}
           locale={{ emptyText: stock.isPending ? 'Đang tải…' : 'Không có hàng dưới ngưỡng.' }}
           columns={[

@@ -26,8 +26,8 @@
  * đã nhập, dòng lỗi kèm số dòng và lý do). Nhập được ít nhất một Sản phẩm thì bảng làm như sau khi thêm: bỏ bộ lọc, sắp
  * mới nhất trước, về trang đầu, nên các Sản phẩm vừa nhập nằm đầu bảng.
  */
-import { FileExcelOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Button, Flex, Tag, Typography } from 'antd';
+import { FileExcelOutlined, MoreOutlined, PlusOutlined } from '@ant-design/icons';
+import { App, Button, Dropdown, Flex, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
@@ -99,7 +99,11 @@ function buildColumns(initialSort: string | undefined): TableColumnsType<Product
       render: (name: string, product) => (
         <Flex align="center" gap={12}>
           <ProductThumbnail src={product.imageUrl} />
-          <span>{name}</span>
+          <span className="product-name-cell"
+            data-status={product.status === 'ACTIVE' ? 'Đang bán' : 'Ngừng kinh doanh'}
+            aria-label={`${name}. ${product.status === 'ACTIVE' ? 'Đang bán' : 'Ngừng kinh doanh'}`}>
+            {name}
+          </span>
         </Flex>
       ),
     },
@@ -204,7 +208,8 @@ export function ProductsPage() {
     // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại; lịch sử kho
     // vẫn xem được
     render: (_, product) => (
-      <Flex wrap align="center">
+      <>
+      <Flex className="desktop-product-actions" wrap align="center">
         {/* Sản phẩm nhiều Biến thể: lịch sử kho theo từng Biến thể, ở phần Biến thể của form sửa (SP-07) */}
         {product.hasVariants ? null : (
           <Link
@@ -240,12 +245,31 @@ export function ProductsPage() {
           </>
         ) : null}
       </Flex>
+      {product.status === 'ACTIVE' ? (
+        <Dropdown menu={{ items: [
+          ...(!product.hasVariants ? [{
+            key: 'history',
+            label: <Link to={stockLedgerLink(product.id, defaultVariant(product)?.id)}>Xem lịch sử kho</Link>,
+          }] : []),
+          { key: 'edit', label: 'Chỉnh sửa', onClick: () => setEditing({ mode: 'edit', product }) },
+          { key: 'deactivate', label: 'Ngừng bán', danger: true,
+            onClick: () => void onDeactivate(product) },
+        ] }} trigger={['click']}>
+          <Button className="mobile-product-actions" icon={<MoreOutlined />}
+            aria-label={`Thao tác ${product.name}`} disabled={deactivate.isPending} />
+        </Dropdown>
+      ) : null}
+      {product.status !== 'ACTIVE' && !product.hasVariants ? (
+        <Link className="mobile-product-history" to={stockLedgerLink(product.id, defaultVariant(product)?.id)}
+          aria-label={`Lịch sử kho ${product.name}`}>Lịch sử</Link>
+      ) : null}
+      </>
     ),
   };
 
   return (
     <div>
-      <Flex justify="space-between" align="center" wrap gap={8} style={{ marginBottom: 16 }}>
+      <Flex className="page-heading" justify="space-between" align="center" wrap gap={12}>
         <Typography.Title level={3} style={{ margin: 0 }}>
           Sản phẩm
         </Typography.Title>
@@ -261,8 +285,12 @@ export function ProductsPage() {
         ) : null}
       </Flex>
       {deactivate.isError ? <ErrorAlert error={deactivate.error} onClose={() => deactivate.reset()} /> : null}
-      <ProductFilterBar value={filters} onChange={onFiltersChange} />
+      <div className="page-filter-panel">
+        <h2 className="filter-panel-title">Tìm và lọc sản phẩm</h2>
+        <ProductFilterBar value={filters} onChange={onFiltersChange} />
+      </div>
       <DataTable<Product>
+        className="products-table"
         key={tableKey}
         rowKey="id"
         queryKey={[...productsQueryKey, { ...filters }]}

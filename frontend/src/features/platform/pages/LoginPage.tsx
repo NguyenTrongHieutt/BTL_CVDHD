@@ -7,6 +7,7 @@
  * Chủ cửa hàng dùng số điện thoại hoặc email, Nhân viên dùng tên đăng nhập. `useLogin` cắt khoảng trắng; backend
  * cắt khoảng trắng, đổi chữ thường và `+84` → `0`.
  */
+import { ShopOutlined } from '@ant-design/icons';
 import { Button, Card, Form, Input, Typography } from 'antd';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useLogin } from '../../../shared/api/session';
@@ -38,10 +39,12 @@ export function LoginPage() {
 
   return (
     <div className="login-page">
-      <Card style={{ width: '100%', maxWidth: 400 }}>
+      <Card style={{ width: '100%', maxWidth: 440 }}>
+        <div className="login-mark"><ShopOutlined aria-hidden="true" /> Quản lý bán hàng</div>
         <Typography.Title level={3} style={{ marginTop: 0 }}>
           Đăng nhập
         </Typography.Title>
+        <p className="login-subtitle">Đăng nhập để tiếp tục công việc tại cửa hàng.</p>
         {login.isError ? <ErrorAlert error={login.error} /> : null}
         <Form<LoginRequest> layout="vertical" requiredMark={false} onFinish={onFinish} disabled={login.isPending}>
           <Form.Item

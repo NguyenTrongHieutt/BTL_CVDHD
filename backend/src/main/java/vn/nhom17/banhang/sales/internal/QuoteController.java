@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import vn.nhom17.banhang.catalog.CustomerLookup;
 import vn.nhom17.banhang.catalog.SellableVariant;
 import vn.nhom17.banhang.catalog.VariantLookup;
 import vn.nhom17.banhang.inventory.StockQuery;
@@ -33,11 +34,14 @@ public class QuoteController {
     private final StockQuery stocks;
 
     private final StoreSettings settings;
+    private final CustomerLookup customers;
 
-    public QuoteController(VariantLookup variants, StockQuery stocks, StoreSettings settings) {
+    public QuoteController(VariantLookup variants, StockQuery stocks, StoreSettings settings,
+                           CustomerLookup customers) {
         this.settings = settings;
         this.variants = variants;
         this.stocks = stocks;
+        this.customers = customers;
     }
 
     @PostMapping("/quote")
@@ -46,6 +50,9 @@ public class QuoteController {
                                @RequestBody QuoteRequest request) {
         if (request.lines() == null || request.lines().isEmpty()) {
             throw invalid("lines", "Giỏ hàng phải có ít nhất một dòng.");
+        }
+        if (request.customerId() != null && customers.findById(request.customerId()).isEmpty()) {
+            throw invalid("customerId", "Khách hàng không có trong cửa hàng hiện tại. Chọn lại khách hoặc bán khách lẻ.");
         }
         boolean transfer = "BANK_TRANSFER".equals(request.paymentMethod());
         if (!transfer && request.paymentMethod() != null && !"CASH".equals(request.paymentMethod())) {
@@ -189,7 +196,7 @@ public class QuoteController {
     public record Discount(String type, BigDecimal value) {}
     public record LineRequest(UUID variantId, BigDecimal quantity, Discount discount) {}
     public record QuoteRequest(List<LineRequest> lines, Discount orderDiscount,
-                               String paymentMethod, BigDecimal cashReceived) {}
+                               String paymentMethod, BigDecimal cashReceived, UUID customerId) {}
     private record PricedLine(SellableVariant variant, int quantity, long discount, long net) {}
     public record QuoteLine(int lineNo, UUID variantId, String productName, String variantName,
                             int quantity, long unitPrice, long lineDiscount, long orderDiscountShare,

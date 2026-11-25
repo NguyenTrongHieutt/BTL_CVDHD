@@ -164,6 +164,7 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/sales/orders/quote", U, A, A),
                 row("POST", "/api/v1/sales/orders", U, A, A),
                 row("GET", "/api/v1/sales/orders", U, A, A),
+                row("GET", "/api/v1/sales/orders/sellers", U, A, A),
                 row("POST", "/api/v1/sales/orders/{id}/cancel", U, A, A),
                 row("POST", "/api/v1/sales/orders/{id}/returns", U, A, A),
                 row("GET", "/api/v1/sales/customers/{id}/purchase-summary", U, A, A),

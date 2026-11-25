@@ -26,10 +26,11 @@ public class StockLedgerController {
     public PageResponse<StockLedgerQuery.Entry> ledger(
             @RequestParam(required = false) UUID variantId,
             @RequestParam(required = false) StockDocumentType documentType,
+            @RequestParam(required = false) UUID actorId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(required = false) Integer size) {
-        return ledger.find(variantId, documentType, fromDate, toDate, page, size);
+        return ledger.find(variantId, documentType, actorId, fromDate, toDate, page, size);
     }
 }

@@ -34,7 +34,7 @@ import vn.nhom17.banhang.platform.TenantScope;
 
 /**
  * Hợp đồng của {@code GET /api/v1/inventory/ledger} (CB-03 mục 3.3) mà màn KHO-07 (Hiếu, features/catalog) dựa vào,
- * trên PostgreSQL thật. Chỉ kiểm hành vi, không đổi code của inventory. Dòng sổ kho có sẵn nhờ Tồn kho đầu kỳ: thêm
+ * trên PostgreSQL thật. Dòng sổ kho có sẵn nhờ Tồn kho đầu kỳ: thêm
  * Sản phẩm qua API catalog thì listener của inventory ghi một dòng {@code OPENING}. Mỗi test dùng Cửa hàng mới.
  */
 @SpringBootTest
@@ -51,7 +51,7 @@ class StockLedgerContractTest {
     @Autowired PlatformTransactionManager txManager;
     @Autowired JsonMapper json;
 
-    record Owner(Cookie cookie, UUID storeId) {
+    record Owner(Cookie cookie, UUID storeId, UUID userId) {
     }
 
     @Test
@@ -100,6 +100,88 @@ class StockLedgerContractTest {
         // Biến thể của Cửa hàng khác: không ra dòng nào
         Owner other = newStore();
         assertThat(ledger(other, "variantId", milk.toString()).get("total").asLong()).isZero();
+    }
+
+    @Test
+    void actorIdFiltersTotalAndRowsBeforePagination() throws Exception {
+        Owner owner = newStore();
+        UUID milk = createWithOpening(owner, "Sữa tươi", 24, 11000);
+        UUID water = createWithOpening(owner, "Nước suối", 10, 3000);
+        UUID tea = createWithOpening(owner, "Trà", 15, 4000);
+        UUID coffee = createWithOpening(owner, "Cà phê", 20, 5000);
+        UUID otherActor = UUID.randomUUID();
+        changeActor(owner, water, otherActor);
+        changeActor(owner, coffee, null);
+        moveEntry(owner, milk, OffsetDateTime.parse("2026-11-15T09:00:00+07:00"));
+        moveEntry(owner, water, OffsetDateTime.parse("2026-11-15T10:00:00+07:00"));
+        moveEntry(owner, tea, OffsetDateTime.parse("2026-11-15T11:00:00+07:00"));
+        moveEntry(owner, coffee, OffsetDateTime.parse("2026-11-15T12:00:00+07:00"));
+
+        JsonNode first = ledger(owner, "actorId", owner.userId().toString(), "size", "1");
+        assertThat(first.get("total").asLong()).isEqualTo(2);
+        assertThat(first.get("page").asInt()).isZero();
+        assertThat(first.get("size").asInt()).isEqualTo(1);
+        assertThat(variantIds(first)).containsExactly(tea.toString());
+        assertThat(first.get("items").get(0).get("actorName").asString()).isEqualTo(OWNER_NAME);
+
+        JsonNode second = ledger(owner, "actorId", owner.userId().toString(), "size", "1", "page", "1");
+        assertThat(second.get("total").asLong()).isEqualTo(2);
+        assertThat(variantIds(second)).containsExactly(milk.toString());
+        JsonNode pastEnd = ledger(owner, "actorId", owner.userId().toString(), "size", "1", "page", "2");
+        assertThat(pastEnd.get("total").asLong()).isEqualTo(2);
+        assertThat(variantIds(pastEnd)).isEmpty();
+
+        JsonNode other = ledger(owner, "actorId", otherActor.toString());
+        assertThat(other.get("total").asLong()).isEqualTo(1);
+        assertThat(variantIds(other)).containsExactly(water.toString());
+        // Không gửi actorId vẫn có cả dòng hệ thống (created_by = null).
+        assertThat(ledger(owner).get("total").asLong()).isEqualTo(4);
+    }
+
+    @Test
+    void actorIdCombinesWithVariantDocumentTypeAndVietnamDates() throws Exception {
+        Owner owner = newStore();
+        UUID milk = createWithOpening(owner, "Sữa tươi", 24, 11000);
+        UUID water = createWithOpening(owner, "Nước suối", 10, 3000);
+        moveEntry(owner, milk, OffsetDateTime.parse("2026-11-01T00:00:00+07:00"));
+        moveEntry(owner, water, OffsetDateTime.parse("2026-11-15T23:59:59.999+07:00"));
+
+        JsonNode matches = ledger(owner, "actorId", owner.userId().toString(),
+                "variantId", water.toString(), "documentType", "OPENING",
+                "fromDate", "2026-11-01", "toDate", "2026-11-15");
+        assertThat(matches.get("total").asLong()).isEqualTo(1);
+        assertThat(variantIds(matches)).containsExactly(water.toString());
+        assertThat(ledger(owner, "actorId", owner.userId().toString(), "variantId", water.toString(),
+                "documentType", "SALE", "fromDate", "2026-11-01", "toDate", "2026-11-15")
+                .get("total").asLong()).isZero();
+        assertThat(ledger(owner, "actorId", owner.userId().toString(), "variantId", water.toString(),
+                "documentType", "OPENING", "fromDate", "2026-11-01", "toDate", "2026-11-14")
+                .get("total").asLong()).isZero();
+        assertThat(ledger(owner, "actorId", UUID.randomUUID().toString(), "variantId", water.toString(),
+                "documentType", "OPENING", "fromDate", "2026-11-01", "toDate", "2026-11-15")
+                .get("total").asLong()).isZero();
+    }
+
+    @Test
+    void actorIdNeverReturnsEntriesFromAnotherStore() throws Exception {
+        Owner owner = newStore();
+        Owner other = newStore();
+        UUID milk = createWithOpening(owner, "Sữa tươi", 24, 11000);
+        UUID water = createWithOpening(other, "Nước suối", 10, 3000);
+
+        JsonNode own = ledger(owner, "actorId", owner.userId().toString());
+        assertThat(own.get("total").asLong()).isEqualTo(1);
+        assertThat(variantIds(own)).containsExactly(milk.toString());
+        JsonNode foreignActor = ledger(owner, "actorId", other.userId().toString());
+        assertThat(foreignActor.get("total").asLong()).isZero();
+        assertThat(variantIds(foreignActor)).isEmpty();
+        assertThat(variantIds(ledger(other, "actorId", other.userId().toString())))
+                .containsExactly(water.toString());
+    }
+
+    @Test
+    void malformedActorIdIsRejected() throws Exception {
+        request(newStore(), "actorId", "not-a-uuid").andExpect(status().isBadRequest());
     }
 
     @Test
@@ -190,6 +272,13 @@ class StockLedgerContractTest {
         assertThat(updated).isEqualTo(1);
     }
 
+    /** Đổi người thực hiện của dòng có sẵn, kể cả dòng hệ thống, để kiểm bộ lọc. */
+    void changeActor(Owner owner, UUID variantId, UUID actorId) {
+        int updated = TenantScope.runAs(owner.storeId(), () -> new TransactionTemplate(txManager).execute(s ->
+                jdbc.update("update app.stock_ledger set created_by = ? where variant_id = ?", actorId, variantId)));
+        assertThat(updated).isEqualTo(1);
+    }
+
     /** Đăng ký Cửa hàng mới (FR-43), trả cookie phiên của Chủ cửa hàng. */
     Owner newStore() throws Exception {
         Map<String, String> body = new LinkedHashMap<>();
@@ -203,6 +292,7 @@ class StockLedgerContractTest {
                 .andExpect(status().isCreated())
                 .andReturn().getResponse();
         JsonNode me = json.readTree(response.getContentAsString(StandardCharsets.UTF_8));
-        return new Owner(response.getCookie("access_token"), UUID.fromString(me.get("storeId").asString()));
+        return new Owner(response.getCookie("access_token"), UUID.fromString(me.get("storeId").asString()),
+                UUID.fromString(me.get("userId").asString()));
     }
 }

@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { App as AntdApp } from 'antd';
+import { App as AntdApp, ConfigProvider } from 'antd';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Category } from '../../../shared/types/catalog';
 import { CategoriesPage } from './CategoriesPage';
@@ -83,9 +83,11 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <AntdApp>
-        <CategoriesPage />
-      </AntdApp>
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <CategoriesPage />
+        </AntdApp>
+      </ConfigProvider>
     </QueryClientProvider>,
   );
 }
@@ -141,6 +143,30 @@ beforeEach(() => {
 });
 
 describe('Danh mục (FR-4, SP-04)', () => {
+  it('tải lại danh sách sau lỗi mà không hiển thị trạng thái rỗng', async () => {
+    fetchMock.mockResolvedValueOnce(json({ title: 'Lỗi máy chủ', status: 500 }, 500));
+    renderPage();
+
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.queryByText(/Chưa có Danh mục nào/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Thử lại' }));
+
+    expect(await within(await screen.findByRole('table')).findByText('Đồ uống')).toBeTruthy();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('đưa tiêu điểm về nút Thêm Danh mục khi đóng hộp thoại', async () => {
+    renderPage();
+    const trigger = screen.getByRole('button', { name: /Thêm Danh mục/ });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const field = within(await screen.findByRole('dialog')).getByLabelText('Tên Danh mục');
+    await waitFor(() => expect(document.activeElement).toBe(field));
+
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Hủy' }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
   it('hiện bảng Danh mục kèm số Sản phẩm', async () => {
     renderPage();
     expect(await within(table()).findByText('Đồ uống')).toBeTruthy();
@@ -233,15 +259,15 @@ describe('Danh mục (FR-4, SP-04)', () => {
     expect(within(table()).getByText('Đồ uống')).toBeTruthy();
   });
 
-  it('Danh mục còn Sản phẩm: nút Xóa tắt, di chuột thấy lý do', async () => {
+  it('Danh mục còn Sản phẩm: nút Xóa tắt và luôn thấy lý do', async () => {
     renderPage();
     await within(table()).findByText('Đồ uống');
 
     const button = screen.getByRole('button', { name: 'Xóa Đồ uống' }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect((screen.getByRole('button', { name: 'Xóa Bia' }) as HTMLButtonElement).disabled).toBe(false);
-    fireEvent.mouseOver(button.parentElement ?? button);
-    expect(await screen.findByText('Còn 12 Sản phẩm, không xóa được')).toBeTruthy();
+    const reason = screen.getByText('Còn Sản phẩm nên chưa thể xóa.');
+    expect(button.getAttribute('aria-describedby')).toBe(reason.id);
   });
 
   it('bảng cũ mà Danh mục vừa có Sản phẩm: hiện câu tiếng Việt, đóng được, bảng tải lại', async () => {

@@ -31,7 +31,7 @@
  * của backend (sai kiểu, quá cỡ, lố giới hạn máy chủ) hiện dưới ô Ảnh.
  */
 import { DeleteOutlined, UploadOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Checkbox, Col, Flex, Form, Input, Modal, Row, Select, Upload } from 'antd';
+import { Alert, App, Button, Checkbox, Col, Flex, Form, Input, Modal, Row, Select, Typography, Upload } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { isApiError } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components';
@@ -73,6 +73,7 @@ import {
   wholeNumber,
 } from './productFormRules';
 import { foldText, groupThousands, normalizeText, parseWholeNumber } from './textUtils';
+import { useCatalogDialog } from './useCatalogDialog';
 import { emptyAttributeNames, emptyVariantRow, variantInputsOf, variantRowsProblems } from './variantRows';
 import type { VariantRowValues } from './variantRows';
 
@@ -317,6 +318,7 @@ export type ProductFormModalProps =
 
 export function ProductFormModal({ editing, onClose, onCreated }: ProductFormModalProps) {
   const [form] = Form.useForm<ProductFormValues>();
+  const { initialInput, close, modalProps } = useCatalogDialog(onClose);
   const { message } = App.useApp();
   const create = useCreateProduct();
   const update = useUpdateProduct();
@@ -470,7 +472,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
       const added = (product: Product) => {
         void message.success(`Đã thêm Sản phẩm "${product.name}"`);
         onCreated?.(product);
-        onClose();
+        close();
       };
       create.mutate(request, {
         // Hai bước: Sản phẩm đã tạo rồi mới tải ảnh. Tải ảnh lỗi thì Sản phẩm vẫn đã có: đóng hộp thoại (gửi lại sẽ tạo
@@ -484,7 +486,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
               8,
             );
             onCreated?.(product);
-            onClose();
+            close();
           }),
         onError: showErrors,
       });
@@ -495,12 +497,12 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
     const request = product.hasVariants ? productFields(values) : commonFields(values);
     const fieldsChanged = attempted.current || !isUnchanged(product, request);
     if (!fieldsChanged && image.kind === 'keep') {
-      onClose();
+      close();
       return;
     }
     const saved = (savedProduct: Product) => {
       void message.success(`Đã lưu Sản phẩm "${savedProduct.name}"`);
-      onClose();
+      close();
     };
     // Chỉ đổi ảnh: không gửi PUT Sản phẩm
     if (!fieldsChanged) {
@@ -542,7 +544,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
 
   return (
     <Modal
-      open
+      {...modalProps}
       className="product-form-modal"
       title={editing.mode === 'create' ? 'Thêm Sản phẩm' : 'Sửa Sản phẩm'}
       okText={editing.mode === 'create' ? 'Thêm' : 'Lưu'}
@@ -550,7 +552,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
       width={multiCreate ? 960 : 720}
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!busy) onClose();
+        if (!busy) close();
       }}
       confirmLoading={pending}
       okButtonProps={{ disabled: closeOnly || preparingImage }}
@@ -577,8 +579,8 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
       <Form<ProductFormValues>
         form={form}
         layout="vertical"
-        requiredMark={false}
         onFinish={onFinish}
+        scrollToFirstError={{ focus: true }}
         disabled={pending || closeOnly}
         initialValues={initialValuesOf(editing)}
       >
@@ -588,14 +590,21 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
           label="Tên Sản phẩm"
           rules={[{ required: true, whitespace: true, message: 'Nhập tên Sản phẩm' }, ...textRules('Tên Sản phẩm', NAME_MAX)]}
         >
-          <Input autoFocus autoComplete="off" />
+          <Input ref={initialInput} autoComplete="off" />
         </Form.Item>
         <Row gutter={16}>
           <Col xs={24} sm={16}>
             <Form.Item
               name="categoryId"
               label="Danh mục"
-              help={categories.isError ? 'Không tải được danh sách Danh mục. Đóng hộp thoại rồi mở lại.' : undefined}
+              extra={categories.isError ? (
+                <Flex wrap align="center" gap={8}>
+                  <Typography.Text role="alert" type="danger">Không tải được danh sách Danh mục.</Typography.Text>
+                  <Button size="small" loading={categories.isFetching} onClick={() => void categories.refetch()}>
+                    Tải lại Danh mục
+                  </Button>
+                </Flex>
+              ) : undefined}
               validateStatus={categories.isError ? 'warning' : undefined}
             >
               <Select
@@ -606,7 +615,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
                 showSearch={{
                   filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
                 }}
-                notFoundContent="Chưa có Danh mục nào"
+                notFoundContent={categories.isError ? 'Danh mục chưa tải được' : 'Chưa có Danh mục nào'}
                 // Ô không có luật kiểm, nên lỗi của backend (Danh mục không tồn tại) phải tự xóa khi chọn lại
                 onChange={() => form.setFields([{ name: 'categoryId', errors: [] }])}
               />

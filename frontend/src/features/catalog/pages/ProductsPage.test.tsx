@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { App as AntdApp } from 'antd';
+import { App as AntdApp, ConfigProvider } from 'antd';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -370,11 +370,13 @@ function renderPage(role: Role = 'OWNER', path = PAGE_PATH) {
   const router = createMemoryRouter([{ path: PAGE_PATH, Component: ProductsPage }], { initialEntries: [path] });
   render(
     <QueryClientProvider client={queryClient}>
-      <AntdApp>
-        <CurrentUserContext value={me(role)}>
-          <RouterProvider router={router} />
-        </CurrentUserContext>
-      </AntdApp>
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <CurrentUserContext value={me(role)}>
+            <RouterProvider router={router} />
+          </CurrentUserContext>
+        </AntdApp>
+      </ConfigProvider>
     </QueryClientProvider>,
   );
   return { queryClient, router };
@@ -1472,7 +1474,7 @@ describe('ProductsPage — sửa Sản phẩm (FR-2, SP-02)', () => {
     expect(within(dialog()).queryByRole('alert')).toBeNull();
   });
 
-  it('không tải được Danh mục: ô Danh mục vẫn hiện tên Danh mục hiện tại, không hiện id', async () => {
+  it('không tải được Danh mục: giữ tên hiện tại và cho tải lại mà không mất nội dung sửa', async () => {
     failCategories = true;
     renderPage();
     await within(table()).findByText('Sản phẩm 02');
@@ -1480,10 +1482,17 @@ describe('ProductsPage — sửa Sản phẩm (FR-2, SP-02)', () => {
     await openEditDialog('Sản phẩm 02');
 
     expect(
-      await within(dialog()).findByText('Không tải được danh sách Danh mục. Đóng hộp thoại rồi mở lại.'),
+      await within(dialog()).findByText('Không tải được danh sách Danh mục.'),
     ).toBeTruthy();
     expect(within(dialog()).getByText('Đồ uống')).toBeTruthy();
     expect(within(dialog()).queryByText('c-1')).toBeNull();
+
+    fireEvent.change(field('Tên Sản phẩm'), { target: { value: 'Tên mới đang sửa' } });
+    failCategories = false;
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Tải lại Danh mục' }));
+
+    await waitFor(() => expect(within(dialog()).queryByText('Không tải được danh sách Danh mục.')).toBeNull());
+    expect((field('Tên Sản phẩm') as HTMLInputElement).value).toBe('Tên mới đang sửa');
   });
 
   it('mất phản hồi sau khi máy chủ đã lưu: báo lỗi mạng, mọi bảng liên quan tải lại; gõ lại giá cũ vẫn gửi', async () => {

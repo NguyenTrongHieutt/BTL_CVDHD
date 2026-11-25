@@ -172,12 +172,17 @@ function listProducts(params: URLSearchParams): Response {
   return json({ items: matching.slice(page * size, (page + 1) * size), total: matching.length, page, size });
 }
 
+const ACTOR_ID = 'bf12e0e5-29a4-46dd-bd48-631b3b74fd29';
+
 function backend() {
   fetchMock.mockImplementation(async (input, init) => {
     const url = new URL(String(input), 'http://localhost');
     const method = init?.method ?? 'GET';
     if (method === 'GET' && url.pathname === LEDGER_PATH) return listLedger(url.searchParams);
     if (method === 'GET' && url.pathname === PRODUCTS_PATH) return listProducts(url.searchParams);
+    if (method === 'GET' && url.pathname === '/api/v1/platform/users') {
+      return json({ items: [{ userId: ACTOR_ID, displayName: 'Hiếu' }], total: 1, page: 0, size: 100 });
+    }
     const detail = PRODUCT_PATH.exec(url.pathname);
     if (method === 'GET' && detail && failProductDetail) {
       return json({ type: '/errors/common/internal', title: 'Lỗi hệ thống', status: 500, requestId: 'r' }, 500);
@@ -328,10 +333,31 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllEnvs();
   vi.useRealTimers();
 });
 
 describe('Lịch sử xuất nhập kho (FR-28, KHO-07)', () => {
+  it('ẩn lọc người thực hiện và bỏ qua actorId trên URL khi backend chưa hỗ trợ', async () => {
+    vi.stubEnv('VITE_LEDGER_ACTOR_FILTER', 'false');
+    renderPage(PAGE_PATH + '?actorId=' + ACTOR_ID);
+    await waitFor(() => expect(ledgerQueries().length).toBeGreaterThan(0));
+    expect(screen.queryByLabelText('Lọc theo người thực hiện')).toBeNull();
+    expect(lastLedgerQuery()).not.toHaveProperty('actorId');
+    expect(callsTo('/api/v1/platform/users')).toHaveLength(0);
+  });
+
+  it('chọn và xóa người thực hiện cập nhật URL và gửi đúng mã tài khoản', async () => {
+    vi.stubEnv('VITE_LEDGER_ACTOR_FILTER', 'true');
+    const { router } = renderPage();
+    await pickOption('Lọc theo người thực hiện', 'Hiếu');
+    await waitFor(() => expect(lastLedgerQuery().actorId).toBe(ACTOR_ID));
+    expect(urlParams(router).actorId).toBe(ACTOR_ID);
+    fireEvent.click(screen.getByRole('button', { name: 'Xóa bộ lọc' }));
+    await waitFor(() => expect(lastLedgerQuery()).not.toHaveProperty('actorId'));
+    expect(urlParams(router)).not.toHaveProperty('actorId');
+  });
+
   it('mở màn: mới nhất trước, giờ Việt Nam, nhãn tiếng Việt, số âm đỏ có dấu −, số dương xanh có dấu +', async () => {
     ledger = [
       entry('2026-11-05T03:15:00Z', 'SALE', MILK_VARIANT, -3, 1221, { actorName: 'Lan' }),

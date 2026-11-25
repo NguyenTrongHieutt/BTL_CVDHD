@@ -9,6 +9,7 @@ import { CustomersPage } from './pages/CustomersPage';
 import { ProductsPage } from './pages/ProductsPage';
 import { StockLedgerPage } from './pages/StockLedgerPage';
 import { SuppliersPage } from './pages/SuppliersPage';
+import './catalog.css';
 
 export const catalogFeature: FeatureDefinition = {
   module: 'catalog',

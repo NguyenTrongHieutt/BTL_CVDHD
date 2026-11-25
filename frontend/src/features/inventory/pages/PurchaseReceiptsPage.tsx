@@ -1,9 +1,9 @@
 import { useDeferredValue, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Input, InputNumber, Select, Space, Table, Typography } from 'antd';
+import { Alert, Button, Card, Input, InputNumber, Select, Space, Typography } from 'antd';
 import { api, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
-import { ErrorAlert, MoneyText, ProductPicker, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert, MoneyText, ProductPicker, RecordTable, useDocumentTitle } from '../../../shared/components';
 import type { SupplierSummary } from '../../../shared/types/catalog';
 import type { IsoDateTime, Uuid } from '../../../shared/types/common';
 import type { SellableItem } from '../../../shared/types/sales';
@@ -27,6 +27,11 @@ interface Receipt {
 interface Submission {
   key: string;
   request: { supplierId: Uuid; note: string; lines: Omit<DraftLine, 'label'>[] };
+}
+
+function isValidLine({ quantity, unitCost }: DraftLine) {
+  return quantity !== null && Number.isInteger(quantity) && quantity > 0 && quantity <= MAX_QUANTITY
+    && unitCost !== null && Number.isSafeInteger(unitCost) && unitCost > 0;
 }
 
 export function PurchaseReceiptsPage() {
@@ -69,11 +74,15 @@ export function PurchaseReceiptsPage() {
   const locked = pending !== null;
   const total = lines.reduce((sum, line) => sum + (line.quantity ?? 0) * (line.unitCost ?? 0), 0);
   const validTotal = Number.isSafeInteger(total);
-  const canSubmit = supplier !== undefined && lines.length > 0 && validTotal && lines.every(
-    ({ quantity, unitCost }) => quantity !== null && Number.isInteger(quantity)
-      && quantity > 0 && quantity <= MAX_QUANTITY && unitCost !== null
-      && Number.isSafeInteger(unitCost) && unitCost > 0,
-  );
+  const linesReady = lines.length > 0 && lines.every(isValidLine);
+  const canSubmit = supplier !== undefined && validTotal && linesReady;
+  let submitHint = '';
+  if (!locked && !canSubmit) {
+    if (!supplier) submitHint = 'Chọn nhà cung cấp để lập phiếu.';
+    else if (!lines.length) submitHint = 'Thêm ít nhất một sản phẩm vào phiếu.';
+    else if (!linesReady) submitHint = 'Nhập số lượng và giá nhập lớn hơn 0 cho từng sản phẩm.';
+    else if (!validTotal) submitHint = 'Tổng tiền vượt giới hạn. Hãy kiểm tra số lượng và giá nhập.';
+  }
 
   function addProduct(product: SellableItem) {
     setLines((current) => {
@@ -112,7 +121,7 @@ export function PurchaseReceiptsPage() {
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-      <Typography.Title level={2} style={{ margin: 0 }}>Phiếu nhập</Typography.Title>
+      <Typography.Title level={1} style={{ margin: 0 }}>Phiếu nhập</Typography.Title>
       {save.isSuccess && (
         <Alert
           type="success"
@@ -126,14 +135,17 @@ export function PurchaseReceiptsPage() {
       )}
       <Card title="Thông tin phiếu nhập">
         <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-          <label>
-            Nhà cung cấp
+          <Space orientation="vertical" size={4} style={{ display: 'flex' }}>
+            <label htmlFor="receipt-supplier">Nhà cung cấp</label>
             <Select<{ value: Uuid; label: string }>
-              aria-label="Nhà cung cấp"
+              id="receipt-supplier"
+              aria-required="true"
               placeholder="Chọn hoặc tìm nhà cung cấp"
-              style={{ width: '100%', marginTop: 4 }}
+              style={{ width: '100%' }}
               disabled={locked}
               loading={suppliers.isFetching}
+              notFoundContent={suppliers.isFetching ? 'Đang tải nhà cung cấp…'
+                : suppliers.isError ? 'Chưa tải được nhà cung cấp.' : 'Không tìm thấy nhà cung cấp.'}
               allowClear
               labelInValue
               showSearch={{ onSearch: setSupplierSearch, filterOption: false }}
@@ -146,18 +158,20 @@ export function PurchaseReceiptsPage() {
                 setSupplierSearch('');
               }}
             />
-          </label>
-          {suppliers.isError && <ErrorAlert error={suppliers.error} />}
-          <label>
-            Ghi chú
-            <Input.TextArea value={note} onChange={(event) => setNote(event.target.value)}
+          </Space>
+          {suppliers.isError && <ErrorAlert error={suppliers.error} retryLabel="Tải lại nhà cung cấp"
+            onRetry={() => void suppliers.refetch()} retrying={suppliers.isFetching} />}
+          <Space orientation="vertical" size={4} style={{ display: 'flex' }}>
+            <label htmlFor="receipt-note">Ghi chú (không bắt buộc)</label>
+            <Input.TextArea id="receipt-note" value={note} onChange={(event) => setNote(event.target.value)}
               disabled={locked} maxLength={500} rows={2} />
-          </label>
+          </Space>
         </Space>
       </Card>
       <Card title="Sản phẩm nhập">
         <ProductPicker onPick={addProduct} allowOutOfStock disabled={locked} />
-        <Table<DraftLine>
+        <RecordTable<DraftLine>
+          compactColumns={{ title: 'label', actions: 'actions' }}
           rowKey="variantId"
           dataSource={lines}
           pagination={false}
@@ -168,17 +182,19 @@ export function PurchaseReceiptsPage() {
             { title: 'Sản phẩm', dataIndex: 'label' },
             {
               title: 'Số lượng',
+              key: 'quantity',
               render: (_, line) => (
                 <InputNumber<number> aria-label={`Số lượng ${line.label}`} value={line.quantity}
-                  min={1} max={MAX_QUANTITY} precision={0} disabled={locked}
+                  aria-required="true" inputMode="numeric" min={1} max={MAX_QUANTITY} precision={0} disabled={locked}
                   onChange={(quantity) => changeLine(line.variantId, { quantity })} />
               ),
             },
             {
               title: 'Giá nhập (₫)',
+              key: 'unitCost',
               render: (_, line) => (
                 <InputNumber<number> aria-label={`Giá nhập ${line.label}`} value={line.unitCost}
-                  min={1} max={Number.MAX_SAFE_INTEGER} precision={0}
+                  aria-required="true" inputMode="numeric" min={1} max={Number.MAX_SAFE_INTEGER} precision={0}
                   placeholder="Nhập giá"
                   style={{ width: 145 }} disabled={locked}
                   onChange={(unitCost) => changeLine(line.variantId, { unitCost })} />
@@ -186,6 +202,7 @@ export function PurchaseReceiptsPage() {
             },
             {
               title: 'Thành tiền',
+              key: 'amount',
               align: 'right',
               render: (_, line) => {
                 const amount = (line.quantity ?? 0) * (line.unitCost ?? 0);
@@ -194,6 +211,7 @@ export function PurchaseReceiptsPage() {
             },
             {
               title: 'Thao tác',
+              key: 'actions',
               render: (_, line) => (
                 <Button danger type="text" disabled={locked} aria-label={`Bỏ ${line.label}`}
                   onClick={() => setLines((current) => current.filter(({ variantId }) => variantId !== line.variantId))}>
@@ -206,11 +224,13 @@ export function PurchaseReceiptsPage() {
       </Card>
       {save.isError && <ErrorAlert error={save.error} />}
       {save.isError && pending && <Alert type="info" title="Thử gửi lại cùng phiếu để tránh nhập kho hai lần." />}
+      {submitHint && <Typography.Text id="receipt-submit-hint">{submitHint}</Typography.Text>}
       <Space wrap size="large">
         <Typography.Text strong>
           Tổng tiền {validTotal ? <MoneyText value={total} /> : 'vượt giới hạn'}
         </Typography.Text>
-        <Button type="primary" loading={save.isPending} disabled={!pending && !canSubmit} onClick={submit}>
+        <Button type="primary" loading={save.isPending} disabled={!pending && !canSubmit}
+          aria-describedby={submitHint ? 'receipt-submit-hint' : undefined} onClick={submit}>
           {save.isError && pending ? 'Gửi lại phiếu' : 'Lưu phiếu nhập'}
         </Button>
       </Space>

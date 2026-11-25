@@ -1,0 +1,29 @@
+.login-page .login-title.ant-typography {
+  font-size: clamp(24px, 4vw, 28px);
+  margin-top: 0;
+}
+
+@media (max-width: 767px) {
+  .login-page {
+    padding: 16px;
+  }
+
+  .login-page .ant-card-body {
+    padding: 20px;
+  }
+
+  .login-page :is(.ant-input:not(.ant-input-affix-wrapper > .ant-input), .ant-input-affix-wrapper, .ant-btn) {
+    min-height: 44px;
+  }
+
+  .login-page .ant-input {
+    font-size: 16px;
+  }
+
+  .login-page .ant-input-password-icon {
+    display: inline-grid;
+    place-items: center;
+    min-width: 28px;
+    min-height: 28px;
+  }
+}

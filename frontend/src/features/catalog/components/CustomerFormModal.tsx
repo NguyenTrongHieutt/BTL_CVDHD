@@ -27,6 +27,7 @@ import {
   useUpdateCustomer,
 } from '../api/customers';
 import { hasInvalidChars, normalizeText, textLength } from './textUtils';
+import { useCatalogDialog } from './useCatalogDialog';
 
 const NAME_MAX = 100;
 const NOTE_MAX = 500;
@@ -105,6 +106,7 @@ export interface CustomerFormModalProps {
 
 export function CustomerFormModal({ editing, onClose, onCreated, onOpenExisting }: CustomerFormModalProps) {
   const [form] = Form.useForm<CustomerFormValues>();
+  const { initialInput, close, modalProps } = useCatalogDialog(onClose);
   const { message } = App.useApp();
   const create = useCreateCustomer();
   const update = useUpdateCustomer();
@@ -130,14 +132,14 @@ export function CustomerFormModal({ editing, onClose, onCreated, onOpenExisting 
         onSuccess: (customer) => {
           void message.success(`Đã thêm Khách hàng "${customerLabel(customer)}"`);
           onCreated(customer);
-          onClose();
+          close();
         },
         onError: showErrors,
       });
       return;
     }
     if (isUnchanged(editing.customer, request)) {
-      onClose();
+      close();
       return;
     }
     update.mutate(
@@ -145,7 +147,7 @@ export function CustomerFormModal({ editing, onClose, onCreated, onOpenExisting 
       {
         onSuccess: (customer) => {
           void message.success(`Đã lưu Khách hàng "${customerLabel(customer)}"`);
-          onClose();
+          close();
         },
         onError: showErrors,
       },
@@ -175,13 +177,13 @@ export function CustomerFormModal({ editing, onClose, onCreated, onOpenExisting 
 
   return (
     <Modal
-      open
+      {...modalProps}
       title={editing.mode === 'create' ? 'Thêm Khách hàng' : 'Sửa Khách hàng'}
       okText={editing.mode === 'create' ? 'Thêm' : 'Lưu'}
       cancelText="Hủy"
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!pending) onClose();
+        if (!pending) close();
       }}
       confirmLoading={mutation.isPending}
       okButtonProps={{ disabled: opening }}
@@ -195,8 +197,8 @@ export function CustomerFormModal({ editing, onClose, onCreated, onOpenExisting 
       <Form<CustomerFormValues>
         form={form}
         layout="vertical"
-        requiredMark={false}
         onFinish={onFinish}
+        scrollToFirstError={{ focus: true }}
         disabled={pending}
         initialValues={initialValues}
         onValuesChange={(changed: Partial<CustomerFormValues>) => {
@@ -206,6 +208,7 @@ export function CustomerFormModal({ editing, onClose, onCreated, onOpenExisting 
         <Form.Item
           name="phone"
           label="Số điện thoại"
+          required
           rules={[phoneRule]}
           extra={
             takenBy ? (
@@ -223,7 +226,7 @@ export function CustomerFormModal({ editing, onClose, onCreated, onOpenExisting 
             )
           }
         >
-          <Input autoFocus inputMode="tel" autoComplete="off" />
+          <Input ref={initialInput} type="tel" autoComplete="off" />
         </Form.Item>
         <Form.Item name="name" label="Tên Khách hàng" rules={textRules('Tên Khách hàng', NAME_MAX)}>
           <Input placeholder="Không bắt buộc" autoComplete="off" />

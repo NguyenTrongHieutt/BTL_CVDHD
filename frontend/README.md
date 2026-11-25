@@ -42,6 +42,8 @@ Trước khi merge: `npm run lint && npm test` (và `npm run build`).
 - ai-service tắt thì Vite proxy trả `503 /errors/ai/unavailable` giống nginx; màn bán hàng tự về Tìm kiếm thường.
 - Playwright: lần đầu chạy `npx playwright install chromium`. Mặc định chạy với `npm run dev`;
   chạy với bản Docker: `E2E_BASE_URL=http://localhost npm run e2e`. Test đặt trong `e2e/`.
+- KH-03 với API thật tạo cửa hàng, khách hàng và đơn hàng riêng cho mỗi ca. Chỉ chạy trên stack demo cục bộ có cơ sở dữ liệu riêng:
+  `KH03_LIVE=1 E2E_BASE_URL=http://localhost npm run e2e -- kh-03-history-live`.
 
 ## Cấu trúc thư mục
 

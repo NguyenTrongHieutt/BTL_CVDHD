@@ -79,9 +79,9 @@ export function SuppliersPage() {
   ];
 
   return (
-    <div>
+    <div className="catalog-page">
       <Flex justify="space-between" align="center" wrap gap={8} style={{ marginBottom: 16 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
+        <Typography.Title level={1} style={{ margin: 0 }}>
           Nhà cung cấp
         </Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>
@@ -97,6 +97,7 @@ export function SuppliersPage() {
         style={{ width: 320, maxWidth: '100%', marginBottom: 16 }}
       />
       <DataTable<Supplier>
+        compactColumns={{ title: 'name', actions: 'actions' }}
         key={`table-${tableKey}`}
         rowKey="supplierId"
         queryKey={[...suppliersQueryKey, { q, newestFirst }]}

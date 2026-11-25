@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Button, Card, Input, InputNumber, Select, Space, Spin, Table, Typography } from 'antd';
+import { Alert, App, Button, Card, Input, InputNumber, Pagination, Select, Space, Typography } from 'antd';
 import { useSearchParams } from 'react-router';
 import { api, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
-import { ErrorAlert, MoneyText, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert, MoneyText, RecordTable, useDocumentTitle } from '../../../shared/components';
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import type { IsoDateTime, Money, Uuid } from '../../../shared/types/common';
 import type { OrderStatus, OrderSummary, PaymentMethod } from '../../../shared/types/sales';
@@ -56,6 +56,7 @@ const statusLabels: Record<OrderStatus, string> = {
   RETURNED: 'Đã trả hàng',
 };
 const methodLabels: Record<PaymentMethod, string> = { CASH: 'Tiền mặt', BANK_TRANSFER: 'Chuyển khoản' };
+const SEARCH_PAGE_SIZE = 20;
 const dateTime = new Intl.DateTimeFormat('vi-VN', {
   timeZone: VIETNAM_TIME_ZONE, dateStyle: 'short', timeStyle: 'short',
 });
@@ -119,32 +120,33 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
     create.mutate(request);
   }
 
-  if (!data) {
-    return details.isError
-      ? <><ErrorAlert error={details.error} /><Button onClick={() => void details.refetch()}>Thử lại</Button></>
-      : <Spin />;
-  }
+  const detailsError = details.isError && <ErrorAlert error={details.error} retryLabel="Tải lại thông tin đơn hàng"
+    onRetry={() => void details.refetch()} retrying={details.isFetching} />;
+  if (!data) return detailsError || <Typography.Text role="status">Đang tải đơn hàng…</Typography.Text>;
   const showForm = data.status === 'COMPLETED' || pending !== null;
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       <Card title={data.orderCode + ' · ' + statusLabels[data.status]}>
-        {details.isError && <ErrorAlert error={details.error} />}
-        <Table<ReturnLine>
+        {detailsError}
+        <RecordTable<ReturnLine>
+          compactColumns={{ title: 'productName' }}
           rowKey="lineNo"
           dataSource={data.lines}
           pagination={false}
           scroll={{ x: 'max-content' }}
           columns={[
-            { title: 'Hàng hóa', render: (_, line) => [line.productName, line.variantName].filter(Boolean).join(' · ') },
+            { title: 'Hàng hóa', key: 'productName', render: (_, line) => [line.productName, line.variantName].filter(Boolean).join(' · ') },
             { title: 'Đã bán', dataIndex: 'quantity', align: 'right' },
             { title: 'Đã trả', dataIndex: 'returnedQuantity', align: 'right' },
             { title: 'Có thể trả', dataIndex: 'remainingQuantity', align: 'right' },
             ...(showForm ? [{
               title: 'Số lượng trả',
+              key: 'returnQuantity',
               render: (_: unknown, line: ReturnLine) => (
                 <InputNumber
                   aria-label={'Số lượng trả dòng ' + line.lineNo}
+                  inputMode="numeric"
                   min={0}
                   max={line.remainingQuantity}
                   precision={0}
@@ -158,6 +160,7 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
               ),
             }, {
               title: 'Tiền hoàn',
+              key: 'refundAmount',
               render: (_: unknown, line: ReturnLine) => (
                 <MoneyText value={quote.data?.lines.find(item => item.lineNo === line.lineNo)?.refundAmount} />
               ),
@@ -170,32 +173,34 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
         <Card title="Hoàn tiền">
           <Space orientation="vertical" style={{ width: '100%' }}>
             {lines.length > 0 && !ready && pending === null &&
-              <Alert type="warning" title="Kiểm tra lại số lượng theo cột Có thể trả." />}
-            {quote.isError && pending === null && <ErrorAlert error={quote.error} />}
+              <Alert type="warning" title="Số lượng trả phải nằm trong giới hạn có thể trả." />}
+            {ready && pending === null && quote.isFetching && <Typography.Text role="status">Đang tính tiền hoàn…</Typography.Text>}
+            {quote.isError && pending === null && <ErrorAlert error={quote.error} retryLabel="Thử lại tính tiền hoàn"
+              onRetry={() => void quote.refetch()} retrying={quote.isFetching} />}
             {create.isError && <ErrorAlert error={create.error} />}
             <Typography.Text strong>
               Tổng tiền hoàn{' '}
               <MoneyText value={pending?.quotedRefundTotal ?? (ready && !quote.isError ? quote.data?.refundAmount : undefined)} />
             </Typography.Text>
-            <Select<PaymentMethod>
-              aria-label="Phương thức hoàn tiền"
-              value={method}
-              onChange={setMethod}
-              disabled={pending !== null}
-              style={{ minWidth: 175 }}
-              options={[
-                { value: 'CASH', label: 'Tiền mặt' },
-                { value: 'BANK_TRANSFER', label: 'Chuyển khoản' },
-              ]}
-            />
-            <Input
-              aria-label="Lý do trả hàng"
-              placeholder="Lý do trả hàng (nếu có)"
-              maxLength={200}
-              value={reason}
-              disabled={pending !== null}
-              onChange={event => setReason(event.target.value)}
-            />
+            <Space orientation="vertical" size={4} style={{ display: 'flex' }}>
+              <label htmlFor="refund-method">Phương thức hoàn tiền</label>
+              <Select<PaymentMethod>
+                id="refund-method"
+                value={method}
+                onChange={setMethod}
+                disabled={pending !== null}
+                style={{ width: '100%', maxWidth: 260 }}
+                options={[
+                  { value: 'CASH', label: 'Tiền mặt' },
+                  { value: 'BANK_TRANSFER', label: 'Chuyển khoản' },
+                ]}
+              />
+            </Space>
+            <Space orientation="vertical" size={4} style={{ display: 'flex' }}>
+              <label htmlFor="refund-reason">Lý do trả hàng (không bắt buộc)</label>
+              <Input id="refund-reason" maxLength={200} value={reason} disabled={pending !== null}
+                onChange={event => setReason(event.target.value)} />
+            </Space>
             <Typography.Text type="secondary">
               Hoàn tiền cho khách theo phương thức đã chọn rồi xác nhận để lưu phiếu.
             </Typography.Text>
@@ -215,13 +220,14 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
 
       {data.receipts.length > 0 && (
         <Card title="Phiếu trả đã lập">
-          <Table<ReturnReceipt>
+          <RecordTable<ReturnReceipt>
+            compactColumns={{ title: 'createdAt' }}
             rowKey="returnId"
             pagination={false}
             scroll={{ x: 'max-content' }}
             dataSource={data.receipts}
             columns={[
-              { title: 'Thời gian', render: (_, receipt) => dateTime.format(new Date(receipt.createdAt)) },
+              { title: 'Thời gian', key: 'createdAt', render: (_, receipt) => dateTime.format(new Date(receipt.createdAt)) },
               { title: 'Phương thức', render: (_, receipt) => methodLabels[receipt.refundMethod] },
               { title: 'Lý do', render: (_, receipt) => receipt.reason || '—' },
               { title: 'Tiền hoàn', align: 'right', render: (_, receipt) => <MoneyText value={receipt.refundAmount} /> },
@@ -237,44 +243,52 @@ export function ReturnsPage() {
   useDocumentTitle('Phiếu trả hàng');
   const [params, setParams] = useSearchParams();
   const orderId = params.get('orderId');
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState({ code: '', page: 0 });
   const orders = useQuery({
     queryKey: ['sales', 'orders', 'return-search', search],
     queryFn: ({ signal }) => api.get<PageResponse<OrderSummary>>('/api/v1/sales/orders', {
-      query: { orderCode: search, page: 0, size: 20 }, signal,
+      query: { orderCode: search.code, page: search.page, size: SEARCH_PAGE_SIZE }, signal,
     }),
-    enabled: search.length > 0,
+    enabled: Boolean(search.code),
     retry: false,
   });
 
   return (
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-      <Card title={<Typography.Title level={2} style={{ margin: 0 }}>Phiếu trả hàng</Typography.Title>}>
-        <Input.Search
-          aria-label="Mã đơn hàng cần trả"
-          placeholder="Nhập mã đơn hàng"
-          allowClear
-          enterButton="Tìm đơn"
-          style={{ maxWidth: 420 }}
-          onSearch={value => {
-            const code = value.trim();
-            if (code && code === search) void orders.refetch();
-            else setSearch(code);
-          }}
-        />
-        {search && orders.isError && <ErrorAlert error={orders.error} style={{ marginTop: 12 }} />}
-        {search && orders.isFetching && <div style={{ marginTop: 12 }}><Spin /></div>}
-        {search && orders.data && (
-          <Space wrap style={{ marginTop: 12 }}>
-            {orders.data.items.length === 0 && <Typography.Text>Không tìm thấy đơn hàng.</Typography.Text>}
-            {orders.data.items.map(order => (
-              <Button key={order.orderId} type={order.orderId === orderId ? 'primary' : 'default'}
-                onClick={() => setParams({ orderId: order.orderId })}>
-                {order.orderCode} · {statusLabels[order.status]}
-              </Button>
-            ))}
-          </Space>
-        )}
+      <Card title={<Typography.Title level={1} style={{ margin: 0 }}>Phiếu trả hàng</Typography.Title>}>
+        <Space orientation="vertical" style={{ display: 'flex' }}>
+          <label htmlFor="return-order-search">Mã đơn hàng cần trả</label>
+          <Input.Search
+            id="return-order-search"
+            placeholder="Ví dụ DH-000042"
+            allowClear
+            enterButton="Tìm đơn"
+            style={{ maxWidth: 420 }}
+            onSearch={value => {
+              const code = value.trim();
+              if (code && code === search.code && search.page === 0) void orders.refetch();
+              else setSearch({ code, page: 0 });
+            }}
+          />
+          {search.code && orders.isError && <ErrorAlert error={orders.error} retryLabel="Thử lại tìm đơn"
+            onRetry={() => void orders.refetch()} retrying={orders.isFetching} />}
+          {search.code && orders.isFetching && <Typography.Text role="status">Đang tìm đơn hàng…</Typography.Text>}
+          {search.code && !orders.isError && orders.data && <>
+            <Space wrap>
+              {!orders.isFetching && orders.data.items.length === 0 && <Typography.Text role="status">Không tìm thấy đơn hàng.</Typography.Text>}
+              {orders.data.items.map(order => (
+                <Button key={order.orderId} type={order.orderId === orderId ? 'primary' : 'default'}
+                  aria-current={order.orderId === orderId ? 'true' : undefined}
+                  onClick={() => setParams({ orderId: order.orderId })}>
+                  {order.orderCode} · {statusLabels[order.status]}
+                </Button>
+              ))}
+            </Space>
+            {orders.data.total > SEARCH_PAGE_SIZE && <Pagination current={search.page + 1}
+              pageSize={SEARCH_PAGE_SIZE} total={orders.data.total} showSizeChanger={false}
+              onChange={page => setSearch(current => ({ ...current, page: page - 1 }))} />}
+          </>}
+        </Space>
       </Card>
       {orderId && <ReturnOrder key={orderId} orderId={orderId} />}
     </Space>

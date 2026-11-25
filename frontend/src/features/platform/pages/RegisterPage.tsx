@@ -14,6 +14,7 @@ import type { FieldError } from '../../../shared/api/client';
 import { useRegisterStore } from '../../../shared/api/session';
 import { ErrorAlert, useDocumentTitle } from '../../../shared/components';
 import type { RegisterStoreRequest } from '../../../shared/types/platform';
+import '../auth.css';
 
 /** Giống `LoginKeys.OWNER_LOGIN_KEY` ở backend: số điện thoại (`0` hoặc `+84`, rồi 9 chữ số) hoặc email ASCII. */
 const OWNER_LOGIN_KEY = /^(?:(?:0|\+84)[0-9]{9}|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})$/;
@@ -100,9 +101,9 @@ export function RegisterPage() {
   };
 
   return (
-    <div className="login-page">
+    <main className="login-page" aria-labelledby="register-title">
       <Card style={{ width: '100%', maxWidth: 440 }}>
-        <Typography.Title level={3} style={{ marginTop: 0 }}>
+        <Typography.Title level={1} id="register-title" className="login-title">
           Đăng ký Cửa hàng
         </Typography.Title>
         <Typography.Paragraph type="secondary">
@@ -111,8 +112,11 @@ export function RegisterPage() {
         {registerStore.isError ? <RegisterError error={registerStore.error} /> : null}
         <Form<RegisterFormValues>
           form={form}
+          name="register-store"
           layout="vertical"
+          labelWrap
           requiredMark={false}
+          scrollToFirstError={{ focus: true }}
           onFinish={onFinish}
           disabled={registerStore.isPending}
         >
@@ -124,7 +128,7 @@ export function RegisterPage() {
               { max: 200, message: 'Tên Cửa hàng tối đa 200 ký tự' },
             ]}
           >
-            <Input autoComplete="organization" autoFocus />
+            <Input autoComplete="organization" />
           </Form.Item>
           <Form.Item
             name="displayName"
@@ -148,7 +152,7 @@ export function RegisterPage() {
               },
             ]}
           >
-            <Input autoComplete="username" />
+            <Input autoComplete="username" autoCapitalize="none" spellCheck={false} />
           </Form.Item>
           <Form.Item
             name="password"
@@ -188,6 +192,6 @@ export function RegisterPage() {
           Đã có tài khoản? <Link to="/login">Đăng nhập</Link>
         </Typography.Paragraph>
       </Card>
-    </div>
+    </main>
   );
 }

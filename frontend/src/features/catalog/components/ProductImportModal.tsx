@@ -31,6 +31,7 @@ import {
   useImportProducts,
 } from '../api/products';
 import type { ProductImportResult, ProductImportRowError } from '../api/products';
+import { useCatalogDialog } from './useCatalogDialog';
 
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 const ACCEPT = `.xlsx,${XLSX_TYPE}`;
@@ -132,6 +133,7 @@ function ImportResultView({ result }: { result: ProductImportResult }) {
           rowKey="key"
           columns={FAILED_COLUMNS}
           dataSource={failed}
+          scroll={{ x: 420 }}
           pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
         />
       ) : null}
@@ -140,6 +142,7 @@ function ImportResultView({ result }: { result: ProductImportResult }) {
 }
 
 export function ProductImportModal({ onClose, onImported }: ProductImportModalProps) {
+  const { close, modalProps } = useCatalogDialog(onClose);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const importing = useImportProducts();
@@ -172,12 +175,12 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
         <Button key="again" onClick={startOver}>
           Nhập file khác
         </Button>,
-        <Button key="close" type="primary" onClick={onClose}>
+        <Button key="close" type="primary" onClick={close}>
           Đóng
         </Button>,
       ]
     : [
-        <Button key="cancel" disabled={pending} onClick={onClose}>
+        <Button key="cancel" disabled={pending} onClick={close}>
           Hủy
         </Button>,
         <Button key="import" type="primary" loading={pending} disabled={file === null} onClick={submit}>
@@ -187,12 +190,12 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
 
   return (
     <Modal
-      open
+      {...modalProps}
       title="Nhập Sản phẩm từ Excel"
       width={720}
       footer={footer}
       onCancel={() => {
-        if (!pending) onClose();
+        if (!pending) close();
       }}
       closable={!pending}
       keyboard={!pending}
@@ -251,8 +254,8 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
                 </Button>
               </Upload>
               {file !== null ? (
-                <Typography.Text>
-                  <FileExcelOutlined /> {file.name}
+                <Typography.Text style={{ overflowWrap: 'anywhere' }}>
+                  <FileExcelOutlined aria-hidden /> {file.name}
                 </Typography.Text>
               ) : null}
             </Flex>

@@ -11,15 +11,11 @@
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../shared/api/client';
-import { pageRequestToQuery } from '../../../shared/api/pagination';
-import type { PageRequest, PageResponse } from '../../../shared/api/pagination';
+import { USERS_PATH, usersQueryKey } from '../../../shared/api/storeUsers';
+export { fetchUsers, USERS_PATH, usersQueryKey } from '../../../shared/api/storeUsers';
 import type { Uuid } from '../../../shared/types/common';
 import type { CreateStaffRequest, ResetPasswordRequest, StoreUser } from '../../../shared/types/platform';
 import { hasInvalidStoreChars, normalizeStoreText, storeTextLength } from './store';
-
-export const USERS_PATH = '/api/v1/platform/users';
-
-export const usersQueryKey = ['platform', 'users'] as const;
 
 export const LOGIN_TAKEN = '/errors/platform/login-taken';
 export const OWNER_PROTECTED = '/errors/platform/owner-protected';
@@ -39,10 +35,6 @@ const LOGIN_KEY_CHARS = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const VIETNAM_PHONE = /^(?:0|\+84)([0-9]{9})$/;
 const PHONE_SEPARATORS = /[ .-]/g;
 const OWNER_SHAPED = /^(?:(?:0|\+84)[0-9]{9}|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,})$/;
-
-export function fetchUsers(request: PageRequest, signal?: AbortSignal): Promise<PageResponse<StoreUser>> {
-  return api.get<PageResponse<StoreUser>>(USERS_PATH, { query: pageRequestToQuery(request), signal });
-}
 
 /** Cắt hai đầu như `String.trim()` của Java (mọi ký tự ≤ U+0020), như backend làm với tên đăng nhập. */
 function trimLikeJava(text: string): string {

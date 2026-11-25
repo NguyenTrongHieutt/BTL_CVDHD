@@ -5,7 +5,7 @@
  * - `RequireRole`: vai trò không nằm trong `roles` thì hiện trang 403. Chỉ để ẩn giao diện:
  *   backend vẫn kiểm quyền mọi endpoint (AD-16).
  */
-import { Button, Result, Spin } from 'antd';
+import { Button, Result, Spin, Typography } from 'antd';
 import type { ReactNode } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { isApiError } from '../shared/api/client';
@@ -27,24 +27,25 @@ export function RequireAuth({ children }: { children: ReactNode }) {
     }
     const described = describeError(me.error);
     return (
-      <div className="full-page-center">
+      <main className="full-page-center">
         <Result
           status="error"
-          title="Không tải được thông tin đăng nhập"
+          title={<Typography.Title level={1}>Không tải được thông tin đăng nhập</Typography.Title>}
           subTitle={[described.message, described.hint].filter(Boolean).join(' ')}
           extra={
-            <Button type="primary" onClick={() => void me.refetch()}>
+            <Button type="primary" loading={me.isFetching} onClick={() => void me.refetch()}>
               Thử lại
             </Button>
           }
         />
-      </div>
+      </main>
     );
   }
   return (
-    <div className="full-page-center" aria-busy="true">
+    <main className="full-page-center">
       <Spin size="large" />
-    </div>
+      <span className="visually-hidden" role="status">Đang kiểm tra phiên đăng nhập…</span>
+    </main>
   );
 }
 
@@ -62,7 +63,7 @@ export function RequireRole({ roles, title, children }: RequireRoleProps) {
     return (
       <Result
         status="403"
-        title="Không có quyền"
+        title={<Typography.Title level={1}>Không có quyền</Typography.Title>}
         subTitle="Tài khoản của bạn không được mở màn hình này."
         extra={<Link to="/">Về trang chính</Link>}
       />

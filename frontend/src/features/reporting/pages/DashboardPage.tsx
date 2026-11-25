@@ -1,3 +1,4 @@
+// Trang tổng quan (FR-29). Người giữ: Lân — features/reporting (AD-20). Chỉ Chủ cửa hàng.
 import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Col, Flex, Row, Typography } from 'antd';
 import { api } from '../../../shared/api/client';

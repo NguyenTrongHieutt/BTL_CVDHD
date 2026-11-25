@@ -207,21 +207,20 @@ export function ProductsPage() {
     key: 'actions',
     // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại; lịch sử kho
     // vẫn xem được
-    render: (_, product) => (
-      <>
-      <Flex className="desktop-product-actions" wrap align="center">
-        {/* Sản phẩm nhiều Biến thể: lịch sử kho theo từng Biến thể, ở phần Biến thể của form sửa (SP-07) */}
-        {product.hasVariants ? null : (
-          <Link
-            to={stockLedgerLink(product.id, defaultVariant(product)?.id)}
-            aria-label={`Lịch sử kho ${product.name}`}
-            style={{ padding: '0 7px', whiteSpace: 'nowrap' }}
-          >
-            Lịch sử kho
-          </Link>
-        )}
-        {product.status === 'ACTIVE' ? (
-          <>
+    render: (_, product) => {
+      // Sản phẩm nhiều Biến thể xem lịch sử theo từng Biến thể trong form sửa (SP-07).
+      const historyUrl = product.hasVariants ? null : stockLedgerLink(product.id, defaultVariant(product)?.id);
+      const historyLink = historyUrl ? (
+        <Link className="product-stock-history" to={historyUrl} aria-label={`Lịch sử kho ${product.name}`}>
+          Lịch sử<span> kho</span>
+        </Link>
+      ) : null;
+      if (product.status !== 'ACTIVE') return historyLink;
+
+      return (
+        <>
+          <Flex className="desktop-product-actions" wrap align="center">
+            {historyLink}
             <Button
               type="link"
               size="small"
@@ -242,29 +241,22 @@ export function ProductsPage() {
             >
               Ngừng kinh doanh
             </Button>
-          </>
-        ) : null}
-      </Flex>
-      {product.status === 'ACTIVE' ? (
-        <Dropdown menu={{ items: [
-          ...(!product.hasVariants ? [{
-            key: 'history',
-            label: <Link to={stockLedgerLink(product.id, defaultVariant(product)?.id)}>Xem lịch sử kho</Link>,
-          }] : []),
-          { key: 'edit', label: 'Chỉnh sửa', onClick: () => setEditing({ mode: 'edit', product }) },
-          { key: 'deactivate', label: 'Ngừng bán', danger: true,
-            onClick: () => void onDeactivate(product) },
-        ] }} trigger={['click']}>
-          <Button className="mobile-product-actions" icon={<MoreOutlined />}
-            aria-label={`Thao tác ${product.name}`} disabled={deactivate.isPending} />
-        </Dropdown>
-      ) : null}
-      {product.status !== 'ACTIVE' && !product.hasVariants ? (
-        <Link className="mobile-product-history" to={stockLedgerLink(product.id, defaultVariant(product)?.id)}
-          aria-label={`Lịch sử kho ${product.name}`}>Lịch sử</Link>
-      ) : null}
-      </>
-    ),
+          </Flex>
+          <Dropdown menu={{ items: [
+            ...(historyUrl ? [{
+              key: 'history',
+              label: <Link to={historyUrl}>Xem lịch sử kho</Link>,
+            }] : []),
+            { key: 'edit', label: 'Chỉnh sửa', onClick: () => setEditing({ mode: 'edit', product }) },
+            { key: 'deactivate', label: 'Ngừng bán', danger: true,
+              onClick: () => void onDeactivate(product) },
+          ] }} trigger={['click']}>
+            <Button className="mobile-product-actions" icon={<MoreOutlined />}
+              aria-label={`Thao tác ${product.name}`} disabled={deactivate.isPending} />
+          </Dropdown>
+        </>
+      );
+    },
   };
 
   return (

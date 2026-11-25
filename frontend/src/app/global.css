@@ -382,9 +382,13 @@ textarea {
   margin: 16px 0;
 }
 
-.mobile-product-actions,
-.mobile-product-history {
+.mobile-product-actions {
   display: none;
+}
+
+.product-stock-history {
+  padding: 0 7px;
+  white-space: nowrap;
 }
 
 .pos-page {
@@ -593,7 +597,15 @@ textarea {
   .products-table .ant-table-tbody > tr > td:first-child { min-width: 150px; }
   .desktop-product-actions { display: none !important; }
   .mobile-product-actions { display: inline-flex; min-width: 44px; min-height: 44px; }
-  .mobile-product-history { display: inline-flex; min-height: 44px; align-items: center; }
+  .product-stock-history {
+    display: inline-flex;
+    min-width: 44px;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+  .product-stock-history > span { display: none; }
   .product-name-cell { display: grid; gap: 4px; overflow-wrap: anywhere; }
   .product-name-cell::after {
     content: attr(data-status);

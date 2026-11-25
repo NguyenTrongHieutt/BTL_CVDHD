@@ -82,6 +82,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
   const [showReceipt, setShowReceipt] = useState(false);
   const [pending, setPending] = useState<CreateOrderRequest | null>(null);
   const selectedCustomerId = cart.customerId;
+  const itemCount = cart.lines.reduce((total, line) => total + line.quantity, 0);
   const selectedCustomer = useQuery({
     queryKey: [...customersQueryKey, 'pos-selected', cart.customerId],
     queryFn: selectedCustomerId ? ({ signal }) => fetchCustomer(selectedCustomerId, signal) : skipToken,
@@ -229,10 +230,19 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       <div className="pos-grid">
         <div className="pos-main">
       <Card title="Thêm hàng vào giỏ"><ProductPicker searchRef={search} onPick={add} autoFocus disabled={pending !== null} /></Card>
-      <Card title="Giỏ hàng" extra={cart.lines.length > 0
-        ? <Typography.Text type="secondary">{cart.lines.length} mặt hàng</Typography.Text> : undefined}>
+      <Card title="Giỏ hàng" extra={
+        <span role="status" aria-atomic="true">
+          {itemCount > 0 ? (
+            <span className="pos-cart-count" key={itemCount}>
+              {itemCount} sản phẩm<span className="visually-hidden"> trong giỏ hàng</span>
+            </span>
+          ) : <span className="visually-hidden">Giỏ hàng chưa có sản phẩm.</span>}
+        </span>
+      }>
         {completedOrder && (
           <Alert
+            key={completedOrder.orderId}
+            className="pos-sale-success"
             type="success"
             showIcon
             title={'Đã bán hàng · ' + completedOrder.orderCode}

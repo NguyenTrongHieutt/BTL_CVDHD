@@ -518,6 +518,10 @@ textarea {
   display: none;
 }
 
+.ant-btn[aria-expanded="true"] .filter-toggle-chevron {
+  transform: rotate(180deg);
+}
+
 .product-extra-filters {
   display: contents;
 }
@@ -619,6 +623,17 @@ textarea {
 .pos-cart-empty > .anticon {
   color: var(--teal);
   font-size: 24px;
+}
+
+.pos-cart-count {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--teal-soft);
+  color: var(--teal);
+  font-size: 13px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
 }
 
 .pos-cart-table.record-table .ant-input-number {
@@ -748,6 +763,53 @@ textarea {
     padding: 0;
   }
   .product-stock-history > span { display: none; }
+}
+
+@keyframes ui-fade-in {
+  from { opacity: 0; }
+}
+
+@keyframes ui-rise-in {
+  from { opacity: 0.55; transform: translateY(6px); }
+}
+
+@keyframes ui-sider-in {
+  from { opacity: 0.75; transform: translateX(-16px); }
+}
+
+@keyframes ui-count-in {
+  from { opacity: 0.6; transform: scale(0.92); }
+}
+
+@media screen and (prefers-reduced-motion: no-preference) {
+  .login-page > .ant-card,
+  .pos-sale-success {
+    animation: ui-rise-in 220ms ease-out;
+  }
+
+  .app-sider-mask {
+    animation: ui-fade-in 170ms ease-out;
+  }
+
+  .app-sider[aria-modal="true"] {
+    animation: ui-sider-in 200ms ease-out;
+    transition: none;
+  }
+
+  .filter-toggle-chevron {
+    transition: transform 150ms ease-out;
+  }
+
+  .pos-cart-count {
+    animation: ui-count-in 170ms ease-out;
+  }
+}
+
+@media screen and (max-width: 767px) and (prefers-reduced-motion: no-preference) {
+  .orders-extra-filters:not([hidden]),
+  .product-extra-filters:not([hidden]) > .filter-field {
+    animation: ui-rise-in 180ms ease-out;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

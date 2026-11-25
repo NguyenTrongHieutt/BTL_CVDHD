@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { App, Button, Card, Input, Modal, Select, Space, Tag, Typography } from 'antd';
-import { DownOutlined, UpOutlined } from '@ant-design/icons';
+import { DownOutlined } from '@ant-design/icons';
 import { Link } from 'react-router';
 import { api, isApiError, newIdempotencyKey } from '../../../shared/api/client';
 import type { PageRequest, PageResponse } from '../../../shared/api/client';
@@ -109,7 +109,7 @@ export function OrdersPage() {
         </div>
         {compact && (
           <Button className="orders-filter-toggle"
-            icon={showFilters ? <UpOutlined aria-hidden="true" /> : <DownOutlined aria-hidden="true" />}
+            icon={<DownOutlined className="filter-toggle-chevron" aria-hidden="true" />}
             aria-expanded={showFilters} aria-controls="orders-extra-filters"
             onClick={() => setShowFilters(!showFilters)}>
             Bộ lọc{activeFilters > 0 ? ` (${activeFilters})` : ''}

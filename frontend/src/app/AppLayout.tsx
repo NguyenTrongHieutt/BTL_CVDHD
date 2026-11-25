@@ -43,8 +43,23 @@ export function AppLayout({ features }: AppLayoutProps) {
   useEffect(() => {
     if (lastPathname.current === location.pathname || menuOpen) return;
     lastPathname.current = location.pathname;
-    mainContentRef.current?.focus({ preventScroll: true });
+    const content = mainContentRef.current;
+    content?.focus({ preventScroll: true });
     if (navigationType !== 'POP') document.documentElement.scrollTop = 0;
+
+    const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (!content || typeof content.animate !== 'function' || preference.matches) return;
+
+    const fade = content.animate([{ opacity: 0.55 }, { opacity: 1 }], {
+      duration: 180,
+      easing: 'ease-out',
+    });
+    const cancel = () => fade.cancel();
+    preference.addEventListener('change', cancel);
+    return () => {
+      cancel();
+      preference.removeEventListener('change', cancel);
+    };
   }, [location.pathname, menuOpen, navigationType]);
 
   useEffect(() => {

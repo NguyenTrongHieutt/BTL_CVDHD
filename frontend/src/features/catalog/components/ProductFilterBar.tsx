@@ -10,6 +10,7 @@
  * giá đến, thì báo dưới ô (gắn với ô qua `aria-describedby`, đọc ngay nhờ `role="alert"`) và không áp dụng (backend
  * cũng từ chối, `400`).
  */
+import { DownOutlined } from '@ant-design/icons';
 import { Button, Flex, Input, Select, Typography } from 'antd';
 import { useEffect, useId, useRef, useState } from 'react';
 import { SearchInput, useCompactLayout } from '../../../shared/components';
@@ -172,7 +173,8 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
         />
       </div>
       {compact && (
-        <Button aria-expanded={showFilters} aria-controls={`${filterId}-extra`}
+        <Button icon={<DownOutlined className="filter-toggle-chevron" aria-hidden="true" />}
+          aria-expanded={showFilters} aria-controls={`${filterId}-extra`}
           onClick={() => setShowFilters(!showFilters)}>
           Bộ lọc{activeFilters > 0 ? ` (${activeFilters})` : ''}
         </Button>

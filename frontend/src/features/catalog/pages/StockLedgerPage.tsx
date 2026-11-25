@@ -14,14 +14,14 @@
  * (đã có bảng thì giữ bảng, khung lỗi nằm trên).
  */
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Button, Flex, Table, Tag, Typography } from 'antd';
+import { Button, Flex, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { isApiError } from '../../../shared/api/client';
 import { DEFAULT_PAGE_SIZE } from '../../../shared/api/pagination';
 import type { PageRequest } from '../../../shared/api/pagination';
-import { ErrorAlert, fromAntdChange, toAntdPagination, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert, RecordTable, fromAntdChange, toAntdPagination, useDocumentTitle } from '../../../shared/components';
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import type { StockLedgerEntry } from '../../../shared/types/inventory';
 import {
@@ -95,12 +95,14 @@ const COLUMNS: TableColumnsType<LedgerRow> = [
     title: 'Thời điểm',
     dataIndex: 'createdAt',
     key: 'createdAt',
+    width: 146,
     render: (createdAt: string) => <span style={{ whiteSpace: 'nowrap' }}>{formatDateTime(createdAt)}</span>,
   },
   {
     title: 'Loại giao dịch',
     dataIndex: 'documentType',
     key: 'documentType',
+    width: 120,
     render: (documentType: string) => {
       const { label, color } = documentTypeInfo(documentType);
       return <Tag color={color}>{label}</Tag>;
@@ -125,6 +127,7 @@ const COLUMNS: TableColumnsType<LedgerRow> = [
     title: 'Thay đổi',
     dataIndex: 'delta',
     key: 'delta',
+    width: 90,
     align: 'right',
     render: (delta: number) => (
       <Typography.Text strong type={delta > 0 ? 'success' : delta < 0 ? 'danger' : undefined}>
@@ -136,6 +139,7 @@ const COLUMNS: TableColumnsType<LedgerRow> = [
     title: 'Tồn sau thay đổi',
     dataIndex: 'quantityAfter',
     key: 'quantityAfter',
+    width: 110,
     align: 'right',
     render: (quantityAfter: number) => quantityFormatter.format(quantityAfter),
   },
@@ -143,12 +147,14 @@ const COLUMNS: TableColumnsType<LedgerRow> = [
     title: 'Người thực hiện',
     dataIndex: 'actorName',
     key: 'actorName',
+    width: 142,
     render: (actorName: string | null) => actorName ?? EMPTY,
   },
   {
     title: 'Mã chứng từ',
     dataIndex: 'documentId',
     key: 'documentId',
+    width: 122,
     render: (documentId: string) => (
       <Typography.Text
         code
@@ -249,12 +255,15 @@ export function StockLedgerPage() {
       ) : null}
       {/* Tải lại lỗi mà đã có bảng (dữ liệu cũ của cùng bộ lọc): giữ bảng, khung lỗi ở trên */}
       {loadFailed && !data ? null : (
-        <Table<LedgerRow>
+        <RecordTable<LedgerRow>
+          compactColumns={{ title: 'product', status: 'documentType' }}
           rowKey="key"
           columns={COLUMNS}
           dataSource={rows}
           loading={!dateError && ledger.isFetching}
-          scroll={{ x: 'max-content' }}
+          tableLayout="fixed"
+          scroll={{ x: 940 }}
+          style={{ overflowWrap: 'anywhere' }}
           locale={{ emptyText: emptyText() }}
           pagination={{
             ...toAntdPagination(data, request),

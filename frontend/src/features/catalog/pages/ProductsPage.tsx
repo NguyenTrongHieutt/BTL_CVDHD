@@ -98,11 +98,13 @@ const columns: TableColumnsType<Product> = [
     title: 'Danh mục',
     dataIndex: 'categoryName',
     key: 'categoryName',
+    width: 110,
     render: (name: string | null) => name ?? EMPTY,
   },
   {
     title: 'SKU',
     key: 'sku',
+    width: 90,
     // Sản phẩm nhiều Biến thể (SP-07): mỗi Biến thể một SKU, nên hiện số Biến thể đang bán
     render: (_, product) =>
       product.hasVariants ? (
@@ -116,12 +118,14 @@ const columns: TableColumnsType<Product> = [
   {
     title: 'Mã vạch',
     key: 'barcode',
+    width: 112,
     render: (_, product) => (product.hasVariants ? EMPTY : (defaultVariant(product)?.barcode ?? EMPTY)),
   },
-  { title: 'Đơn vị tính', dataIndex: 'unit', key: 'unit' },
+  { title: 'Đơn vị tính', dataIndex: 'unit', key: 'unit', width: 76 },
   {
     title: 'Giá bán',
     key: 'salePrice',
+    width: 117,
     align: 'right',
     sorter: true,
     render: (_, product) => <PriceCell product={product} />,
@@ -130,6 +134,7 @@ const columns: TableColumnsType<Product> = [
     title: 'Trạng thái',
     dataIndex: 'status',
     key: 'status',
+    width: 122,
     render: (status: Product['status']) =>
       status === 'ACTIVE' ? <Tag color="green">Đang bán</Tag> : <Tag>Ngừng kinh doanh</Tag>,
   },
@@ -137,6 +142,7 @@ const columns: TableColumnsType<Product> = [
     title: 'Ngày tạo',
     dataIndex: 'createdAt',
     key: 'createdAt',
+    width: 100,
     sorter: true,
     render: (createdAt: string) => createdDateFormatter.format(new Date(createdAt)),
   },
@@ -190,6 +196,7 @@ export function ProductsPage() {
   const actionsColumn: TableColumnsType<Product>[number] = {
     title: 'Thao tác',
     key: 'actions',
+    width: 126,
     // Sản phẩm đã ngừng kinh doanh không sửa được (backend trả `409 product-inactive`), không mở bán lại; lịch sử kho
     // vẫn xem được
     render: (_, product) => {
@@ -284,7 +291,8 @@ export function ProductsPage() {
         fetchPage={(request, signal) => fetchProducts(request, filters, signal)}
         defaultSort={initialSort}
         columns={isOwner ? [...columns, actionsColumn] : columns}
-        scroll={{ x: 'max-content' }}
+        tableLayout="fixed"
+        scroll={{ x: isOwner ? 1020 : 900 }}
         locale={{
           emptyText: filtered ? (
             <Flex vertical align="center" gap={8}>

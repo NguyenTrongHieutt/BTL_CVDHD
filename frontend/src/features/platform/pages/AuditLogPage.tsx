@@ -1,9 +1,11 @@
+import { DownOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Flex, Input, Select, Table, Typography } from 'antd';
+import { Button, Flex, Input, Modal, Select, Typography } from 'antd';
 import type { TableProps } from 'antd';
+import { useId, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { DEFAULT_PAGE_SIZE, clampPageSize } from '../../../shared/api/pagination';
-import { ErrorAlert, countDaysInclusive, formatMoney, fromAntdChange, toAntdPagination, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert, RecordTable, countDaysInclusive, formatMoney, fromAntdChange, toAntdPagination, useCompactLayout, useDocumentTitle } from '../../../shared/components';
 import { MAX_RANGE_DAYS, VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import { fetchAuditActions, fetchAuditActors, fetchAuditLog } from '../api/auditLog';
 import type { AuditEntry, AuditFilters, Snapshot } from '../api/auditLog';
@@ -46,7 +48,8 @@ function AuditDetails({ entry }: { entry: AuditEntry }) {
   const before = snapshotFields(entry.before);
   const after = snapshotFields(entry.after);
   const fields = [...new Set([...before.keys(), ...after.keys()])];
-  return <Table size="small" pagination={false} rowKey="field" tableLayout="fixed" style={{ overflowWrap: 'anywhere' }}
+  return <RecordTable size="small" pagination={false} rowKey="field" tableLayout="fixed" style={{ overflowWrap: 'anywhere' }}
+    compactColumns={{ title: 'field' }}
     locale={{ emptyText: 'Không có dữ liệu trước/sau' }}
     columns={[
       { title: 'Trường', dataIndex: 'field' },
@@ -66,6 +69,10 @@ const expandable: TableProps<AuditEntry>['expandable'] = {
 
 export function AuditLogPage() {
   useDocumentTitle(TITLE);
+  const compact = useCompactLayout();
+  const filterId = useId();
+  const [showFilters, setShowFilters] = useState(false);
+  const [detail, setDetail] = useState<AuditEntry | null>(null);
   const [params, setParams] = useSearchParams();
   const filters: AuditFilters = {};
   for (const key of ['action', 'actorId', 'fromDate', 'toDate'] as const) {
@@ -102,10 +109,20 @@ export function AuditLogPage() {
     enabled: !rangeError,
     staleTime: 0,
   });
+  const filterCount = Object.keys(filters).length;
 
   return <Flex vertical gap="middle" style={{ minWidth: 0, maxWidth: '100%' }}>
-    <Typography.Title level={1} style={{ margin: 0 }}>{TITLE}</Typography.Title>
-    <Flex gap="small" wrap align="end" role="group" aria-label="Bộ lọc nhật ký">
+    <Flex justify="space-between" align="center" wrap gap={8}>
+      <Typography.Title level={1} style={{ margin: 0 }}>{TITLE}</Typography.Title>
+      {compact && (
+        <Button icon={<DownOutlined className="filter-toggle-chevron" aria-hidden="true" />}
+          aria-expanded={showFilters} aria-controls={filterId} onClick={() => setShowFilters(previous => !previous)}>
+          Bộ lọc{filterCount > 0 ? ` (${filterCount})` : ''}
+        </Button>
+      )}
+    </Flex>
+    <Flex id={filterId} className="audit-filters" hidden={compact && !showFilters}
+      gap="small" wrap align="end" role="group" aria-label="Bộ lọc nhật ký">
       <label className="filter-field" style={{ width: 220, maxWidth: '100%' }}>Loại thao tác
         <Select aria-label="Loại thao tác" allowClear placeholder="Tất cả" style={{ width: '100%' }}
           loading={actions.isFetching} value={filters.action} disabled={actions.isError && !actions.data && !filters.action}
@@ -128,7 +145,7 @@ export function AuditLogPage() {
           aria-invalid={endHasError || undefined} aria-describedby={endHasError ? DATE_ERROR_ID : undefined}
           onChange={(event) => update({ toDate: event.target.value, page: undefined })} />
       </label>
-      <Button disabled={!Object.keys(filters).length}
+      <Button disabled={!filterCount}
         onClick={() => update({ action: undefined, actorId: undefined, fromDate: undefined, toDate: undefined, page: undefined })}>Xóa bộ lọc</Button>
     </Flex>
     {rangeError && <Typography.Text id={DATE_ERROR_ID} role="alert" type="danger">{rangeError}</Typography.Text>}
@@ -138,22 +155,33 @@ export function AuditLogPage() {
       retryLabel="Tải lại người thực hiện" onRetry={() => void actors.refetch()} />}
     {!rangeError && log.isError && <ErrorAlert error={log.error} retrying={log.isFetching}
       retryLabel="Tải lại nhật ký" onRetry={() => void log.refetch()} />}
-    {!rangeError && (!log.isError || log.data) && <Table<AuditEntry> scroll={{ x: 720 }} rowKey="id"
+    {!rangeError && (!log.isError || log.data) && <RecordTable<AuditEntry> scroll={{ x: 720 }} rowKey="id"
+      compactColumns={{ title: 'action', actions: 'details' }}
       loading={log.isFetching} dataSource={log.data?.items} tableLayout="fixed" style={{ overflowWrap: 'anywhere' }}
-      locale={{ emptyText: log.isPending ? 'Đang tải nhật ký…' : Object.keys(filters).length
+      locale={{ emptyText: log.isPending ? 'Đang tải nhật ký…' : filterCount
         ? 'Không có thao tác khớp với bộ lọc' : 'Không có nhật ký thao tác' }}
       columns={[
         { title: 'Thời điểm', dataIndex: 'createdAt', width: 134, render: (value: string) => time.format(new Date(value)) },
-        { title: 'Loại thao tác', render: (_, entry) => entry.actionLabel ?? entry.action },
-        { title: 'Người thực hiện', render: (_, entry) => entry.actorName ?? (entry.actorId ? `Chưa rõ tên · ${entry.actorId}` : 'Hệ thống') },
-        { title: 'Đối tượng', render: (_, entry) => [entry.entity, entry.entityId].filter(Boolean).join(' · ') },
+        { title: 'Loại thao tác', key: 'action', render: (_, entry) => entry.actionLabel ?? entry.action },
+        { title: 'Người thực hiện', key: 'actor', render: (_, entry) => entry.actorName ?? (entry.actorId ? `Chưa rõ tên · ${entry.actorId}` : 'Hệ thống') },
+        { title: 'Đối tượng', key: 'entity', render: (_, entry) => [entry.entity, entry.entityId].filter(Boolean).join(' · ') },
+        ...(compact ? [{
+          key: 'details',
+          render: (_: unknown, entry: AuditEntry) => (
+            <Button size="small" onClick={() => setDetail(entry)}>Chi tiết</Button>
+          ),
+        }] : []),
       ]}
-      expandable={expandable}
+      expandable={compact ? undefined : expandable}
       pagination={{ ...toAntdPagination(log.data, request), showSizeChanger: true }}
       onChange={(pagination) => {
         const next = fromAntdChange(pagination, undefined, request);
         update({ page: String(next.page), size: String(next.size) });
       }}
     />}
+    <Modal open={detail !== null} title={detail?.actionLabel ?? detail?.action}
+      onCancel={() => setDetail(null)} footer={<Button onClick={() => setDetail(null)}>Đóng</Button>}>
+      {detail && <AuditDetails entry={detail} />}
+    </Modal>
   </Flex>;
 }

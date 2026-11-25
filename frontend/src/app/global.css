@@ -443,6 +443,14 @@ textarea {
   overflow-wrap: anywhere;
 }
 
+.products-table .ant-table-cell {
+  overflow-wrap: anywhere;
+}
+
+[aria-labelledby="dashboard-today"] .money-text {
+  font-size: inherit;
+}
+
 .record-card-fields {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr));
@@ -526,7 +534,8 @@ textarea {
   display: contents;
 }
 
-.product-extra-filters[hidden] {
+.product-extra-filters[hidden],
+.audit-filters[hidden] {
   display: none;
 }
 
@@ -807,6 +816,7 @@ textarea {
 
 @media screen and (max-width: 767px) and (prefers-reduced-motion: no-preference) {
   .orders-extra-filters:not([hidden]),
+  .audit-filters:not([hidden]),
   .product-extra-filters:not([hidden]) > .filter-field {
     animation: ui-rise-in 180ms ease-out;
   }

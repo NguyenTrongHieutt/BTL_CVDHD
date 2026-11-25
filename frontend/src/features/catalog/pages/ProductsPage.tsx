@@ -231,7 +231,7 @@ export function ProductsPage() {
               loading={deactivate.isPending && deactivate.variables === product.id}
               onClick={() => void onDeactivate(product)}
             >
-              Ngừng kinh doanh
+              Ngừng bán
             </Button>
           </Flex>
           <Dropdown menu={{ items: [

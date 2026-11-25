@@ -97,6 +97,7 @@ export function SuppliersPage() {
         style={{ width: 320, maxWidth: '100%', marginBottom: 16 }}
       />
       <DataTable<Supplier>
+        compactColumns={{ title: 'name', actions: 'actions' }}
         key={`table-${tableKey}`}
         rowKey="supplierId"
         queryKey={[...suppliersQueryKey, { q, newestFirst }]}

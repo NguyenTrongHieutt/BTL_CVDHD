@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, App, Button, Card, Input, InputNumber, Pagination, Select, Space, Table, Typography } from 'antd';
+import { Alert, App, Button, Card, Input, InputNumber, Pagination, Select, Space, Typography } from 'antd';
 import { useSearchParams } from 'react-router';
 import { api, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
-import { ErrorAlert, MoneyText, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert, MoneyText, RecordTable, useDocumentTitle } from '../../../shared/components';
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import type { IsoDateTime, Money, Uuid } from '../../../shared/types/common';
 import type { OrderStatus, OrderSummary, PaymentMethod } from '../../../shared/types/sales';
@@ -129,18 +129,20 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       <Card title={data.orderCode + ' · ' + statusLabels[data.status]}>
         {detailsError}
-        <Table<ReturnLine>
+        <RecordTable<ReturnLine>
+          compactColumns={{ title: 'productName' }}
           rowKey="lineNo"
           dataSource={data.lines}
           pagination={false}
           scroll={{ x: 'max-content' }}
           columns={[
-            { title: 'Hàng hóa', render: (_, line) => [line.productName, line.variantName].filter(Boolean).join(' · ') },
+            { title: 'Hàng hóa', key: 'productName', render: (_, line) => [line.productName, line.variantName].filter(Boolean).join(' · ') },
             { title: 'Đã bán', dataIndex: 'quantity', align: 'right' },
             { title: 'Đã trả', dataIndex: 'returnedQuantity', align: 'right' },
             { title: 'Có thể trả', dataIndex: 'remainingQuantity', align: 'right' },
             ...(showForm ? [{
               title: 'Số lượng trả',
+              key: 'returnQuantity',
               render: (_: unknown, line: ReturnLine) => (
                 <InputNumber
                   aria-label={'Số lượng trả dòng ' + line.lineNo}
@@ -158,6 +160,7 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
               ),
             }, {
               title: 'Tiền hoàn',
+              key: 'refundAmount',
               render: (_: unknown, line: ReturnLine) => (
                 <MoneyText value={quote.data?.lines.find(item => item.lineNo === line.lineNo)?.refundAmount} />
               ),
@@ -170,7 +173,7 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
         <Card title="Hoàn tiền">
           <Space orientation="vertical" style={{ width: '100%' }}>
             {lines.length > 0 && !ready && pending === null &&
-              <Alert type="warning" title="Kiểm tra lại số lượng theo cột Có thể trả." />}
+              <Alert type="warning" title="Số lượng trả phải nằm trong giới hạn có thể trả." />}
             {ready && pending === null && quote.isFetching && <Typography.Text role="status">Đang tính tiền hoàn…</Typography.Text>}
             {quote.isError && pending === null && <ErrorAlert error={quote.error} retryLabel="Thử lại tính tiền hoàn"
               onRetry={() => void quote.refetch()} retrying={quote.isFetching} />}
@@ -217,13 +220,14 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
 
       {data.receipts.length > 0 && (
         <Card title="Phiếu trả đã lập">
-          <Table<ReturnReceipt>
+          <RecordTable<ReturnReceipt>
+            compactColumns={{ title: 'createdAt' }}
             rowKey="returnId"
             pagination={false}
             scroll={{ x: 'max-content' }}
             dataSource={data.receipts}
             columns={[
-              { title: 'Thời gian', render: (_, receipt) => dateTime.format(new Date(receipt.createdAt)) },
+              { title: 'Thời gian', key: 'createdAt', render: (_, receipt) => dateTime.format(new Date(receipt.createdAt)) },
               { title: 'Phương thức', render: (_, receipt) => methodLabels[receipt.refundMethod] },
               { title: 'Lý do', render: (_, receipt) => receipt.reason || '—' },
               { title: 'Tiền hoàn', align: 'right', render: (_, receipt) => <MoneyText value={receipt.refundAmount} /> },

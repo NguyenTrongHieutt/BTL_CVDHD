@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { App, Button, Card, Input, Modal, Select, Space, Table, Tag, Typography } from 'antd';
+import { App, Button, Card, Input, Modal, Select, Space, Tag, Typography } from 'antd';
+import { DownOutlined, UpOutlined } from '@ant-design/icons';
 import { Link } from 'react-router';
 import { api, isApiError, newIdempotencyKey } from '../../../shared/api/client';
 import type { PageRequest, PageResponse } from '../../../shared/api/client';
 import {
-  DateRangePicker, ErrorAlert, MoneyText, fromAntdChange, toAntdPagination, useDocumentTitle,
+  DateRangePicker, ErrorAlert, MoneyText, RecordTable, fromAntdChange, toAntdPagination, useCompactLayout, useDocumentTitle,
 } from '../../../shared/components';
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import type { DateRange, Uuid } from '../../../shared/types/common';
@@ -41,6 +42,8 @@ interface Seller {
 
 export function OrdersPage() {
   useDocumentTitle('Đơn hàng');
+  const compact = useCompactLayout();
+  const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState<Filters>({ page: 0, size: 20 });
   const [receiptOrder, setReceiptOrder] = useState<Uuid | null>(null);
   const receiptTrigger = useRef<HTMLElement>(null);
@@ -89,56 +92,82 @@ export function OrdersPage() {
     setFilters((previous) => ({ ...previous, ...change, page: 0 }));
   }
 
+  const activeFilters = [filters.customerPhone, filters.dates, filters.status, filters.sellerId].filter(Boolean).length;
   const orderList = (
     <Card hidden={receiptOrder !== null} className="no-print"
       title={<Typography.Title level={1} style={{ margin: 0 }}>Đơn hàng</Typography.Title>}>
-      <Space wrap style={{ marginBottom: 16 }}>
-        <Input.Search
-          aria-label="Mã đơn hàng"
-          placeholder="Mã đơn hàng"
-          allowClear
-          onSearch={(value) => changeFilters({ orderCode: value.trim() || undefined })}
-        />
-        <Input.Search
-          aria-label="Số điện thoại khách hàng"
-          placeholder="Số điện thoại khách hàng"
-          inputMode="tel"
-          allowClear
-          onSearch={(value) => changeFilters({ customerPhone: value.trim() || undefined })}
-        />
-        <DateRangePicker
-          value={filters.dates}
-          onChange={(dates) => changeFilters({ dates: dates ?? undefined })}
-          allowClear
-        />
-        <Select<OrderStatus>
-          aria-label="Trạng thái"
-          placeholder="Tất cả trạng thái"
-          style={{ minWidth: 165 }}
-          options={statusOptions}
-          allowClear
-          onChange={(status) => changeFilters({ status })}
-        />
-        <Select<Uuid>
-          aria-label="Người bán"
-          placeholder="Tất cả người bán"
-          style={{ minWidth: 170 }}
-          loading={sellers.isPending}
-          options={sellers.data?.map(({ sellerId, sellerName }) => ({
-            value: sellerId, label: sellerName,
-          }))}
-          showSearch={{ optionFilterProp: 'label' }}
-          allowClear
-          onChange={(sellerId) => changeFilters({ sellerId })}
-        />
-      </Space>
+      <div className="orders-filters">
+        <div className="order-filter order-filter-code">
+          <label className="filter-field-label" htmlFor="order-code-filter">Mã đơn hàng</label>
+          <Input.Search
+            id="order-code-filter"
+            placeholder="Nhập mã đơn"
+            enterButton="Tìm"
+            allowClear
+            onSearch={(value) => changeFilters({ orderCode: value.trim() || undefined })}
+          />
+        </div>
+        {compact && (
+          <Button className="orders-filter-toggle"
+            icon={showFilters ? <UpOutlined aria-hidden="true" /> : <DownOutlined aria-hidden="true" />}
+            aria-expanded={showFilters} aria-controls="orders-extra-filters"
+            onClick={() => setShowFilters(!showFilters)}>
+            Bộ lọc{activeFilters > 0 ? ` (${activeFilters})` : ''}
+          </Button>
+        )}
+        <div id="orders-extra-filters" className="orders-extra-filters" hidden={compact && !showFilters}>
+          <div className="order-filter">
+            <label className="filter-field-label" htmlFor="order-phone-filter">Số điện thoại khách hàng</label>
+          <Input.Search
+            id="order-phone-filter"
+            placeholder="Nhập số điện thoại"
+            inputMode="tel"
+            allowClear
+            onSearch={(value) => changeFilters({ customerPhone: value.trim() || undefined })}
+          />
+          </div>
+          <div className="order-filter order-filter-date">
+            <span className="filter-field-label">Khoảng ngày</span>
+          <DateRangePicker
+            value={filters.dates}
+            onChange={(dates) => changeFilters({ dates: dates ?? undefined })}
+            allowClear
+          />
+          </div>
+          <div className="order-filter">
+            <label className="filter-field-label" htmlFor="order-status-filter">Trạng thái</label>
+          <Select<OrderStatus>
+            id="order-status-filter"
+            placeholder="Tất cả trạng thái"
+            options={statusOptions}
+            allowClear
+            onChange={(status) => changeFilters({ status })}
+          />
+          </div>
+          <div className="order-filter">
+            <label className="filter-field-label" htmlFor="order-seller-filter">Người bán</label>
+          <Select<Uuid>
+            id="order-seller-filter"
+            placeholder="Tất cả người bán"
+            loading={sellers.isPending}
+            options={sellers.data?.map(({ sellerId, sellerName }) => ({
+              value: sellerId, label: sellerName,
+            }))}
+            showSearch={{ optionFilterProp: 'label' }}
+            allowClear
+            onChange={(sellerId) => changeFilters({ sellerId })}
+          />
+          </div>
+        </div>
+      </div>
       {sellers.isError && <ErrorAlert error={sellers.error} onRetry={() => void sellers.refetch()}
         retrying={sellers.isFetching} retryLabel="Tải lại người bán" />}
       {orders.isError ? (
         <ErrorAlert error={orders.error} onRetry={() => void orders.refetch()}
           retrying={orders.isFetching} retryLabel="Tải lại đơn hàng" />
       ) : (
-        <Table<OrderSummary>
+        <RecordTable<OrderSummary>
+          compactColumns={{ title: 'orderCode', status: 'status', actions: 'actions' }}
           rowKey="orderId"
           loading={orders.isFetching}
           dataSource={orders.data?.items ?? []}
@@ -155,18 +184,20 @@ export function OrdersPage() {
           }))}
           columns={[
             { title: 'Mã đơn hàng', dataIndex: 'orderCode' },
-            { title: 'Thời gian', render: (_, row) => dateTime.format(new Date(row.createdAt)) },
-            { title: 'Người bán', render: (_, row) => row.sellerName ?? '—' },
+            { title: 'Thời gian', key: 'createdAt', render: (_, row) => dateTime.format(new Date(row.createdAt)) },
+            { title: 'Người bán', key: 'seller', render: (_, row) => row.sellerName ?? '—' },
             {
               title: 'Trạng thái',
+              key: 'status',
               render: (_, row) => {
                 const { label, color } = orderStatuses[row.status];
                 return <Tag color={color}>{label}</Tag>;
               },
             },
-            { title: 'Tổng tiền', align: 'right', render: (_, row) => <MoneyText value={row.total} /> },
+            { title: 'Tổng tiền', key: 'total', align: 'right', render: (_, row) => <MoneyText value={row.total} /> },
             {
               title: 'Thao tác',
+              key: 'actions',
               render: (_, row) => (
                 <Space wrap>
                   <Button size="small" aria-label={`Xem hóa đơn ${row.orderCode}`} disabled={orders.isPlaceholderData}

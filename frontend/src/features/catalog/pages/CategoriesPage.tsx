@@ -12,13 +12,13 @@
  */
 import { PlusOutlined } from '@ant-design/icons';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { App, Button, Flex, Form, Input, Modal, Table, Typography } from 'antd';
+import { App, Button, Flex, Form, Input, Modal, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { isApiError } from '../../../shared/api/client';
 import { DEFAULT_PAGE_SIZE } from '../../../shared/api/pagination';
 import type { PageRequest } from '../../../shared/api/pagination';
-import { ErrorAlert, fromAntdChange, toAntdPagination, useConfirm, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert, RecordTable, fromAntdChange, toAntdPagination, useConfirm, useDocumentTitle } from '../../../shared/components';
 import { PROBLEM_MESSAGES } from '../../../shared/messages.vi';
 import type { Category } from '../../../shared/types/catalog';
 import {
@@ -240,7 +240,8 @@ export function CategoriesPage() {
       {remove.isError ? <ErrorAlert error={remove.error} onClose={() => remove.reset()} /> : null}
       {list.isError ? <ErrorAlert error={list.error} onRetry={() => void list.refetch()} retrying={list.isFetching} /> : null}
       {!list.isError || list.data ? (
-        <Table<Category>
+        <RecordTable<Category>
+          compactColumns={{ title: 'name', actions: 'actions' }}
           rowKey="id"
           columns={columns}
           dataSource={list.data?.items ?? []}

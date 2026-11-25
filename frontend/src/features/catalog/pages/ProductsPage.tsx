@@ -76,85 +76,71 @@ function PriceCell({ product }: { product: Product }) {
   return <MoneyText value={product.hasVariants && range ? range.min : defaultVariant(product)?.salePrice} />;
 }
 
-/** Chiều sắp ban đầu của cột `key` khi bảng mở với `sort` (`<field>,asc|desc`), để cột hiện đúng mũi tên. */
-function sortOrderOf(sort: string | undefined, key: string): 'ascend' | 'descend' | null {
-  if (sort === `${key},asc`) return 'ascend';
-  if (sort === `${key},desc`) return 'descend';
-  return null;
-}
-
 /**
  * Cột của bảng. Tên, giá bán, ngày tạo sắp được (phía server, `sort=name|salePrice|createdAt,asc|desc`); bỏ sắp thì
  * về mặc định của backend (theo tên không dấu).
  */
-function buildColumns(initialSort: string | undefined): TableColumnsType<Product> {
-  const sortable = (key: string) => ({ sorter: true, defaultSortOrder: sortOrderOf(initialSort, key) });
-  return [
-    {
-      title: 'Tên Sản phẩm',
-      dataIndex: 'name',
-      key: 'name',
-      ...sortable('name'),
-      // Ảnh thu nhỏ (SP-01b) đứng trước tên; ô vẫn chỉ có chữ là tên Sản phẩm
-      render: (name: string, product) => (
-        <Flex align="center" gap={12}>
-          <ProductThumbnail src={product.imageUrl} />
-          <span className="product-name-cell"
-            data-status={product.status === 'ACTIVE' ? 'Đang bán' : 'Ngừng kinh doanh'}
-            aria-label={`${name}. ${product.status === 'ACTIVE' ? 'Đang bán' : 'Ngừng kinh doanh'}`}>
-            {name}
-          </span>
-        </Flex>
+const columns: TableColumnsType<Product> = [
+  {
+    title: 'Tên Sản phẩm',
+    dataIndex: 'name',
+    key: 'name',
+    sorter: true,
+    // Ảnh thu nhỏ (SP-01b) đứng trước tên; ô vẫn chỉ có chữ là tên Sản phẩm
+    render: (name: string, product) => (
+      <Flex align="center" gap={12}>
+        <ProductThumbnail src={product.imageUrl} />
+        <span>{name}</span>
+      </Flex>
+    ),
+  },
+  {
+    title: 'Danh mục',
+    dataIndex: 'categoryName',
+    key: 'categoryName',
+    render: (name: string | null) => name ?? EMPTY,
+  },
+  {
+    title: 'SKU',
+    key: 'sku',
+    // Sản phẩm nhiều Biến thể (SP-07): mỗi Biến thể một SKU, nên hiện số Biến thể đang bán
+    render: (_, product) =>
+      product.hasVariants ? (
+        <Typography.Text type="secondary">
+          {product.variants.filter((v) => v.status === 'ACTIVE').length} Biến thể
+        </Typography.Text>
+      ) : (
+        (defaultVariant(product)?.sku ?? EMPTY)
       ),
-    },
-    {
-      title: 'Danh mục',
-      dataIndex: 'categoryName',
-      key: 'categoryName',
-      render: (name: string | null) => name ?? EMPTY,
-    },
-    {
-      title: 'SKU',
-      key: 'sku',
-      // Sản phẩm nhiều Biến thể (SP-07): mỗi Biến thể một SKU, nên hiện số Biến thể đang bán
-      render: (_, product) =>
-        product.hasVariants ? (
-          <Typography.Text type="secondary">
-            {product.variants.filter((v) => v.status === 'ACTIVE').length} Biến thể
-          </Typography.Text>
-        ) : (
-          (defaultVariant(product)?.sku ?? EMPTY)
-        ),
-    },
-    {
-      title: 'Mã vạch',
-      key: 'barcode',
-      render: (_, product) => (product.hasVariants ? EMPTY : (defaultVariant(product)?.barcode ?? EMPTY)),
-    },
-    { title: 'Đơn vị tính', dataIndex: 'unit', key: 'unit' },
-    {
-      title: 'Giá bán',
-      key: 'salePrice',
-      align: 'right',
-      ...sortable('salePrice'),
-      render: (_, product) => <PriceCell product={product} />,
-    },
-    {
-      title: 'Trạng thái',
-      dataIndex: 'status',
-      key: 'status',
-      render: (status: Product['status']) =>
-        status === 'ACTIVE' ? <Tag color="green">Đang bán</Tag> : <Tag>Ngừng kinh doanh</Tag>,
-    },
-    {
-      title: 'Ngày tạo',
-      dataIndex: 'createdAt',
-      key: 'createdAt',
-      ...sortable('createdAt'),
-      render: (createdAt: string) => createdDateFormatter.format(new Date(createdAt)),
-    },
-  ];
-}
+  },
+  {
+    title: 'Mã vạch',
+    key: 'barcode',
+    render: (_, product) => (product.hasVariants ? EMPTY : (defaultVariant(product)?.barcode ?? EMPTY)),
+  },
+  { title: 'Đơn vị tính', dataIndex: 'unit', key: 'unit' },
+  {
+    title: 'Giá bán',
+    key: 'salePrice',
+    align: 'right',
+    sorter: true,
+    render: (_, product) => <PriceCell product={product} />,
+  },
+  {
+    title: 'Trạng thái',
+    dataIndex: 'status',
+    key: 'status',
+    render: (status: Product['status']) =>
+      status === 'ACTIVE' ? <Tag color="green">Đang bán</Tag> : <Tag>Ngừng kinh doanh</Tag>,
+  },
+  {
+    title: 'Ngày tạo',
+    dataIndex: 'createdAt',
+    key: 'createdAt',
+    sorter: true,
+    render: (createdAt: string) => createdDateFormatter.format(new Date(createdAt)),
+  },
+];
 
 export function ProductsPage() {
   useDocumentTitle('Sản phẩm');
@@ -165,7 +151,6 @@ export function ProductsPage() {
   // Đổi key thì DataTable dựng lại từ trang đầu với thứ tự `initialSort` (sau khi thêm Sản phẩm).
   const [tableKey, setTableKey] = useState(0);
   const [initialSort, setInitialSort] = useState<string | undefined>(undefined);
-  const columns = useMemo(() => buildColumns(initialSort), [initialSort]);
   const [searchParams, setSearchParams] = useSearchParams();
   const filters = useMemo(() => productFiltersFromSearchParams(searchParams), [searchParams]);
   const filtered = hasProductFilters(filters);
@@ -282,6 +267,16 @@ export function ProductsPage() {
         <ProductFilterBar value={filters} onChange={onFiltersChange} />
       </div>
       <DataTable<Product>
+        compactColumns={{ title: 'name', status: 'status', actions: 'actions' }}
+        compactSortOptions={[
+          { label: 'Mặc định', value: '' },
+          { label: 'Tên từ A đến Z', value: 'name,asc' },
+          { label: 'Tên từ Z đến A', value: 'name,desc' },
+          { label: 'Giá từ thấp đến cao', value: 'salePrice,asc' },
+          { label: 'Giá từ cao đến thấp', value: 'salePrice,desc' },
+          { label: 'Ngày tạo mới nhất', value: 'createdAt,desc' },
+          { label: 'Ngày tạo cũ nhất', value: 'createdAt,asc' },
+        ]}
         className="products-table"
         key={tableKey}
         rowKey="id"

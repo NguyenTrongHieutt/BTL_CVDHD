@@ -1,6 +1,8 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Descriptions, InputNumber, QRCode, Select, Space, Table, Typography } from 'antd';
+import { ShoppingCartOutlined } from '@ant-design/icons';
+import { Alert, Button, Card, Descriptions, InputNumber, QRCode, Select, Space, Typography } from 'antd';
+import type { InputRef } from 'antd';
 import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { customersQueryKey, fetchCustomer } from '../../../shared/api/customers';
 import { CustomerPicker } from '../../../shared/components/CustomerPicker';
@@ -11,6 +13,7 @@ import { OrderReceipt } from './OrderReceipt';
 import { useCurrentUser } from '../../../shared/api/session';
 import { LowStockPanel } from '../../../shared/components/LowStockPanel';
 import { ProductPicker } from '../../../shared/components/ProductPicker';
+import { RecordTable } from '../../../shared/components/RecordTable';
 import { useDocumentTitle } from '../../../shared/components/useDocumentTitle';
 import type { CustomerSummary } from '../../../shared/types/catalog';
 import type { CreateOrderRequest, PaymentMethod, QuoteLineRequest, QuoteRequest, QuoteResponse, SellableItem } from '../../../shared/types/sales';
@@ -68,6 +71,8 @@ function CartQuantityInput({ label, quantity, available, disabled, onCommit }: {
 }
 
 function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
+  const search = useRef<InputRef>(null);
+  const paymentHeading = useRef<HTMLHeadingElement>(null);
   const [cart, setCart] = useState(() => loadCart(storeId, userId));
   const [products, setProducts] = useState<Map<string, SellableItem>>(() => new Map());
   const [warning, setWarning] = useState('');
@@ -223,8 +228,9 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       <Typography.Title level={1} className="pos-heading" style={{ marginTop: 0 }}>Bán hàng</Typography.Title>
       <div className="pos-grid">
         <div className="pos-main">
-      <Card title="Thêm hàng vào giỏ"><ProductPicker onPick={add} autoFocus disabled={pending !== null} /></Card>
-      <Card title="Giỏ hàng">
+      <Card title="Thêm hàng vào giỏ"><ProductPicker searchRef={search} onPick={add} autoFocus disabled={pending !== null} /></Card>
+      <Card title="Giỏ hàng" extra={cart.lines.length > 0
+        ? <Typography.Text type="secondary">{cart.lines.length} mặt hàng</Typography.Text> : undefined}>
         {completedOrder && (
           <Alert
             type="success"
@@ -251,16 +257,23 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             </>
           )}
         </Space>
-        <Table<QuoteLineRequest>
+        {cart.lines.length === 0 ? (
+          <div className="pos-cart-empty">
+            <ShoppingCartOutlined aria-hidden="true" />
+            <Typography.Text strong>Giỏ hàng đang trống.</Typography.Text>
+            <Button type="link" onClick={() => search.current?.focus()}>Tìm sản phẩm</Button>
+          </div>
+        ) : (
+        <RecordTable<QuoteLineRequest>
           className="pos-cart-table"
+          compactColumns={{ title: 'productName', actions: 'actions' }}
           rowKey="variantId"
           dataSource={cart.lines}
           pagination={false}
           scroll={{ x: true }}
-          locale={{ emptyText: 'Giỏ hàng đang trống.' }}
           columns={[
-            { title: 'Sản phẩm', render: (_, line) => lineName(line) },
-            { title: 'Số lượng', render: (_, line, index) => (
+            { title: 'Sản phẩm', key: 'productName', render: (_, line) => lineName(line) },
+            { title: 'Số lượng', key: 'quantity', render: (_, line, index) => (
               <CartQuantityInput
                 label={`Số lượng dòng ${index + 1}`}
                 disabled={pending !== null}
@@ -271,6 +284,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             ) },
             {
               title: 'Giảm giá',
+              key: 'discount',
               render: (_, line, index) => (
                 <DiscountInput label={`Giảm giá dòng ${index + 1}`} value={line.discount} disabled={pending !== null}
                   onChange={(discount) => setLineDiscount(line, discount)}
@@ -279,55 +293,35 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             },
             {
               title: 'Thành tiền',
+              key: 'netLineAmount',
               render: (_, line) => <MoneyText value={pricing?.lines.find(
                 (entry) => entry.variantId === line.variantId,
               )?.netLineAmount} />,
             },
-            { title: 'Thao tác', render: (_, line, index) => (
+            { title: 'Thao tác', key: 'actions', render: (_, line, index) => (
               <Button danger aria-label={`Xóa dòng ${index + 1} khỏi giỏ`} disabled={pending !== null} onClick={() => removeLine(line)}>Xóa</Button>
             ) },
           ]}
         />
-        <div className="pos-cart-mobile">
-          {cart.lines.length === 0 && <p className="pos-cart-empty">Giỏ hàng đang trống.</p>}
-          {cart.lines.length > 0 && <div role="list" aria-label="Sản phẩm trong giỏ">
-          {cart.lines.map((line, index) => (
-            <div className="pos-cart-item" role="listitem" key={line.variantId}>
-              <div className="pos-cart-item-head">
-                <strong>{lineName(line)}</strong>
-                <MoneyText value={pricing?.lines.find(
-                  (entry) => entry.variantId === line.variantId,
-                )?.netLineAmount} strong />
-              </div>
-              <div className="pos-cart-item-fields">
-                <div>
-                  <span>Số lượng</span>
-                  <CartQuantityInput
-                    label={`Số lượng dòng ${index + 1}`}
-                    disabled={pending !== null}
-                    available={products.get(line.variantId)?.stockQuantity ?? line.quantity}
-                    quantity={line.quantity}
-                    onCommit={(quantity) => setLineQuantity(line, quantity)}
-                  />
-                </div>
-                <div>
-                  <span>Giảm giá</span>
-                  <DiscountInput label={`Giảm giá dòng ${index + 1}`} value={line.discount} disabled={pending !== null}
-                    onChange={(discount) => setLineDiscount(line, discount)} />
-                </div>
-              </div>
-              <Button danger aria-label={`Xóa dòng ${index + 1} khỏi giỏ`}
-                disabled={pending !== null} onClick={() => removeLine(line)}>Xóa khỏi giỏ</Button>
-            </div>
-          ))}
-          </div>}
-        </div>
+        )}
+        {cart.lines.length > 0 && (
+          <Button className="pos-checkout-shortcut" type="primary" block
+            onClick={() => paymentHeading.current?.focus()}>
+            Đến thanh toán
+          </Button>
+        )}
       </Card>
         </div>
         <div className="pos-side">
       {cart.lines.length > 0 && (
-        <Card title="Thanh toán">
+        <Card title={<h2 className="pos-payment-heading" tabIndex={-1} ref={paymentHeading}>Thanh toán</h2>}>
           <Space orientation="vertical" style={{ width: '100%' }}>
+            {pricing && (
+              <div className="pos-total">
+                <Typography.Text strong>Khách phải trả</Typography.Text>
+                <MoneyText value={pricing.total} strong />
+              </div>
+            )}
             <div className="pos-payment-fields">
               <div>Giảm giá cả đơn
               <DiscountInput label="Giảm giá cả đơn" value={cart.orderDiscount} disabled={pending !== null}
@@ -363,16 +357,12 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             {pricing?.vietqrPayload && (
               <Space orientation="vertical">
                 <QRCode value={pricing.vietqrPayload} />
-                <Typography.Text>{pricing.bankAccountName}</Typography.Text>
-                <Typography.Text>{pricing.transferRef}</Typography.Text>
+                {pricing.bankAccountName && <div>Tên tài khoản <Typography.Text strong>{pricing.bankAccountName}</Typography.Text></div>}
+                {pricing.transferRef && <div>Nội dung chuyển khoản <Typography.Text strong>{pricing.transferRef}</Typography.Text></div>}
               </Space>
             )}
             {pricing && (
               <>
-                <div className="pos-total">
-                  <Typography.Text strong>Khách phải trả</Typography.Text>
-                  <div><MoneyText value={pricing.total} strong /></div>
-                </div>
                 <Descriptions column={1} items={[
                   { key: 'subtotal', label: 'Tổng tiền hàng', children: <MoneyText value={pricing.subtotal} /> },
                   { key: 'lineDiscount', label: 'Giảm theo dòng', children: <MoneyText value={pricing.lineDiscountTotal} /> },

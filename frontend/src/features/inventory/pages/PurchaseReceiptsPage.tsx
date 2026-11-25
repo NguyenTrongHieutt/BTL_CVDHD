@@ -1,9 +1,9 @@
 import { useDeferredValue, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Input, InputNumber, Select, Space, Table, Typography } from 'antd';
+import { Alert, Button, Card, Input, InputNumber, Select, Space, Typography } from 'antd';
 import { api, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
-import { ErrorAlert, MoneyText, ProductPicker, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert, MoneyText, ProductPicker, RecordTable, useDocumentTitle } from '../../../shared/components';
 import type { SupplierSummary } from '../../../shared/types/catalog';
 import type { IsoDateTime, Uuid } from '../../../shared/types/common';
 import type { SellableItem } from '../../../shared/types/sales';
@@ -170,7 +170,8 @@ export function PurchaseReceiptsPage() {
       </Card>
       <Card title="Sản phẩm nhập">
         <ProductPicker onPick={addProduct} allowOutOfStock disabled={locked} />
-        <Table<DraftLine>
+        <RecordTable<DraftLine>
+          compactColumns={{ title: 'label', actions: 'actions' }}
           rowKey="variantId"
           dataSource={lines}
           pagination={false}
@@ -181,6 +182,7 @@ export function PurchaseReceiptsPage() {
             { title: 'Sản phẩm', dataIndex: 'label' },
             {
               title: 'Số lượng',
+              key: 'quantity',
               render: (_, line) => (
                 <InputNumber<number> aria-label={`Số lượng ${line.label}`} value={line.quantity}
                   aria-required="true" inputMode="numeric" min={1} max={MAX_QUANTITY} precision={0} disabled={locked}
@@ -189,6 +191,7 @@ export function PurchaseReceiptsPage() {
             },
             {
               title: 'Giá nhập (₫)',
+              key: 'unitCost',
               render: (_, line) => (
                 <InputNumber<number> aria-label={`Giá nhập ${line.label}`} value={line.unitCost}
                   aria-required="true" inputMode="numeric" min={1} max={Number.MAX_SAFE_INTEGER} precision={0}
@@ -199,6 +202,7 @@ export function PurchaseReceiptsPage() {
             },
             {
               title: 'Thành tiền',
+              key: 'amount',
               align: 'right',
               render: (_, line) => {
                 const amount = (line.quantity ?? 0) * (line.unitCost ?? 0);
@@ -207,6 +211,7 @@ export function PurchaseReceiptsPage() {
             },
             {
               title: 'Thao tác',
+              key: 'actions',
               render: (_, line) => (
                 <Button danger type="text" disabled={locked} aria-label={`Bỏ ${line.label}`}
                   onClick={() => setLines((current) => current.filter(({ variantId }) => variantId !== line.variantId))}>

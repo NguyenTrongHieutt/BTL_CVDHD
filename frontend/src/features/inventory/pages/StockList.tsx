@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Checkbox, Input, Select, Space, Table, Tag } from 'antd';
+import { Card, Checkbox, Input, Select, Space, Tag } from 'antd';
 import { api } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
 import { MoneyText } from '../../../shared/components/MoneyText';
+import { RecordTable } from '../../../shared/components/RecordTable';
 import type { Category } from '../../../shared/types/catalog';
 import type { StockLevel } from '../../../shared/types/inventory';
 
@@ -90,7 +91,8 @@ export function StockList({ owner }: { owner: boolean }) {
         <ErrorAlert error={stocks.error} retryLabel="Tải lại tồn kho"
           onRetry={() => void stocks.refetch()} retrying={stocks.isFetching} />
       ) : (
-        <Table<StockItem>
+        <RecordTable<StockItem>
+          compactColumns={{ title: 'name', status: 'status' }}
           rowKey="variantId"
           loading={stocks.isFetching}
           dataSource={stocks.data?.items ?? []}
@@ -109,6 +111,7 @@ export function StockList({ owner }: { owner: boolean }) {
           columns={[
             {
               title: 'Sản phẩm',
+              key: 'name',
               render: (_, item) => [item.productName, item.variantName].filter(Boolean).join(' · '),
             },
             { title: 'SKU', dataIndex: 'sku' },
@@ -116,13 +119,15 @@ export function StockList({ owner }: { owner: boolean }) {
             { title: 'Ngưỡng tối thiểu', dataIndex: 'minQuantity', align: 'right' },
             {
               title: 'Trạng thái',
+              key: 'status',
               render: (_, item) => {
                 if (!item.isActive) return <Tag>Ngừng kinh doanh</Tag>;
-                return item.belowMin ? <Tag color="warning">Tồn thấp</Tag> : 'Đang kinh doanh';
+                return item.belowMin ? <Tag color="warning">Tồn thấp</Tag> : <Tag color="success">Đang kinh doanh</Tag>;
               },
             },
             ...(owner ? [{
               title: 'Giá vốn bình quân',
+              key: 'avgUnitCost',
               align: 'right' as const,
               render: (_: unknown, item: StockItem) =>
                 item.avgUnitCost === undefined ? '—' : <MoneyText value={item.avgUnitCost} />,

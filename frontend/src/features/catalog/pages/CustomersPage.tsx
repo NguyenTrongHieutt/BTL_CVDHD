@@ -111,6 +111,7 @@ export function CustomersPage() {
         style={{ width: 320, maxWidth: '100%', marginBottom: 16 }}
       />
       <DataTable<Customer>
+        compactColumns={{ title: 'name', actions: 'actions' }}
         rowKey="customerId"
         queryKey={[...customersQueryKey, { q }]}
         fetchPage={(request, signal) => fetchCustomers(request, q, signal)}

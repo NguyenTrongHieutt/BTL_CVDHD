@@ -1,11 +1,14 @@
 import { useId, useState } from 'react';
+import type { Ref } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Input, Pagination, Space, Table, Tag } from 'antd';
+import { Button, Input, Pagination, Space, Tag } from 'antd';
+import type { InputRef } from 'antd';
 import { api } from '../api/client';
 import type { PageResponse } from '../api/client';
 import type { SellableItem } from '../types/sales';
 import { ErrorAlert } from './ErrorAlert';
 import { MoneyText } from './MoneyText';
+import { RecordTable } from './RecordTable';
 
 export interface ProductPickerProps {
   onPick: (item: SellableItem) => void;
@@ -14,6 +17,7 @@ export interface ProductPickerProps {
   autoFocus?: boolean;
   disabled?: boolean;
   placeholder?: string;
+  searchRef?: Ref<InputRef>;
 }
 
 interface SellableResponse {
@@ -34,7 +38,7 @@ function itemLabel(item: SellableResponse) {
 }
 
 export function ProductPicker({
-  onPick, allowOutOfStock, autoFocus, disabled,
+  onPick, allowOutOfStock, autoFocus, disabled, searchRef,
   placeholder = 'Tìm theo tên, SKU hoặc mã vạch',
 }: ProductPickerProps) {
   const inputId = useId();
@@ -53,6 +57,7 @@ export function ProductPicker({
       <div>
         <label className="filter-field-label" htmlFor={inputId}>Tìm hàng</label>
         <Input.Search
+          ref={searchRef}
           id={inputId}
           allowClear
           autoFocus={autoFocus}
@@ -70,7 +75,8 @@ export function ProductPicker({
           retrying={products.isFetching} retryLabel="Thử tìm lại" />
       )}
       {q && !products.isError && (
-        <Table<SellableResponse>
+        <RecordTable<SellableResponse>
+          compactColumns={{ title: 'productName', actions: 'actions' }}
           rowKey="variantId"
           size="small"
           loading={products.isFetching}
@@ -79,12 +85,12 @@ export function ProductPicker({
           scroll={{ x: true }}
           locale={{ emptyText: products.isFetching ? 'Đang tìm…' : 'Không tìm thấy sản phẩm.' }}
           columns={[
-            { title: 'Sản phẩm', render: (_, row) => itemLabel(row) },
-            { title: 'Giá bán', render: (_, row) => <MoneyText value={row.salePrice} /> },
-            { title: 'Tồn', render: (_, row) => (
+            { title: 'Sản phẩm', key: 'productName', render: (_, row) => itemLabel(row) },
+            { title: 'Giá bán', key: 'salePrice', render: (_, row) => <MoneyText value={row.salePrice} /> },
+            { title: 'Tồn hiện tại', key: 'quantity', render: (_, row) => (
               <Space wrap>{row.quantity}{row.belowMin && <Tag color="warning">Tồn thấp</Tag>}</Space>
             ) },
-            { title: 'Thao tác', render: (_, row) => (
+            { title: 'Thao tác', key: 'actions', render: (_, row) => (
               <Button aria-label={`Thêm ${itemLabel(row)}`} disabled={disabled || (!allowOutOfStock && row.quantity <= 0)}
                 onClick={() => onPick({
                 productId: row.productId,

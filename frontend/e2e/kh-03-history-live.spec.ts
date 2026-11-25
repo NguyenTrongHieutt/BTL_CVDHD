@@ -70,7 +70,10 @@ test.describe('KH-03 với API thật', () => {
       await expect(history.getByRole('cell', { name: /Số đơn/ })).toHaveText(/Số đơn\s*1$/);
       await expect(history.getByRole('cell', { name: /Tổng chi tiêu/ })).toContainText('30.000');
       await expect(history.getByRole('cell', { name: /Lần mua gần nhất/ })).not.toContainText('Chưa mua hàng');
-      await expect(history.getByRole('row', { name: new RegExp(order.orderCode) })).toContainText(/Hoàn tất.*30\.000.*Chủ cửa hàng KH-03/);
+      const purchase = history.getByRole('row', { name: new RegExp(order.orderCode) });
+      await expect(purchase).toContainText('Hoàn tất');
+      await expect(purchase).toContainText('30.000');
+      await expect(purchase).toContainText('Chủ cửa hàng KH-03');
       await page.keyboard.press('Escape');
       await expect(history).toBeHidden();
       await expect(historyTrigger).toBeFocused();

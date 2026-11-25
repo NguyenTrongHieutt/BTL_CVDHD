@@ -55,12 +55,15 @@ for (const role of ['OWNER', 'STAFF'] as const) {
     const an = page.getByRole('dialog', { name: 'Lịch sử mua · Anh An' });
     await expect(an.getByRole('cell', { name: /Số đơn/ })).toHaveText(/Số đơn\s*20$/);
     await expect(an.getByRole('cell', { name: /Tổng chi tiêu/ })).toContainText('200.000');
-    await expect(an.getByRole('row', { name: /AN-1\s/ })).toContainText(/Hoàn tất.*10\.000.*Lan/);
+    const firstOrder = an.getByRole('row', { name: /AN-1\s/ });
+    await expect(firstOrder).toContainText('Hoàn tất');
+    await expect(firstOrder).toContainText('10.000');
+    await expect(firstOrder).toContainText('Lan');
     await expect(an.getByRole('row', { name: /AN-2\s/ })).toContainText('Đã hủy');
-    await expect(an.getByRole('cell', { name: 'AN-21', exact: true })).toHaveCount(0);
+    await expect(an.getByText('AN-21', { exact: true })).toHaveCount(0);
     await an.getByTitle('2', { exact: true }).click();
-    await expect(an.getByRole('cell', { name: 'AN-21', exact: true })).toBeVisible();
-    await expect(an.getByRole('cell', { name: 'AN-1', exact: true })).toHaveCount(0);
+    await expect(an.getByText('AN-21', { exact: true })).toBeVisible();
+    await expect(an.getByText('AN-1', { exact: true })).toHaveCount(0);
     await an.getByRole('button').filter({ hasText: /^Đóng$/ }).click();
 
     await page.getByRole('button', { name: 'Lịch sử mua của Chị Hà' }).click();
@@ -68,6 +71,6 @@ for (const role of ['OWNER', 'STAFF'] as const) {
     await expect(ha.getByRole('cell', { name: /Số đơn/ })).toHaveText(/Số đơn\s*1$/);
     await expect(ha.getByRole('cell', { name: /Tổng chi tiêu/ })).toContainText('85.000');
     await expect(ha.getByRole('row', { name: /HA-1\s/ })).toContainText('85.000');
-    await expect(ha.getByRole('cell', { name: /^AN-/ })).toHaveCount(0);
+    await expect(ha.getByText(/^AN-\d+$/)).toHaveCount(0);
   });
 }

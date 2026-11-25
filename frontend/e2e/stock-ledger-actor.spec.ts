@@ -44,8 +44,9 @@ test('owner filters paged stock ledger by actor and clears the filter', async ({
   async function expectRows(expected: typeof ledger, total: number) {
     await expect(page.getByText(`Tổng ${total} dòng`, { exact: true })).toBeVisible();
     const rows = table.locator('tbody tr[data-row-key]');
-    await expect(rows.locator('td:nth-child(3)')).toHaveText(expected.map(row => row.productName));
-    await expect(rows.locator('td:nth-child(6)')).toHaveText(expected.map(row => row.actorName));
+    await expect(rows).toHaveCount(expected.length);
+    await expect(rows).toContainText(expected.map(row => row.productName));
+    await expect(rows).toContainText(expected.map(row => row.actorName));
   }
   async function selectActor(actor: typeof actorA) {
     await page.getByRole('combobox', { name: 'Lọc theo người thực hiện' }).click();

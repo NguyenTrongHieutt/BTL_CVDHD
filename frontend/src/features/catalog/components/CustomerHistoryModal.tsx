@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Button, Descriptions, Modal, Spin, Table, Typography } from 'antd';
+import { Button, Card, Descriptions, Flex, Grid, Modal, Spin, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
 import { DEFAULT_PAGE_SIZE } from '../../../shared/api/pagination';
@@ -24,6 +24,10 @@ const statuses: Record<OrderStatus, string> = {
   COMPLETED: 'Hoàn tất', CANCELLED: 'Đã hủy', RETURNED: 'Đã trả hàng',
 };
 
+const statusColors: Record<OrderStatus, string> = {
+  COMPLETED: 'success', CANCELLED: 'error', RETURNED: 'warning',
+};
+
 const columns: TableColumnsType<CustomerOrder> = [
   { title: 'Mã đơn', dataIndex: 'orderCode' },
   { title: 'Ngày mua', dataIndex: 'createdAt', render: formatTime },
@@ -32,8 +36,26 @@ const columns: TableColumnsType<CustomerOrder> = [
   { title: 'Người bán', dataIndex: 'sellerName' },
 ];
 
+const compactColumns: TableColumnsType<CustomerOrder> = [{
+  key: 'order',
+  render: (_, order) => (
+    <Card size="small">
+      <Flex justify="space-between" align="center" gap={6} wrap>
+        <Typography.Text strong>{order.orderCode}</Typography.Text>
+        <Tag color={statusColors[order.status]} style={{ marginInlineEnd: 0 }}>{statuses[order.status] ?? order.status}</Tag>
+      </Flex>
+      <Descriptions size="small" column={1} style={{ marginBlockStart: 8 }} items={[
+        { key: 'time', label: 'Ngày mua', children: formatTime(order.createdAt) },
+        { key: 'seller', label: 'Người bán', children: order.sellerName ?? '—' },
+        { key: 'total', label: 'Tổng tiền', children: <MoneyText value={order.total} strong /> },
+      ]} />
+    </Card>
+  ),
+}];
+
 export function CustomerHistoryModal({ customer, onClosed }: { customer: Customer; onClosed: () => void }) {
   const { customerId } = customer;
+  const compact = Grid.useBreakpoint().md === false;
   const [open, setOpen] = useState(true);
   const [request, setRequest] = useState({ page: 0, size: DEFAULT_PAGE_SIZE });
   const summary = useQuery({
@@ -50,6 +72,10 @@ export function CustomerHistoryModal({ customer, onClosed }: { customer: Custome
   return (
     <Modal open={open} title={`Lịch sử mua · ${customerLabel(customer)}`} width={800}
       onCancel={() => setOpen(false)} afterOpenChange={(visible) => { if (!visible) onClosed(); }}
+      styles={{
+        header: { paddingInlineEnd: 28, overflowWrap: 'anywhere' },
+        body: { maxHeight: '62dvh', overflowY: 'auto' },
+      }}
       footer={<Button onClick={() => setOpen(false)}>Đóng</Button>}>
       <Typography.Title level={5}>Tổng quan mua hàng</Typography.Title>
       {summary.isError ? (
@@ -71,7 +97,9 @@ export function CustomerHistoryModal({ customer, onClosed }: { customer: Custome
           <Button onClick={() => void orders.refetch()}>Tải lại đơn hàng</Button>
         </>
       ) : orders.data ? (
-        <Table rowKey="orderId" columns={columns} dataSource={orders.data.items} scroll={{ x: 640 }}
+        <Table rowKey="orderId" dataSource={orders.data.items}
+          columns={compact ? compactColumns : columns} size={compact ? 'small' : 'middle'}
+          showHeader={!compact} scroll={compact ? undefined : { x: 640 }}
           pagination={toAntdPagination(orders.data, request)}
           onChange={(pagination) => {
             const { page, size } = fromAntdChange(pagination, undefined, request);

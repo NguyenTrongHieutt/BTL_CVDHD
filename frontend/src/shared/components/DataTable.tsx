@@ -15,23 +15,25 @@
  * />
  */
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { Table } from 'antd';
-import type { TableProps } from 'antd';
 import { useState } from 'react';
 import { DEFAULT_PAGE_SIZE, clampPageSize } from '../api/pagination';
 import type { PageRequest, PageResponse } from '../api/pagination';
 import type { ModuleId } from '../types/common';
 import { ErrorAlert } from './ErrorAlert';
+import { RecordTable } from './RecordTable';
+import type { RecordTableProps } from './RecordTable';
+import { useCompactLayout } from './useCompactLayout';
 import { fromAntdChange, toAntdPagination } from './dataTablePaging';
 
 export type DataTableQueryKey = readonly [module: ModuleId, entity: string, params?: Readonly<Record<string, unknown>>];
 
-export interface DataTableProps<T> extends Omit<TableProps<T>, 'dataSource' | 'pagination' | 'loading' | 'onChange'> {
+export interface DataTableProps<T> extends Omit<RecordTableProps<T>, 'dataSource' | 'pagination' | 'loading' | 'onChange'> {
   queryKey: DataTableQueryKey;
   fetchPage: (request: PageRequest, signal: AbortSignal) => Promise<PageResponse<T>>;
   defaultPageSize?: number;
   /** Sắp xếp ban đầu, dạng `<field>,asc|desc`. */
   defaultSort?: string;
+  compactSortOptions?: { label: string; value: string }[];
 }
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -41,37 +43,65 @@ export function DataTable<T extends object>({
   fetchPage,
   defaultPageSize = DEFAULT_PAGE_SIZE,
   defaultSort,
+  compactSortOptions,
   ...tableProps
 }: DataTableProps<T>) {
   const [module, entity, params] = queryKey;
+  const compact = useCompactLayout();
   const paramsKey = JSON.stringify(params ?? {});
   const initialRequest: PageRequest = { page: 0, size: clampPageSize(defaultPageSize), sort: defaultSort };
   const [state, setState] = useState({ paramsKey, request: initialRequest });
   // Bộ lọc đổi thì về trang đầu, giữ kích thước trang và sắp xếp.
   const request = state.paramsKey === paramsKey ? state.request : { ...state.request, page: 0 };
+  const columns = compactSortOptions ? tableProps.columns?.map(column => {
+    if (!('sorter' in column) || !column.sorter) return column;
+    const [sortKey, direction] = request.sort?.split(',') ?? [];
+    return { ...column, sortOrder: sortKey === column.key ? (direction === 'asc' ? 'ascend' : 'descend') : null } as const;
+  }) : tableProps.columns;
 
   const query = useQuery({
     queryKey: [module, entity, { ...params, page: request.page, size: request.size, sort: request.sort }],
     queryFn: ({ signal }) => fetchPage(request, signal),
     placeholderData: keepPreviousData,
   });
+  const waitingForRows = query.isPending || query.isPlaceholderData;
+  const error = query.isError ? (
+    <ErrorAlert error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />
+  ) : null;
+  if (error && !query.data) return error;
 
   return (
     <>
-      {query.isError ? <ErrorAlert error={query.error} /> : null}
-      <Table<T>
+      {error}
+      {compact && compactSortOptions && (
+        <label className="compact-sort">
+          <span className="filter-field-label">Sắp xếp</span>
+          <select value={request.sort ?? ''}
+            onChange={(event) => setState({
+              paramsKey, request: { ...request, page: 0, sort: event.target.value || undefined },
+            })}>
+            {compactSortOptions.map(({ label, value }) => <option key={value} value={value}>{label}</option>)}
+          </select>
+        </label>
+      )}
+      <RecordTable<T>
         {...tableProps}
+        columns={columns}
         className={['data-table-shell', tableProps.className].filter(Boolean).join(' ')}
-        dataSource={query.data?.items ?? []}
-        loading={query.isFetching}
+        dataSource={waitingForRows ? [] : query.data?.items ?? []}
+        loading={query.isFetching && !waitingForRows}
+        locale={waitingForRows ? {
+          ...tableProps.locale,
+          emptyText: <span role="status">{query.isPaused ? 'Đang chờ kết nối mạng…' : 'Đang tải dữ liệu…'}</span>,
+        } : tableProps.locale}
         pagination={{
           ...toAntdPagination(query.data, request),
           showSizeChanger: true,
           pageSizeOptions: PAGE_SIZE_OPTIONS,
-          showTotal: (total) => `Tổng ${total.toLocaleString('vi-VN')} dòng`,
+          showTotal: waitingForRows ? undefined : (total) => `Tổng ${total.toLocaleString('vi-VN')} dòng`,
         }}
-        onChange={(pagination, _filters, sorter) =>
-          setState({ paramsKey, request: fromAntdChange(pagination, sorter, request) })
+        onChange={(pagination, _filters, sorter, { action }) =>
+          setState({ paramsKey, request: fromAntdChange(pagination, action === 'sort' ? sorter : undefined, request) })
         }
       />
     </>

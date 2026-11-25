@@ -78,6 +78,7 @@ export function StockLedgerFilterBar({ value, onChange, dateError, variantLabel 
         style={{ width: 190 }}
       />
       <Flex
+        className="stock-ledger-dates"
         vertical
         gap={4}
         role="group"

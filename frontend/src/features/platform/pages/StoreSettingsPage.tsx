@@ -360,8 +360,11 @@ function StoreForm({ store }: { store: StoreInfo }) {
       {update.isError && !formErrorsOf(update.error, otherBank) ? <ErrorAlert error={update.error} /> : null}
       <Form<StoreFormValues>
         form={form}
+        name="store-settings"
         layout="vertical"
+        labelWrap
         requiredMark={false}
+        scrollToFirstError={{ focus: true }}
         onFinish={onFinish}
         disabled={pending}
         initialValues={toFormValues(store)}
@@ -567,11 +570,11 @@ export function StoreSettingsPage() {
   const store = useStoreInfo();
   return (
     <div>
-      <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 16 }}>
+      <Typography.Title level={1} style={{ marginTop: 0, marginBottom: 16 }}>
         Thông tin Cửa hàng
       </Typography.Title>
-      {store.isError ? <ErrorAlert error={store.error} /> : null}
-      {store.isPending ? <Skeleton active /> : null}
+      {store.isError ? <ErrorAlert error={store.error} retrying={store.isFetching} onRetry={() => void store.refetch()} /> : null}
+      {store.isPending ? <div role="status" aria-label="Đang tải thông tin cửa hàng"><Skeleton active /></div> : null}
       {store.data ? <StoreForm store={store.data} /> : null}
     </div>
   );

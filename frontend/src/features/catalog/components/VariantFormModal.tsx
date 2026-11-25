@@ -41,6 +41,7 @@ import {
   wholeNumber,
 } from './productFormRules';
 import { groupThousands, normalizeText, parseWholeNumber, textLength } from './textUtils';
+import { useCatalogDialog } from './useCatalogDialog';
 import { orderedAttributeNames } from './variantRows';
 
 /** Thêm Biến thể vào Sản phẩm, hoặc sửa một Biến thể của Sản phẩm nhiều Biến thể. */
@@ -166,6 +167,7 @@ export interface VariantFormModalProps {
 
 export function VariantFormModal({ editing, onClose, onSaved }: VariantFormModalProps) {
   const [form] = Form.useForm<VariantFormValues>();
+  const { initialInput, close, modalProps } = useCatalogDialog(onClose);
   const { message } = App.useApp();
   const add = useAddVariant();
   const update = useUpdateVariant();
@@ -203,7 +205,7 @@ export function VariantFormModal({ editing, onClose, onSaved }: VariantFormModal
     const saved = (updated: Product, text: string) => {
       void message.success(text);
       onSaved(updated);
-      onClose();
+      close();
     };
     const showErrors = (error: unknown) => {
       const errors = formErrorsOf(error, editing.mode);
@@ -233,7 +235,7 @@ export function VariantFormModal({ editing, onClose, onSaved }: VariantFormModal
       (request.sku === undefined || request.sku.toUpperCase() === variant.sku) &&
       (request.barcode?.toUpperCase() ?? null) === variant.barcode;
     if (unchanged) {
-      onClose();
+      close();
       return;
     }
     update.mutate(
@@ -246,14 +248,14 @@ export function VariantFormModal({ editing, onClose, onSaved }: VariantFormModal
 
   return (
     <Modal
-      open
+      {...modalProps}
       title={editing.mode === 'add' ? 'Thêm Biến thể' : 'Sửa Biến thể'}
       okText={editing.mode === 'add' ? 'Thêm Biến thể' : 'Lưu Biến thể'}
       cancelText={closeOnly ? 'Đóng' : 'Hủy'}
       width={640}
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!pending) onClose();
+        if (!pending) close();
       }}
       confirmLoading={pending}
       okButtonProps={{ disabled: closeOnly }}
@@ -280,8 +282,8 @@ export function VariantFormModal({ editing, onClose, onSaved }: VariantFormModal
         // Tên riêng: id các ô không trùng với form Sản phẩm đang mở bên dưới (nhãn trỏ đúng ô)
         name="variant"
         layout="vertical"
-        requiredMark={false}
         onFinish={onFinish}
+        scrollToFirstError={{ focus: true }}
         disabled={pending || closeOnly}
         initialValues={initialValuesOf(editing)}
       >
@@ -295,7 +297,7 @@ export function VariantFormModal({ editing, onClose, onSaved }: VariantFormModal
               ...textRules('Nhãn', VARIANT_LABEL_MAX),
             ]}
           >
-            <Input autoComplete="off" autoFocus />
+            <Input autoComplete="off" ref={initialInput} />
           </Form.Item>
         ) : null}
         <Typography.Text strong>Thuộc tính (tùy chọn, tối đa {VARIANT_ATTRIBUTES_MAX})</Typography.Text>

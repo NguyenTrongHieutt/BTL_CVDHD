@@ -22,12 +22,12 @@ export function PagePlaceholder({ title, description, children }: PagePlaceholde
   useDocumentTitle(title);
   return (
     <div>
-      <Typography.Title level={3} style={{ marginTop: 0 }}>
+      <Typography.Title level={1} style={{ marginTop: 0 }}>
         {title}
       </Typography.Title>
       <Card className="placeholder-card">
         <span className="placeholder-icon" aria-hidden="true"><ToolOutlined /></span>
-        <Typography.Title level={4}>Tính năng đang được chuẩn bị</Typography.Title>
+        <Typography.Title level={2}>Tính năng đang được chuẩn bị</Typography.Title>
         {description ? <Typography.Paragraph type="secondary">{description}</Typography.Paragraph> : null}
       </Card>
       {children}

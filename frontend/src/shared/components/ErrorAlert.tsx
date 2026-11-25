@@ -1,7 +1,7 @@
 /**
  * Khung báo lỗi API bằng tiếng Việt (dùng `messages.vi.ts`). Người giữ: Anh.
  */
-import { Alert } from 'antd';
+import { Alert, Button } from 'antd';
 import type { CSSProperties } from 'react';
 import { describeError } from '../messages.vi';
 
@@ -10,9 +10,12 @@ export interface ErrorAlertProps {
   style?: CSSProperties;
   /** Có thì hiện nút đóng; màn hình thường xóa lỗi (ví dụ `mutation.reset()`) trong hàm này. */
   onClose?: () => void;
+  onRetry?: () => void;
+  retrying?: boolean;
+  retryLabel?: string;
 }
 
-export function ErrorAlert({ error, style, onClose }: ErrorAlertProps) {
+export function ErrorAlert({ error, style, onClose, onRetry, retrying, retryLabel = 'Thử lại' }: ErrorAlertProps) {
   const described = describeError(error);
   const lines = [
     described.hint,
@@ -25,6 +28,7 @@ export function ErrorAlert({ error, style, onClose }: ErrorAlertProps) {
       showIcon
       title={described.message}
       description={lines.length > 0 ? lines.map((line) => <div key={line}>{line}</div>) : undefined}
+      action={onRetry ? <Button loading={retrying} onClick={onRetry}>{retryLabel}</Button> : undefined}
       style={{ marginBottom: 16, ...style }}
       closable={onClose ? { onClose } : false}
     />

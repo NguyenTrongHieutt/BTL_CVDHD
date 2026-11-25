@@ -127,7 +127,7 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
   };
 
   return (
-    <Flex vertical gap={4}>
+    <Flex vertical gap={4} className="stock-ledger-product-filter">
       <Flex wrap gap={8}>
         <Select<Uuid, ProductOption>
           aria-label="Lọc theo Sản phẩm"
@@ -158,7 +158,7 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
           labelRender={({ label }) => label ?? selectedLabel()}
           notFoundContent={notFound()}
           onChange={onProductChange}
-          style={{ width: 280 }}
+          style={{ width: 280, maxWidth: '100%' }}
         />
         {chooseVariant ? (
           <Select<Uuid>
@@ -169,17 +169,17 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
             value={variantId}
             options={product.variants.map((v) => ({ value: v.id, label: variantLabel(v) }))}
             onChange={(id) => onChange({ productId: product.id, variantId: id ?? undefined })}
-            style={{ width: 220 }}
+            style={{ width: 220, maxWidth: '100%' }}
           />
         ) : null}
       </Flex>
       {chooseVariant && !variantId ? <Typography.Text type="warning">Chọn Biến thể để lọc</Typography.Text> : null}
       {detailFailed ? (
         <Flex align="center" gap={4} wrap>
-          <Typography.Text type="danger">
+          <Typography.Text type="danger" role="alert">
             Không tải được Sản phẩm đã chọn. {describeError(detail.error).message}
           </Typography.Text>
-          <Button type="link" size="small" onClick={() => void detail.refetch()}>
+          <Button type="link" size="small" loading={detail.isFetching} onClick={() => void detail.refetch()}>
             Tải lại
           </Button>
         </Flex>

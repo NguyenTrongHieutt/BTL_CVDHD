@@ -93,6 +93,7 @@ const CREATE_FIELDS: readonly (keyof CreateStaffRequest)[] = ['loginKey', 'displ
 
 function CreateStaffModal({ onClose }: { onClose: () => void }) {
   const [form] = Form.useForm<CreateFormValues>();
+  const [open, setOpen] = useState(true);
   const { message } = App.useApp();
   const create = useCreateStaff();
   // Đang gửi thì không cho đóng: đóng sẽ bỏ mất kết quả của yêu cầu đang chạy.
@@ -106,7 +107,7 @@ function CreateStaffModal({ onClose }: { onClose: () => void }) {
       {
         onSuccess: (user) => {
           void message.success(`Đã tạo tài khoản "${user.loginKey}". Nhân viên đăng nhập bằng tên này.`);
-          onClose();
+          setOpen(false);
         },
         onError: (error) => {
           if (isApiError(error) && (error.status === 0 || error.status >= 500)) lostResponse.current = true;
@@ -123,14 +124,15 @@ function CreateStaffModal({ onClose }: { onClose: () => void }) {
 
   return (
     <Modal
-      open
+      open={open}
       title="Thêm Nhân viên"
       okText="Tạo tài khoản"
       cancelText="Hủy"
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!pending) onClose();
+        if (!pending) setOpen(false);
       }}
+      afterOpenChange={(visible) => { if (!visible) onClose(); }}
       confirmLoading={pending}
       cancelButtonProps={{ disabled: pending }}
       closable={!pending}
@@ -138,14 +140,23 @@ function CreateStaffModal({ onClose }: { onClose: () => void }) {
       mask={{ closable: false }}
     >
       {create.isError && !formErrorsOf(create.error, CREATE_FIELDS) ? <ErrorAlert error={create.error} /> : null}
-      <Form<CreateFormValues> form={form} layout="vertical" requiredMark={false} onFinish={onFinish} disabled={pending}>
+      <Form<CreateFormValues>
+        form={form}
+        name="create-staff"
+        layout="vertical"
+        labelWrap
+        requiredMark={false}
+        scrollToFirstError={{ focus: true }}
+        onFinish={onFinish}
+        disabled={pending}
+      >
         <Form.Item
           name="loginKey"
           label="Tên đăng nhập"
           extra={`${LOGIN_KEY_MIN}–${LOGIN_KEY_MAX} ký tự: chữ cái không dấu, chữ số, dấu . _ -. Không dùng số điện thoại hay email.`}
           rules={[checkWith(loginKeyError)]}
         >
-          <Input autoFocus autoComplete="off" spellCheck={false} />
+          <Input autoComplete="off" autoCapitalize="none" spellCheck={false} />
         </Form.Item>
         <Form.Item name="displayName" label="Tên Nhân viên" rules={[checkWith(displayNameError)]}>
           <Input autoComplete="off" />
@@ -178,6 +189,7 @@ const RESET_FIELDS: readonly 'password'[] = ['password'];
 
 function ResetPasswordModal({ user, onClose }: { user: StoreUser; onClose: () => void }) {
   const [form] = Form.useForm<ResetFormValues>();
+  const [open, setOpen] = useState(true);
   const { message } = App.useApp();
   const reset = useResetPassword();
   const pending = reset.isPending;
@@ -188,7 +200,7 @@ function ResetPasswordModal({ user, onClose }: { user: StoreUser; onClose: () =>
       {
         onSuccess: () => {
           void message.success(`Đã đặt lại mật khẩu cho "${user.displayName}". Hãy báo mật khẩu mới cho Nhân viên.`);
-          onClose();
+          setOpen(false);
         },
         onError: (error) => {
           const errors = formErrorsOf(error, RESET_FIELDS);
@@ -200,14 +212,15 @@ function ResetPasswordModal({ user, onClose }: { user: StoreUser; onClose: () =>
 
   return (
     <Modal
-      open
+      open={open}
       title={`Đặt lại mật khẩu: ${user.displayName}`}
       okText="Đặt lại mật khẩu"
       cancelText="Hủy"
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!pending) onClose();
+        if (!pending) setOpen(false);
       }}
+      afterOpenChange={(visible) => { if (!visible) onClose(); }}
       confirmLoading={pending}
       cancelButtonProps={{ disabled: pending }}
       closable={!pending}
@@ -218,9 +231,18 @@ function ResetPasswordModal({ user, onClose }: { user: StoreUser; onClose: () =>
         {`Tên đăng nhập: ${user.loginKey}. Mật khẩu cũ hết dùng được ngay khi lưu.`}
       </Typography.Paragraph>
       {reset.isError && !formErrorsOf(reset.error, RESET_FIELDS) ? <ErrorAlert error={reset.error} /> : null}
-      <Form<ResetFormValues> form={form} layout="vertical" requiredMark={false} onFinish={onFinish} disabled={pending}>
+      <Form<ResetFormValues>
+        form={form}
+        name="reset-staff-password"
+        layout="vertical"
+        labelWrap
+        requiredMark={false}
+        scrollToFirstError={{ focus: true }}
+        onFinish={onFinish}
+        disabled={pending}
+      >
         <Form.Item name="password" label="Mật khẩu mới" rules={[checkWith(passwordError)]}>
-          <Input.Password autoFocus autoComplete="new-password" />
+          <Input.Password autoComplete="new-password" />
         </Form.Item>
         <Form.Item
           name="confirmPassword"
@@ -359,12 +381,12 @@ export function StaffPage() {
   return (
     <div>
       <Flex justify="space-between" align="center" wrap gap={8} style={{ marginBottom: 8 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
+        <Typography.Title level={1} style={{ margin: 0 }}>
           Tài khoản Nhân viên
         </Typography.Title>
         <Button
           type="primary"
-          icon={<PlusOutlined />}
+          icon={<PlusOutlined aria-hidden="true" />}
           onClick={() => {
             // Chỉ xóa lỗi khóa, mở khóa cũ; không bỏ kết quả của yêu cầu đang chạy
             if (!setLocked.isPending) setLocked.reset();

@@ -109,8 +109,11 @@ function ProfileForm({ profile }: { profile: Profile }) {
       {update.isError && !fieldErrorsOf(update.error, PROFILE_FIELDS) ? <ErrorAlert error={update.error} /> : null}
       <Form<ProfileFormValues>
         form={form}
+        name="edit-profile"
         layout="vertical"
+        labelWrap
         requiredMark={false}
+        scrollToFirstError={{ focus: true }}
         onFinish={onFinish}
         disabled={pending}
         initialValues={toFormValues(profile)}
@@ -204,7 +207,16 @@ function ChangePasswordForm({ profile }: { profile: Profile | undefined }) {
         </Typography.Paragraph>
       ) : null}
       {change.isError && !passwordFormErrorsOf(change.error) ? <ErrorAlert error={change.error} /> : null}
-      <Form<PasswordFormValues> form={form} layout="vertical" requiredMark={false} onFinish={onFinish} disabled={pending}>
+      <Form<PasswordFormValues>
+        form={form}
+        name="change-password"
+        layout="vertical"
+        labelWrap
+        requiredMark={false}
+        scrollToFirstError={{ focus: true }}
+        onFinish={onFinish}
+        disabled={pending}
+      >
         {profile ? (
           <input
             type="text"
@@ -261,11 +273,11 @@ export function ProfilePage() {
   const profile = useProfile();
   return (
     <div style={{ maxWidth: 560 }}>
-      <Typography.Title level={3} style={{ marginTop: 0, marginBottom: 16 }}>
+      <Typography.Title level={1} style={{ marginTop: 0, marginBottom: 16 }}>
         Thông tin cá nhân
       </Typography.Title>
-      {profile.isError ? <ErrorAlert error={profile.error} /> : null}
-      {profile.isPending ? <Skeleton active /> : null}
+      {profile.isError ? <ErrorAlert error={profile.error} retrying={profile.isFetching} onRetry={() => void profile.refetch()} /> : null}
+      {profile.isPending ? <div role="status" aria-label="Đang tải thông tin cá nhân"><Skeleton active /></div> : null}
       {profile.data ? <ProfileForm profile={profile.data} /> : null}
       <ChangePasswordForm profile={profile.data} />
     </div>

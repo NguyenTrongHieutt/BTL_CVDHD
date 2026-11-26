@@ -9,6 +9,7 @@ import {
   DateRangePicker, ErrorAlert, MoneyText, RecordTable, fromAntdChange, toAntdPagination, useCompactLayout, useDocumentTitle,
 } from '../../../shared/components';
 import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
+import { LocalFilterSelect } from '../../../shared/components/LocalFilterSelect';
 import type { DateRange, Uuid } from '../../../shared/types/common';
 import type { OrderStatus, OrderSummary } from '../../../shared/types/sales';
 import { OrderReceipt } from './OrderReceipt';
@@ -146,14 +147,14 @@ export function OrdersPage() {
           </div>
           <div className="order-filter">
             <label className="filter-field-label" htmlFor="order-seller-filter">Người bán</label>
-          <Select<Uuid>
+          <LocalFilterSelect
             id="order-seller-filter"
             placeholder="Tất cả người bán"
             loading={sellers.isPending}
-            options={sellers.data?.map(({ sellerId, sellerName }) => ({
+            options={(sellers.data ?? []).map(({ sellerId, sellerName }) => ({
               value: sellerId, label: sellerName,
             }))}
-            showSearch={{ optionFilterProp: 'label' }}
+            value={filters.sellerId}
             allowClear
             onChange={(sellerId) => changeFilters({ sellerId })}
           />

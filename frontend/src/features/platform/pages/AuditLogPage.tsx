@@ -9,7 +9,7 @@ import { ErrorAlert, RecordTable, countDaysInclusive, formatMoney, fromAntdChang
 import { MAX_RANGE_DAYS, VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import { fetchAuditActions, fetchAuditLog } from '../api/auditLog';
 import type { AuditEntry, AuditFilters, Snapshot } from '../api/auditLog';
-import { actorOptionsKey, fetchActorOptions } from '../../../shared/api/storeUsers';
+import { ActorFilterSelect } from '../../../shared/components/ActorFilterSelect';
 
 const TITLE = 'Nhật ký thao tác';
 const DATE_ERROR_ID = 'audit-log-date-error';
@@ -102,7 +102,6 @@ export function AuditLogPage() {
     setParams(next, { replace: true });
   }
   const actions = useQuery({ queryKey: ['platform', 'audit-log', 'actions'], queryFn: ({ signal }) => fetchAuditActions(signal) });
-  const actors = useQuery({ queryKey: actorOptionsKey, queryFn: ({ signal }) => fetchActorOptions(signal) });
   const log = useQuery({
     queryKey: ['platform', 'audit-log', filters, request],
     queryFn: ({ signal }) => fetchAuditLog(filters, request, signal),
@@ -130,9 +129,8 @@ export function AuditLogPage() {
           onChange={(action) => update({ action, page: undefined })} />
       </label>
       <label className="filter-field" style={{ width: 180, maxWidth: '100%' }}>Người thực hiện
-        <Select aria-label="Người thực hiện" allowClear placeholder="Tất cả" style={{ width: '100%' }}
-          loading={actors.isFetching} value={filters.actorId} disabled={actors.isError && !actors.data && !filters.actorId}
-          options={actors.data?.map(({ userId, displayName }) => ({ value: userId, label: displayName }))}
+        <ActorFilterSelect ariaLabel="Người thực hiện" placeholder="Tất cả" style={{ width: '100%' }}
+          value={filters.actorId}
           onChange={(actorId) => update({ actorId, page: undefined })} />
       </label>
       <label className="filter-field">Từ ngày
@@ -151,8 +149,6 @@ export function AuditLogPage() {
     {rangeError && <Typography.Text id={DATE_ERROR_ID} role="alert" type="danger">{rangeError}</Typography.Text>}
     {actions.isError && <ErrorAlert error={actions.error} retrying={actions.isFetching}
       retryLabel="Tải lại loại thao tác" onRetry={() => void actions.refetch()} />}
-    {actors.isError && <ErrorAlert error={actors.error} retrying={actors.isFetching}
-      retryLabel="Tải lại người thực hiện" onRetry={() => void actors.refetch()} />}
     {!rangeError && log.isError && <ErrorAlert error={log.error} retrying={log.isFetching}
       retryLabel="Tải lại nhật ký" onRetry={() => void log.refetch()} />}
     {!rangeError && (!log.isError || log.data) && <RecordTable<AuditEntry> scroll={{ x: 720 }} rowKey="id"

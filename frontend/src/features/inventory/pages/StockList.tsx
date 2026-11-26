@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Checkbox, Input, Select, Space, Tag, Typography } from 'antd';
+import { Card, Checkbox, Input, Space, Tag, Typography } from 'antd';
 import { api } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
+import { CategoryFilterSelect } from '../../../shared/components/CategoryFilterSelect';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
 import { MoneyText } from '../../../shared/components/MoneyText';
 import { RecordTable } from '../../../shared/components/RecordTable';
-import type { Category } from '../../../shared/types/catalog';
+import type { FilterOption } from '../../../shared/components/RemoteFilterSelect';
 import type { StockLevel } from '../../../shared/types/inventory';
 
 export interface StockItem extends StockLevel {
@@ -18,7 +19,7 @@ export interface StockItem extends StockLevel {
 
 interface StockFilters {
   q: string;
-  categoryId: string | undefined;
+  category?: FilterOption;
   belowMin: boolean;
   includeInactive: boolean;
   page: number;
@@ -27,26 +28,14 @@ interface StockFilters {
 
 export function StockList({ owner }: { owner: boolean }) {
   const [filters, setFilters] = useState<StockFilters>({
-    q: '', categoryId: undefined, belowMin: false, includeInactive: false, page: 0, size: 20,
+    q: '', belowMin: false, includeInactive: false, page: 0, size: 20,
   });
-  const categories = useQuery({
-    queryKey: ['catalog', 'categories', 'inventory-options'],
-    queryFn: async ({ signal }) => {
-      const items: Category[] = [];
-      for (let page = 0; ; page += 1) {
-        const result = await api.get<PageResponse<Category>>('/api/v1/catalog/categories', {
-          query: { page, size: 100 }, signal,
-        });
-        items.push(...result.items);
-        if (items.length >= result.total || result.items.length === 0) return items;
-      }
-    },
-  });
+  const { category, ...pagingAndFilters } = filters;
+  const params = { ...pagingAndFilters, categoryId: category?.value, q: filters.q || undefined, belowMin: filters.belowMin || undefined };
   const stocks = useQuery({
-    queryKey: ['inventory', 'stock', filters],
+    queryKey: ['inventory', 'stock', params],
     queryFn: ({ signal }) => api.get<PageResponse<StockItem>>('/api/v1/inventory/stock', {
-      query: { ...filters, q: filters.q || undefined, belowMin: filters.belowMin || undefined },
-      signal,
+      query: params, signal,
     }),
   });
 
@@ -70,15 +59,12 @@ export function StockList({ owner }: { owner: boolean }) {
         </Space>
         <Space orientation="vertical" size={4}>
           <label htmlFor="stock-category">Danh mục</label>
-          <Select<string>
+          <CategoryFilterSelect
             id="stock-category"
-            placeholder="Tất cả danh mục"
-            allowClear
-            loading={categories.isFetching}
-            style={{ minWidth: 180 }}
-            options={categories.data?.map((category) => ({ value: category.id, label: category.name }))}
-            notFoundContent={categories.isError ? 'Chưa tải được danh mục.' : undefined}
-            onChange={(categoryId) => changeFilters({ categoryId })}
+            ariaLabel="Danh mục"
+            style={{ width: 190, maxWidth: '100%' }}
+            value={category}
+            onChange={(next) => changeFilters({ category: next })}
           />
         </Space>
         <Checkbox checked={filters.belowMin} onChange={(event) => changeFilters({ belowMin: event.target.checked })}>
@@ -97,8 +83,6 @@ export function StockList({ owner }: { owner: boolean }) {
             : stocks.isSuccess && !stocks.isFetching && <Typography.Text type="secondary">{inactiveSummary}</Typography.Text>}
         </div>
       )}
-      {categories.isError && <ErrorAlert error={categories.error} retryLabel="Tải lại danh mục"
-        onRetry={() => void categories.refetch()} retrying={categories.isFetching} />}
       {stocks.isError ? (
         <ErrorAlert error={stocks.error} retryLabel="Tải lại tồn kho"
           onRetry={() => void stocks.refetch()} retrying={stocks.isFetching} />

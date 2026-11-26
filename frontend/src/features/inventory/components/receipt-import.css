@@ -6,7 +6,6 @@
   color: var(--muted);
 }
 
-.receipt-import-grid,
 .receipt-import-totals {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 165px), 1fr));
@@ -22,17 +21,6 @@
 
 .receipt-import-field > label {
   font-weight: 600;
-}
-
-.receipt-import-supplier {
-  width: 100%;
-  min-height: 40px;
-  padding-inline: 10px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  color: inherit;
-  font: inherit;
 }
 
 .receipt-import-totals > div {
@@ -67,7 +55,7 @@
   }
 
   .receipt-import-dialog .ant-btn,
-  .receipt-import-supplier {
+  .receipt-import-dialog .ant-select {
     min-height: 44px;
   }
 }

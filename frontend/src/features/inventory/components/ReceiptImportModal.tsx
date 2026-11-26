@@ -202,7 +202,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
               <Alert type="info" showIcon title="Các dòng đã chọn thủ công vẫn nằm ở màn Phiếu nhập."
                 description="Phiếu đang tạo trong hộp thoại này sử dụng các dòng từ file." />
             )}
-            <ReceiptSupplierSelect inline value={supplier} onChange={setSupplier} disabled={busy} />
+            <ReceiptSupplierSelect value={supplier} onChange={setSupplier} disabled={busy} />
             <div className="receipt-import-field">
               <label htmlFor={noteId}>Ghi chú (không bắt buộc)</label>
               <Input id={noteId} value={note} maxLength={500} disabled={busy} onChange={event => setNote(event.target.value)} />

@@ -167,6 +167,7 @@ export function StocktakesPage() {
           onRetry={() => void stocks.refetch()} retrying={stocks.isFetching} />}
         {search.q && !stocks.isError && (
           <RecordTable<StockCandidate>
+            scrollRows
             compactColumns={{ title: 'name', status: 'status', actions: 'actions' }}
             rowKey="variantId"
             loading={stocks.isFetching}
@@ -204,6 +205,7 @@ export function StocktakesPage() {
           <Typography.Text>Nhập số đếm thực tế, kể cả 0. Dòng có chênh lệch cần nhập lý do.</Typography.Text>
           {save.isError && <ErrorAlert error={save.error} />}
           <RecordTable<DraftLine>
+            scrollRows
             compactColumns={{ title: 'label', actions: 'actions' }}
             rowKey="variantId"
             dataSource={lines}

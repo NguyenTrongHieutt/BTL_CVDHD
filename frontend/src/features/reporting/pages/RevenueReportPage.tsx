@@ -127,6 +127,7 @@ export function RevenueReportPage() {
 
           <Card title="Doanh thu theo ngày">
             <RecordTable<RevenueDay>
+              scrollRows
               key={range.fromDate + ':' + range.toDate}
               rowKey="date"
               dataSource={revenue.rows}

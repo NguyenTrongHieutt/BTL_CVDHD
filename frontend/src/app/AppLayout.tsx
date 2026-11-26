@@ -33,12 +33,27 @@ export function AppLayout({ features }: AppLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const menuToggleRef = useRef<HTMLButtonElement>(null);
   const menuCloseRef = useRef<HTMLButtonElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const mainContentRef = useRef<HTMLElement>(null);
   const lastPathname = useRef(location.pathname);
   const menuOpen = narrow && !collapsed;
 
   const items = useMemo(() => buildMenuItems(features, me.role), [features, me.role]);
   const selectedKey = selectedMenuKey(features, location.pathname);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    if (!header || typeof ResizeObserver === 'undefined') return;
+    const root = document.documentElement;
+    const updateHeight = () => root.style.setProperty('--app-header-height', `${header.offsetHeight}px`);
+    updateHeight();
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(header);
+    return () => {
+      observer.disconnect();
+      root.style.removeProperty('--app-header-height');
+    };
+  }, []);
 
   useEffect(() => {
     if (lastPathname.current === location.pathname || menuOpen) return;
@@ -184,7 +199,7 @@ export function AppLayout({ features }: AppLayoutProps) {
           }} />
       ) : null}
       <Layout inert={menuOpen}>
-        <Layout.Header className="app-chrome app-header" style={{ background: token.colorBgContainer }}>
+        <Layout.Header ref={headerRef} className="app-chrome app-header" style={{ background: token.colorBgContainer }}>
           {narrow ? (
             <Button
               ref={menuToggleRef}

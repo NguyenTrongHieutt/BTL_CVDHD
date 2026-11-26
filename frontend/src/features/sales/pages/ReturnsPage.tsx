@@ -130,6 +130,7 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
       <Card title={data.orderCode + ' · ' + statusLabels[data.status]}>
         {detailsError}
         <RecordTable<ReturnLine>
+          scrollRows
           compactColumns={{ title: 'productName' }}
           rowKey="lineNo"
           dataSource={data.lines}
@@ -221,6 +222,7 @@ function ReturnOrder({ orderId }: { orderId: Uuid }) {
       {data.receipts.length > 0 && (
         <Card title="Phiếu trả đã lập">
           <RecordTable<ReturnReceipt>
+            scrollRows
             compactColumns={{ title: 'createdAt' }}
             rowKey="returnId"
             pagination={false}

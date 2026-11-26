@@ -88,6 +88,7 @@ export function StockList({ owner }: { owner: boolean }) {
           onRetry={() => void stocks.refetch()} retrying={stocks.isFetching} />
       ) : (
         <RecordTable<StockItem>
+          scrollRows
           compactColumns={{ title: 'name', status: 'status' }}
           rowKey="variantId"
           loading={stocks.isFetching}

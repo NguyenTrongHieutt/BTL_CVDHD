@@ -173,6 +173,7 @@ export function StockReportPage() {
           Số liệu lúc {dateFormatter.format(new Date(report.asOf))}. Số tổng và CSV tính trên toàn bộ kết quả đã lọc.
         </Typography.Paragraph>}
         <RecordTable<StockRow>
+          scrollRows
           rowKey="variantId"
           compactColumns={{ title: 'productName', status: 'status' }}
           dataSource={report?.items}

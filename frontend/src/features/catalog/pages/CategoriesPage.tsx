@@ -241,6 +241,7 @@ export function CategoriesPage() {
       {list.isError ? <ErrorAlert error={list.error} onRetry={() => void list.refetch()} retrying={list.isFetching} /> : null}
       {!list.isError || list.data ? (
         <RecordTable<Category>
+          scrollRows
           compactColumns={{ title: 'name', actions: 'actions' }}
           rowKey="id"
           columns={columns}

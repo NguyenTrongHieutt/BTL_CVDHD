@@ -77,6 +77,7 @@ export function ProfitReportPage() {
           </Row>
           <Card title="Lợi nhuận theo ngày">
             <RecordTable<ProfitDay>
+              scrollRows
               rowKey="date"
               dataSource={report.rows}
               pagination={{ pageSize: 14, showSizeChanger: false, hideOnSinglePage: true }}

@@ -335,6 +335,7 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
           </div>
         ) : (
         <RecordTable<QuoteLineRequest>
+          scrollRows
           className="pos-cart-table"
           compactColumns={{ title: 'productName', actions: 'actions' }}
           rowKey="variantId"

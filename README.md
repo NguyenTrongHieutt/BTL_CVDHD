@@ -1,6 +1,6 @@
 # Hệ thống quản lý bán hàng tích hợp AI — Nhóm 17
 
-Web SaaS cho cửa hàng bán lẻ nhỏ (mỗi cửa hàng một quầy): bán hàng, kho, khách hàng, báo cáo, cùng Trợ lý AI với tìm kiếm sản phẩm theo ngữ nghĩa và hỏi đáp dữ liệu bằng tiếng Việt.
+Web SaaS cho cửa hàng bán lẻ nhỏ (mỗi cửa hàng một quầy): bán hàng, kho, khách hàng, báo cáo doanh thu, sản phẩm bán chạy/bán chậm và tồn kho; Trợ lý AI có tìm kiếm sản phẩm theo ngữ nghĩa và hỏi đáp dữ liệu bằng tiếng Việt.
 
 | Thư mục | Nội dung | Người giữ | Công nghệ |
 |---|---|---|---|

@@ -6,6 +6,7 @@ import { api } from '../../../shared/api/client';
 import { DateRangePicker, ErrorAlert, MoneyText, RecordTable, todayInVietnam, useDocumentTitle } from '../../../shared/components';
 import type { DateRange, IsoDate } from '../../../shared/types/common';
 import type { QueryResponse } from '../../../shared/types/reporting';
+import { ReportExportButton } from '../ReportExportButton';
 
 interface ProfitSummary {
   revenue: number;
@@ -49,7 +50,17 @@ export function ProfitReportPage() {
           Lợi nhuận gộp bằng doanh thu thuần trừ giá vốn ghi nhận lúc bán. Hàng trả điều chỉnh số liệu theo ngày trả.
         </Typography.Text>
       </div>
-      <DateRangePicker value={range} onChange={(next) => { if (next) setRange(next); }} />
+      <Flex gap={8} wrap>
+        <DateRangePicker value={range} onChange={(next) => { if (next) setRange(next); }} />
+        <ReportExportButton
+          filename={`bao-cao-loi-nhuan-${range.fromDate}-${range.toDate}`}
+          rows={report && !query.isError ? () => [
+            ['Ngày', ...amountColumns.map(column => column.label)],
+            ...report.rows.map(row => [row.date, ...amountColumns.map(column => row[column.key])]),
+            ['Tổng', ...amountColumns.map(column => report.summary[column.key])],
+          ] : undefined}
+        />
+      </Flex>
       {query.isError && <ErrorAlert error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />}
       {query.isPending && <Typography.Text role="status">Đang tải báo cáo lợi nhuận…</Typography.Text>}
       {report && (

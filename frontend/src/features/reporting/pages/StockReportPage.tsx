@@ -5,6 +5,7 @@ import { Card, Col, Flex, Input, Row, Typography } from 'antd';
 import { api } from '../../../shared/api/client';
 import { ErrorAlert, MoneyText, RecordTable, useDocumentTitle } from '../../../shared/components';
 import type { QueryResponse } from '../../../shared/types/reporting';
+import { ReportExportButton } from '../ReportExportButton';
 
 interface StockRow {
   productId: string;
@@ -56,18 +57,29 @@ export function StockReportPage() {
         </Typography.Title>
         <Typography.Text type="secondary">Giá trị tồn được tính theo giá vốn bình quân hiện tại.</Typography.Text>
       </div>
-      <Input.Search
-        aria-label="Lọc theo sản phẩm"
-        placeholder="Tìm theo tên sản phẩm"
-        value={searchText}
-        allowClear
-        style={{ maxWidth: 360 }}
-        onChange={(event) => {
-          setSearchText(event.target.value);
-          if (!event.target.value) setProductName('');
-        }}
-        onSearch={(value) => setProductName(value.trim())}
-      />
+      <Flex gap={8} wrap>
+        <Input.Search
+          aria-label="Lọc theo sản phẩm"
+          placeholder="Tìm theo tên sản phẩm"
+          value={searchText}
+          allowClear
+          style={{ maxWidth: 360 }}
+          onChange={(event) => {
+            setSearchText(event.target.value);
+            if (!event.target.value) setProductName('');
+          }}
+          onSearch={(value) => setProductName(value.trim())}
+        />
+        <ReportExportButton
+          filename={`bao-cao-ton-kho-${report?.range.toDate ?? ''}`}
+          rows={report && !query.isError ? () => [
+            ['Sản phẩm', 'Danh mục', 'Phân loại', 'SKU', 'Số lượng tồn', 'Giá vốn bình quân', 'Giá trị tồn'],
+            ...report.rows.map(row => [row.productName, row.categoryName, row.variantName ?? 'Mặc định', row.sku,
+              row.stockQuantity, row.avgUnitCost, row.stockValue]),
+            ['Tổng', null, null, null, report.summary.stockQuantity, null, report.summary.stockValue],
+          ] : undefined}
+        />
+      </Flex>
       {query.isError && <ErrorAlert error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />}
       {query.isPending && <Typography.Text role="status">Đang tải báo cáo tồn kho…</Typography.Text>}
 

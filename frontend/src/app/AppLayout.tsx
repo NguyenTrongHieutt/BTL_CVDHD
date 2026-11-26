@@ -10,7 +10,7 @@ import { App, Button, Grid, Layout, Menu, Tag, Typography, theme } from 'antd';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate, useNavigationType } from 'react-router';
 import { useCurrentUser, useLogout } from '../shared/api/session';
-import { APP_TITLE } from '../shared/components';
+import { APP_TITLE } from '../shared/components/useDocumentTitle';
 import { describeError } from '../shared/messages.vi';
 import type { FeatureDefinition } from '../shared/routing';
 import { ROLE_LABELS } from '../shared/types/platform';

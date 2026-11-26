@@ -10,7 +10,7 @@ import type { ReactNode } from 'react';
 import { Link, Navigate, useLocation } from 'react-router';
 import { isApiError } from '../shared/api/client';
 import { CurrentUserContext, useCurrentUser, useMe } from '../shared/api/session';
-import { useDocumentTitle } from '../shared/components';
+import { useDocumentTitle } from '../shared/components/useDocumentTitle';
 import { describeError } from '../shared/messages.vi';
 import type { Role } from '../shared/types/platform';
 

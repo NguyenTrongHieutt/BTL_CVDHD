@@ -11,7 +11,8 @@ import { ShopOutlined } from '@ant-design/icons';
 import { Button, Card, Form, Input, Typography } from 'antd';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useLogin } from '../../../shared/api/session';
-import { ErrorAlert, useDocumentTitle } from '../../../shared/components';
+import { ErrorAlert } from '../../../shared/components/ErrorAlert';
+import { useDocumentTitle } from '../../../shared/components/useDocumentTitle';
 import type { LoginRequest } from '../../../shared/types/platform';
 import '../auth.css';
 

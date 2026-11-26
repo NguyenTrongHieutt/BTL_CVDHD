@@ -106,7 +106,10 @@ class ProductImportIntegrationTest {
             assertThat(sheet.getSheetName()).isEqualTo("Sản phẩm");
             List<String> headers = new ArrayList<>();
             sheet.getRow(0).forEach(cell -> headers.add(cell.getStringCellValue()));
-            assertThat(headers).isEqualTo(HEADERS);
+            assertThat(headers.subList(0, HEADERS.size())).isEqualTo(HEADERS);
+            assertThat(headers.subList(HEADERS.size(), headers.size())).containsExactly("Mã sản phẩm cha",
+                    "Tên Biến thể", "Tên thuộc tính 1", "Giá trị thuộc tính 1", "Tên thuộc tính 2",
+                    "Giá trị thuộc tính 2", "Tên thuộc tính 3", "Giá trị thuộc tính 3");
             // Ghi chú cột bắt buộc ngay ở ô tiêu đề
             assertThat(sheet.getRow(0).getCell(0).getCellComment().getString().getString()).contains("Bắt buộc");
             assertThat(sheet.getRow(0).getCell(3).getCellComment().getString().getString()).contains("Bắt buộc");
@@ -153,6 +156,122 @@ class ProductImportIntegrationTest {
     }
 
     // --- Nhập thành công ---------------------------------------------------------------------------------
+
+    @Test
+    void csvPreviewDoesNotWriteAndSavingCreatesGroupedVariantsWithOpeningStockAndReplay() throws Exception {
+        Owner owner = newStore();
+        byte[] csv = ("\ufeffTên Sản phẩm,Danh mục,Đơn vị tính,Giá bán,Tồn đầu kỳ,Giá vốn ban đầu,SKU,Mã vạch,"
+                + "Mô tả,Mã sản phẩm cha,Tên Biến thể,Tên thuộc tính 1,Giá trị thuộc tính 1\r\n"
+                + "Áo thun,Thời trang,chiếc,10000,2,7000,ao-s,000123,\"Mềm\r\nMát\", ao thun ,,Cỡ,S\r\n"
+                + ",,,12000,3,8000,ao-m,000124,,AO THUN,,Cỡ,M\r\n"
+                + "Bút,,,2000,,,but,,,,,,\r\n").getBytes(StandardCharsets.UTF_8);
+        String preview = mvc.perform(multipart(IMPORT + "/preview").file(csvPart(csv)).cookie(owner.cookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalRows").value(3))
+                .andExpect(jsonPath("$.validProducts").value(2))
+                .andExpect(jsonPath("$.validRows").value(3))
+                .andExpect(jsonPath("$.rows[0].row").value(2))
+                .andExpect(jsonPath("$.rows[1].row").value(4))
+                .andExpect(jsonPath("$.rows[1].productName").value("Áo thun"))
+                .andExpect(jsonPath("$.rows[1].variantName").value("M"))
+                .andExpect(jsonPath("$.rows[1].attributes.Cỡ").value("M"))
+                .andExpect(jsonPath("$.errors.length()").value(0))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        for (String table : List.of("app.product", "app.product_variant", "app.category", "app.stock",
+                "app.stock_ledger", "app.product_import")) {
+            assertThat(count(owner, table)).as(table + " sau preview").isZero();
+        }
+        assertThat(events.stream(VariantCreated.class)).isEmpty();
+        String token = json.readTree(preview).get("previewToken").asString();
+        String key = UUID.randomUUID().toString();
+        String saved = mvc.perform(multipart(IMPORT).file(csvPart(csv)).cookie(owner.cookie())
+                        .header("Idempotency-Key", key).header("X-Import-Preview", token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imported").value(2))
+                .andExpect(jsonPath("$.failed.length()").value(0))
+                .andExpect(jsonPath("$.createdCategories[0]").value("Thời trang"))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(count(owner, "app.product")).isEqualTo(2);
+        assertThat(count(owner, "app.product_variant")).isEqualTo(3);
+        assertThat(stockOf(owner, "AO-S")).containsEntry("quantity", 2).containsEntry("avg_unit_cost", 7000L);
+        assertThat(stockOf(owner, "AO-M")).containsEntry("quantity", 3).containsEntry("avg_unit_cost", 8000L);
+        assertThat(events.stream(VariantCreated.class)).hasSize(3);
+        assertThat(asStore(owner.storeId(), () -> jdbc.queryForList("""
+                select p.name, p.has_variants, v.name as variant_name, v.is_default, v.attributes::text as attributes
+                from app.product p join app.product_variant v on v.product_id = p.id
+                where p.name = 'Áo thun' order by v.created_at
+                """))).satisfies(rows -> {
+                    assertThat(rows).hasSize(2);
+                    assertThat(rows.getFirst()).containsEntry("has_variants", true).containsEntry("variant_name", "S")
+                            .containsEntry("is_default", true);
+                    assertThat(rows.get(1)).containsEntry("variant_name", "M").containsEntry("is_default", false);
+                });
+        String replay = mvc.perform(multipart(IMPORT).file(csvPart(csv)).cookie(owner.cookie())
+                        .header("Idempotency-Key", key).header("X-Import-Preview", token))
+                .andExpect(status().isOk()).andExpect(header().string("Idempotent-Replay", "true"))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(json.readTree(replay)).isEqualTo(json.readTree(saved));
+        assertThat(events.stream(VariantCreated.class)).hasSize(3);
+    }
+
+    @Test
+    void previewChangesBeforeSaveReturnStaleWithoutSavingAnyPartOfTheFile() throws Exception {
+        Owner owner = newStore();
+        byte[] csv = ("Tên Sản phẩm,Danh mục,Giá bán,SKU,Mã sản phẩm cha,Tên Biến thể\n"
+                + "Áo,Chưa tạo,10000,A,AO,S\n,,12000,B,AO,M\nBút,,2000,BUT,,\n")
+                .getBytes(StandardCharsets.UTF_8);
+        String preview = mvc.perform(multipart(IMPORT + "/preview").file(csvPart(csv)).cookie(owner.cookie()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.validProducts").value(2))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        createProduct(owner, "Hàng vừa được tạo", "B", null);
+
+        mvc.perform(multipart(IMPORT).file(csvPart(csv)).cookie(owner.cookie())
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("X-Import-Preview", json.readTree(preview).get("previewToken").asString()))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("/errors/catalog/import-preview-stale"));
+        assertThat(count(owner, "app.product")).isEqualTo(1);
+        assertThat(count(owner, "app.category")).isZero();
+        assertThat(count(owner, "app.product_import")).isZero();
+        assertThat(asStore(owner.storeId(), () -> jdbc.queryForObject("""
+                select count(*) from app.idempotency_record where document_type = 'CATALOG_PRODUCT_IMPORT'
+                """, Long.class))).isZero();
+    }
+
+    @Test
+    void invalidVariantGroupIsRejectedAsAWholeWhileOtherProductsAreSaved() throws Exception {
+        Owner owner = newStore();
+        byte[] csv = ("Tên Sản phẩm,Giá bán,SKU,Mã sản phẩm cha,Tên Biến thể\n"
+                + "Áo,1000,REUSE,AO,S\n,sai,B,AO,M\nBút,2000,REUSE,,\n")
+                .getBytes(StandardCharsets.UTF_8);
+        String preview = mvc.perform(multipart(IMPORT + "/preview").file(csvPart(csv)).cookie(owner.cookie()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.validProducts").value(1))
+                .andExpect(jsonPath("$.validRows").value(1))
+                .andExpect(jsonPath("$.rows[0].valid").value(false))
+                .andExpect(jsonPath("$.rows[1].valid").value(false))
+                .andExpect(jsonPath("$.rows[2].valid").value(true))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        mvc.perform(multipart(IMPORT).file(csvPart(csv)).cookie(owner.cookie())
+                        .header("Idempotency-Key", UUID.randomUUID().toString())
+                        .header("X-Import-Preview", json.readTree(preview).get("previewToken").asString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.imported").value(1));
+        assertThat(count(owner, "app.product")).isEqualTo(1);
+        assertThat(asStore(owner.storeId(), () -> jdbc.queryForList("select name from app.product", String.class)))
+                .containsExactly("Bút");
+    }
+
+    @Test
+    void csvTemplateDownloadsAndPreservesTheOriginalSkippedExample() throws Exception {
+        Owner owner = newStore();
+        byte[] csv = mvc.perform(get(TEMPLATE).queryParam("format", "csv").cookie(owner.cookie()))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"mau-nhap-san-pham.csv\""))
+                .andReturn().getResponse().getContentAsByteArray();
+        mvc.perform(multipart(IMPORT).file(csvPart(csv)).cookie(owner.cookie())
+                        .header("Idempotency-Key", UUID.randomUUID().toString()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.imported").value(0))
+                .andExpect(jsonPath("$.failed[0].row").value(2));
+    }
 
     @Test
     void threeValidRowsAreImportedWithTheirCategoriesAndOpeningStock() throws Exception {
@@ -617,6 +736,9 @@ class ProductImportIntegrationTest {
                         .cookie(staff).header("Idempotency-Key", UUID.randomUUID().toString()))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.type").value("/errors/common/forbidden"));
+        mvc.perform(multipart(IMPORT + "/preview").file(xlsxPart(xlsx(HEADERS, product("Hàng", 1000, null, null))))
+                        .cookie(staff))
+                .andExpect(status().isForbidden());
         assertThat(count(owner, "app.product")).isZero();
     }
 
@@ -683,6 +805,10 @@ class ProductImportIntegrationTest {
 
     static MockMultipartFile xlsxPart(byte[] content) {
         return new MockMultipartFile("file", "san-pham.xlsx", XLSX, content);
+    }
+
+    static MockMultipartFile csvPart(byte[] content) {
+        return new MockMultipartFile("file", "san-pham.csv", "text/csv", content);
     }
 
     ResultActions importFile(Owner owner, byte[] content) throws Exception {

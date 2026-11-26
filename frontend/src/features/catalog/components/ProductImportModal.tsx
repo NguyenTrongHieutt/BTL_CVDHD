@@ -1,41 +1,31 @@
 /**
- * Hộp thoại nhập Sản phẩm từ Excel (FR-6, SP-06). Người giữ: Hiếu — features/catalog (AD-20). Chỉ Chủ cửa hàng mở được
- * (nút "Nhập từ Excel" ở màn Sản phẩm; backend vẫn kiểm quyền, AD-16).
- *
- * Ba bước: tải file mẫu (`.xlsx`, tải về bằng `Blob`), chọn file đã điền, bấm "Nhập". Chọn file chỉ kiểm phía client
- * đuôi `.xlsx` và cỡ tối đa 2 MB (backend kiểm nội dung file, tiêu đề cột, tối đa 1000 dòng); file chỉ gửi khi bấm
- * "Nhập". Nhập xong, hộp thoại hiện kết quả thay cho các bước: số Sản phẩm đã nhập, Danh mục mới, và bảng dòng lỗi (số
- * dòng Excel, cột, lý do) để sửa file; "Nhập file khác" quay về bước chọn file. Bảng Sản phẩm, Danh mục, Tồn kho, sổ kho
- * tải lại sau mỗi lần nhập (`useImportProducts`).
- *
- * Lỗi cả file (sai mẫu, không đọc được, trùng mã do người khác vừa tạo: không dòng nào được nhập) hiện ở khung báo lỗi
- * kèm lý do cụ thể của backend (`detail`: cột nào thiếu, dòng nào trùng). Mất mạng, lỗi máy chủ: bấm "Nhập" lại với
- * cùng file gửi lại cùng `Idempotency-Key`, nên nếu lần trước đã nhập xong thì chỉ nhận lại kết quả đó, không nhập hai
- * lần. Đang gửi thì không đóng được hộp thoại.
+ * Nhập sản phẩm từ CSV hoặc Excel (FR-6, SP-06). Người giữ: Hiếu — features/catalog.
+ * Backend trả nhóm và lỗi ở bước xem trước. Chỉ gửi yêu cầu lưu sau khi người dùng xác nhận.
  */
-import { DownloadOutlined, FileExcelOutlined, UploadOutlined } from '@ant-design/icons';
+import { DownloadOutlined, FileTextOutlined, UploadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
-import { Alert, Button, Flex, Modal, Table, Typography, Upload } from 'antd';
-import type { TableColumnsType } from 'antd';
-import { useState } from 'react';
+import { Alert, Button, Flex, Modal, Typography, Upload } from 'antd';
+import { useEffect, useRef, useState } from 'react';
 import { isApiError, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components';
 import { describeError } from '../../../shared/messages.vi';
 import {
   IDEMPOTENCY_KEY_REUSE,
   IMPORT_INVALID_FILE,
+  IMPORT_PREVIEW_STALE,
   PRODUCT_IMPORT_MAX_BYTES,
   PRODUCT_IMPORT_MAX_ROWS,
-  PRODUCT_IMPORT_TEMPLATE_FILENAME,
   fetchProductImportTemplate,
+  previewProductImport,
   useImportProducts,
 } from '../api/products';
-import type { ProductImportResult, ProductImportRowError } from '../api/products';
+import type { ProductImportResult } from '../api/products';
+import { ImportFailedRows, ProductImportPreviewView } from './ProductImportPreview';
 import { useCatalogDialog } from './useCatalogDialog';
 
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const ACCEPT = `.xlsx,${XLSX_TYPE}`;
-const EMPTY = '—';
+const ACCEPT = `.xlsx,.csv,${XLSX_TYPE},text/csv`;
+const count = new Intl.NumberFormat('vi-VN');
 
 export interface ProductImportModalProps {
   onClose: () => void;
@@ -45,8 +35,8 @@ export interface ProductImportModalProps {
 
 /** Lỗi của file vừa chọn, kiểm phía client; `null` khi gửi được (backend kiểm tiếp nội dung). */
 function fileProblem(file: File): string | null {
-  if (!/\.xlsx$/i.test(file.name)) {
-    return 'Chỉ nhận file Excel .xlsx (không nhận .xls, .csv). Hãy mở file bằng Excel rồi lưu lại dạng .xlsx.';
+  if (!/\.(xlsx|csv)$/i.test(file.name)) {
+    return 'Chọn file Excel (.xlsx) hoặc CSV (.csv).';
   }
   if (file.size > PRODUCT_IMPORT_MAX_BYTES) return 'File tối đa 2 MB. Hãy tách thành nhiều file nhỏ hơn.';
   return null;
@@ -92,15 +82,6 @@ function ImportError({ error }: { error: unknown }) {
   );
 }
 
-/** Dòng của bảng lỗi; `key` vì một dòng Excel có thể có nhiều lỗi. */
-type FailedRow = ProductImportRowError & { key: number };
-
-const FAILED_COLUMNS: TableColumnsType<FailedRow> = [
-  { title: 'Dòng', dataIndex: 'row', key: 'row', width: 80, align: 'right' },
-  { title: 'Cột', dataIndex: 'column', key: 'column', width: 160, render: (column: string | null) => column ?? EMPTY },
-  { title: 'Lý do', dataIndex: 'message', key: 'message' },
-];
-
 function ImportResultView({ result }: { result: ProductImportResult }) {
   const failedRows = new Set(result.failed.map((f) => f.row)).size;
   const empty = result.imported === 0 && failedRows === 0;
@@ -113,11 +94,9 @@ function ImportResultView({ result }: { result: ProductImportResult }) {
     empty ? 'File không có dòng dữ liệu nào (dữ liệu bắt đầu từ dòng 2).' : null,
     result.createdCategories.length > 0 ? `Danh mục mới: ${result.createdCategories.join(', ')}.` : null,
     failedRows > 0
-      ? 'Sửa các dòng lỗi rồi chỉ nhập các dòng đó: nhập lại dòng đã nhập thì dòng có SKU hoặc mã vạch bị báo trùng, ' +
-        'còn dòng không có SKU, mã vạch sẽ được tạo thêm một Sản phẩm nữa.'
+      ? 'Sửa và nhập lại các sản phẩm bị lỗi. Giữ đủ các biến thể của từng nhóm khi nhập lại.'
       : null,
   ].filter((line): line is string => line !== null);
-  const failed: FailedRow[] = result.failed.map((f, index) => ({ ...f, key: index }));
   return (
     <>
       <Alert
@@ -127,16 +106,7 @@ function ImportResultView({ result }: { result: ProductImportResult }) {
         description={lines.length > 0 ? lines.map((line) => <div key={line}>{line}</div>) : undefined}
         style={{ marginBottom: 16 }}
       />
-      {failed.length > 0 ? (
-        <Table<FailedRow>
-          size="small"
-          rowKey="key"
-          columns={FAILED_COLUMNS}
-          dataSource={failed}
-          scroll={{ x: 420 }}
-          pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }}
-        />
-      ) : null}
+      {result.failed.length > 0 && <ImportFailedRows errors={result.failed} />}
     </>
   );
 }
@@ -145,29 +115,52 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
   const { close, modalProps } = useCatalogDialog(onClose);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const previewRegion = useRef<HTMLDivElement>(null);
   const importing = useImportProducts();
+  const preview = useMutation({ mutationFn: previewProductImport });
   const template = useMutation({
     mutationFn: fetchProductImportTemplate,
-    onSuccess: (blob) => saveFile(blob, PRODUCT_IMPORT_TEMPLATE_FILENAME),
+    onSuccess: (blob, format) => saveFile(blob, `mau-nhap-san-pham.${format}`),
   });
-  const pending = importing.isPending;
+  const pending = importing.isPending || preview.isPending;
+  const stale = importing.isError && isApiError(importing.error) && importing.error.type === IMPORT_PREVIEW_STALE;
+  const retryingCommit = importing.isError && shouldReuseIdempotencyKey(importing.error);
+  const ready = preview.data;
+  const confirm = ready !== undefined && !stale;
+
+  useEffect(() => {
+    if (ready) previewRegion.current?.focus();
+  }, [ready]);
 
   const chooseFile = (picked: File) => {
     importing.reset();
+    preview.reset();
     const problem = fileProblem(picked);
     setFileError(problem);
     setFile(problem === null ? picked : null);
   };
 
-  const submit = () => {
-    if (file === null || pending) return;
-    importing.mutate(file, { onSuccess: (result) => onImported?.(result) });
+  const goBack = () => {
+    preview.reset();
+    importing.reset();
   };
 
   const startOver = () => {
-    importing.reset();
+    goBack();
     setFile(null);
     setFileError(null);
+  };
+
+  const submit = () => {
+    if (file === null || pending) return;
+    if (confirm) {
+      if (ready.validProducts > 0) {
+        importing.mutate({ file, previewToken: ready.previewToken }, { onSuccess: (result) => onImported?.(result) });
+      }
+      return;
+    }
+    importing.reset();
+    preview.mutate(file);
   };
 
   const footer = importing.isSuccess
@@ -180,19 +173,21 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
         </Button>,
       ]
     : [
-        <Button key="cancel" disabled={pending} onClick={close}>
-          Hủy
+        <Button key="back" disabled={pending || retryingCommit} onClick={ready ? goBack : close}>
+          {ready ? 'Quay lại' : 'Hủy'}
         </Button>,
-        <Button key="import" type="primary" loading={pending} disabled={file === null} onClick={submit}>
-          Nhập
+        <Button key="import" type="primary" loading={pending}
+          disabled={file === null || (confirm && ready.validProducts === 0)} onClick={submit}>
+          {confirm ? `Lưu ${count.format(ready.validProducts)} sản phẩm` : stale ? 'Xem trước lại' : 'Xem trước'}
         </Button>,
       ];
 
   return (
     <Modal
       {...modalProps}
-      title="Nhập Sản phẩm từ Excel"
-      width={720}
+      title={importing.isSuccess ? 'Kết quả nhập sản phẩm' : ready ? 'Xem trước dữ liệu nhập' : 'Nhập sản phẩm từ file'}
+      width={ready ? 900 : 680}
+      styles={{ body: { maxHeight: '68dvh', overflowY: 'auto' } }}
       footer={footer}
       onCancel={() => {
         if (!pending) close();
@@ -205,66 +200,75 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
         <ImportResultView result={importing.data} />
       ) : (
         <Flex vertical gap={16}>
-          {importing.isError ? (
+          {importing.isError && (
             <div>
               <ImportError error={importing.error} />
-              {shouldReuseIdempotencyKey(importing.error) ? (
+              {retryingCommit && (
                 <Typography.Paragraph type="secondary" style={{ marginTop: -8 }}>
-                  Có thể file đã được nhập trước khi mất kết nối. Bấm &quot;Nhập&quot; để gửi lại: nếu lần trước đã
-                  nhập xong, hệ thống chỉ trả lại kết quả đó, không nhập hai lần.
+                  Có thể máy chủ đã lưu trước khi mất kết nối. Bấm Lưu để gửi lại cùng yêu cầu và nhận kết quả.
                 </Typography.Paragraph>
-              ) : null}
+              )}
             </div>
-          ) : null}
-          <div>
-            <Typography.Paragraph style={{ marginBottom: 8 }}>
-              1. Tải file mẫu, điền mỗi Sản phẩm một dòng từ dòng 2 (cột có dấu * là bắt buộc; xem trang Hướng dẫn trong
-              file).
-            </Typography.Paragraph>
-            <Button
-              icon={<DownloadOutlined />}
-              loading={template.isPending}
-              onClick={() => {
-                template.reset();
-                template.mutate();
-              }}
-            >
-              Tải file mẫu
-            </Button>
-            {template.isError ? <ErrorAlert error={template.error} style={{ marginTop: 8, marginBottom: 0 }} /> : null}
-          </div>
-          <div>
-            <Typography.Paragraph style={{ marginBottom: 8 }}>
-              2. Chọn file đã điền: .xlsx, tối đa 2 MB, {PRODUCT_IMPORT_MAX_ROWS} dòng. Dòng lỗi được báo kèm số dòng và
-              lý do; các dòng đúng vẫn được nhập.
-            </Typography.Paragraph>
-            <Flex align="center" gap={12} wrap>
-              <Upload
-                accept={ACCEPT}
-                showUploadList={false}
-                disabled={pending}
-                // Không tự tải lên: chỉ giữ file, gửi khi bấm "Nhập"
-                beforeUpload={(picked) => {
-                  chooseFile(picked);
-                  return Upload.LIST_IGNORE;
-                }}
-              >
-                <Button icon={<UploadOutlined />} disabled={pending}>
-                  {file === null ? 'Chọn file' : 'Chọn file khác'}
-                </Button>
-              </Upload>
-              {file !== null ? (
-                <Typography.Text style={{ overflowWrap: 'anywhere' }}>
-                  <FileExcelOutlined aria-hidden /> {file.name}
-                </Typography.Text>
-              ) : null}
-            </Flex>
-            {fileError !== null ? (
-              <Typography.Paragraph type="danger" role="alert" style={{ marginTop: 8, marginBottom: 0 }}>
-                {fileError}
-              </Typography.Paragraph>
-            ) : null}
-          </div>
+          )}
+          {preview.isError && <ImportError error={preview.error} />}
+          {ready ? (
+            <div className="import-preview" ref={previewRegion} tabIndex={-1}
+              role="region" aria-label="Kết quả xem trước">
+              <Typography.Text type="secondary">{file?.name}</Typography.Text>
+              <ProductImportPreviewView key={ready.previewToken} preview={ready} />
+            </div>
+          ) : (
+            <>
+              <div>
+                <Typography.Paragraph style={{ marginBottom: 8 }}>
+                  Dùng mẫu CSV hoặc Excel và giữ dòng tiêu đề. Điền cùng mã sản phẩm cha vào các dòng biến thể thuộc
+                  một sản phẩm. Để trống mã cha nếu sản phẩm chỉ có một SKU.
+                </Typography.Paragraph>
+                <Flex gap={8} wrap>
+                  <Button icon={<DownloadOutlined aria-hidden />} loading={template.isPending && template.variables === 'xlsx'}
+                    disabled={template.isPending && template.variables !== 'xlsx'} onClick={() => template.mutate('xlsx')}>
+                    Tải mẫu Excel
+                  </Button>
+                  <Button icon={<DownloadOutlined aria-hidden />} loading={template.isPending && template.variables === 'csv'}
+                    disabled={template.isPending && template.variables !== 'csv'} onClick={() => template.mutate('csv')}>
+                    Tải mẫu CSV
+                  </Button>
+                </Flex>
+                {template.isError && <ErrorAlert error={template.error} style={{ marginTop: 8, marginBottom: 0 }} />}
+              </div>
+              <div>
+                <Typography.Paragraph style={{ marginBottom: 8 }}>
+                  Chọn file .xlsx hoặc .csv (UTF-8), tối đa 2 MB và {count.format(PRODUCT_IMPORT_MAX_ROWS)} dòng.
+                  Xem trước các nhóm và lỗi rồi xác nhận tạo mới sản phẩm.
+                </Typography.Paragraph>
+                <Flex align="center" gap={12} wrap>
+                  <Upload
+                    accept={ACCEPT}
+                    showUploadList={false}
+                    disabled={pending}
+                    beforeUpload={(picked) => {
+                      chooseFile(picked);
+                      return Upload.LIST_IGNORE;
+                    }}
+                  >
+                    <Button icon={<UploadOutlined aria-hidden />} disabled={pending}>
+                      {file === null ? 'Chọn file' : 'Chọn file khác'}
+                    </Button>
+                  </Upload>
+                  {file && (
+                    <Typography.Text style={{ overflowWrap: 'anywhere' }}>
+                      <FileTextOutlined aria-hidden /> {file.name}
+                    </Typography.Text>
+                  )}
+                </Flex>
+                {fileError && (
+                  <Typography.Paragraph type="danger" role="alert" style={{ marginTop: 8, marginBottom: 0 }}>
+                    {fileError}
+                  </Typography.Paragraph>
+                )}
+              </div>
+            </>
+          )}
         </Flex>
       )}
     </Modal>

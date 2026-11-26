@@ -112,8 +112,12 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     hint: 'Mở Khách hàng đã có để xem hoặc sửa, thay vì thêm mới.',
   },
   '/errors/catalog/import-invalid-file': {
-    message: 'File Excel không đọc được hoặc không đúng mẫu.',
-    hint: 'Tải file mẫu, điền mỗi Sản phẩm một dòng từ dòng 2, lưu dạng .xlsx (tối đa 2 MB, 1000 dòng) rồi chọn lại file.',
+    message: 'File nhập không đọc được hoặc không đúng mẫu.',
+    hint: 'Dùng mẫu CSV hoặc Excel, giữ dòng tiêu đề và chọn file tối đa 2 MB, 1.000 dòng.',
+  },
+  '/errors/catalog/import-preview-stale': {
+    message: 'Dữ liệu đã thay đổi từ lúc xem trước.',
+    hint: 'Xem trước lại file để kiểm tra các dòng còn có thể lưu.',
   },
   '/errors/catalog/supplier-code-taken': {
     message: 'Cửa hàng đã có Nhà cung cấp dùng mã này.',

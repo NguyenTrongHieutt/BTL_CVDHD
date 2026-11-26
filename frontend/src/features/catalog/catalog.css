@@ -17,6 +17,17 @@
   min-width: 0;
 }
 
+.import-preview {
+  display: grid;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+
+.import-preview-group,
+.import-preview-heading > div {
+  min-width: 0;
+}
+
 @media (max-width: 767px) {
   .catalog-page :is(.ant-input-affix-wrapper, .ant-select, .ant-picker),
   .catalog-dialog :is(.ant-input, .ant-input-affix-wrapper, .ant-select, .ant-btn) {

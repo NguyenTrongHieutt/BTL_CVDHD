@@ -21,6 +21,64 @@ import vn.nhom17.banhang.platform.ProblemException;
 class ProductImportReaderTest {
 
     @Test
+    void csvAcceptsUtf8BomQuotesEscapesMultilineAndKeepsRecordStartLines() {
+        byte[] csv = ("\ufeffTên Sản phẩm,Giá bán,SKU,Mô tả\r\n"
+                + "\"Trà, sữa\",15.000,000123,\"Dòng 1\r\nDòng \"\"hai\"\"\"\r\n"
+                + ",,,\r\n"
+                + "Hàng sau,2000,SAU,\r\n").getBytes(StandardCharsets.UTF_8);
+
+        List<ImportRow> rows = ProductImportReader.read(csv, "san-pham.CSV");
+
+        assertThat(rows).extracting(ImportRow::row).containsExactly(2, 5);
+        assertThat(rows.getFirst().texts()).containsEntry(ImportColumn.NAME, "Trà, sữa")
+                .containsEntry(ImportColumn.SKU, "000123")
+                .containsEntry(ImportColumn.DESCRIPTION, "Dòng 1\nDòng \"hai\"");
+        assertThat(rows.getFirst().numbers().get(ImportColumn.SALE_PRICE)).isEqualByComparingTo("15000");
+    }
+
+    @Test
+    void csvAlsoAcceptsExcelSemicolonAndVietnameseDecimalText() {
+        List<ImportRow> rows = ProductImportReader.readCsv(("Tên Sản phẩm;Giá bán;Mã sản phẩm cha;Tên Biến thể\n"
+                + "Áo;1,5;AO;S\n").getBytes(StandardCharsets.UTF_8));
+        assertThat(rows.getFirst().numbers().get(ImportColumn.SALE_PRICE)).isEqualByComparingTo("1.5");
+        assertThat(rows.getFirst().texts()).containsEntry(ImportColumn.PARENT_CODE, "AO");
+    }
+
+    @Test
+    void csvRejectsBrokenQuotingInvalidUtf8AndDuplicateOrMissingHeaders() {
+        for (String csv : List.of("Tên Sản phẩm,Giá bán\n\"Hàng\nchưa đóng,1",
+                "Tên Sản phẩm,Giá bán\n\"Hàng\"sai,1", "Tên Sản phẩm,Giá bán\nHà\"ng,1",
+                "Tên Sản phẩm,Giá bán,giá bán*\nHàng,1,2", "Tên Sản phẩm,SKU\nHàng,X")) {
+            assertThatThrownBy(() -> ProductImportReader.readCsv(csv.getBytes(StandardCharsets.UTF_8)))
+                    .isInstanceOfSatisfying(ProblemException.class,
+                            p -> assertThat(p.type()).isEqualTo(ProductImportReader.INVALID_FILE));
+        }
+        assertThatThrownBy(() -> ProductImportReader.readCsv(new byte[] {(byte) 0xC3, 0x28}))
+                .isInstanceOf(ProblemException.class).hasMessageContaining("UTF-8");
+    }
+
+    @Test
+    void csvLimitsNonblankRecordsInsteadOfPhysicalLines() {
+        String header = "Tên Sản phẩm,Giá bán,Mô tả\n";
+        String row = "Hàng,1000,\"Dòng 1\nDòng 2\"\n\n";
+        assertThat(ProductImportReader.readCsv((header + row.repeat(1000)).getBytes(StandardCharsets.UTF_8)))
+                .hasSize(1000);
+        assertThatThrownBy(() -> ProductImportReader.readCsv((header + row.repeat(1001))
+                .getBytes(StandardCharsets.UTF_8))).isInstanceOf(ProblemException.class).hasMessageContaining("1000");
+    }
+
+    @Test
+    void bothTemplatesKeepTheSimpleExampleAndLeaveOptionalVariantColumnsBlank() {
+        List<ImportRow> csv = ProductImportReader.readCsv(ProductImportTemplate.buildCsv());
+        List<ImportRow> xlsx = ProductImportReader.read(ProductImportTemplate.build());
+        assertThat(csv).hasSize(1);
+        assertThat(xlsx).hasSize(1);
+        assertThat(ProductImportTemplate.isExample(csv.getFirst())).isTrue();
+        assertThat(ProductImportTemplate.isExample(xlsx.getFirst())).isTrue();
+        assertThat(csv.getFirst().texts()).doesNotContainKey(ImportColumn.PARENT_CODE);
+    }
+
+    @Test
     void numbersWrittenAsTextFollowTheVietnameseConvention() {
         assertThat(ProductImportReader.parseNumber("15000")).isEqualByComparingTo("15000");
         assertThat(ProductImportReader.parseNumber("15.000")).isEqualByComparingTo("15000");

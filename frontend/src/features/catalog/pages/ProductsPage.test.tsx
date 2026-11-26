@@ -1782,8 +1782,10 @@ describe('ProductsPage — ảnh Sản phẩm (FR-1, SP-01b)', () => {
     expect(await within(dialog()).findByText('Ảnh phải là JPEG, PNG hoặc WebP.')).toBeTruthy();
     // Ảnh đã chọn trước đó cũng bị bỏ: không xem trước, "Thêm" không gửi ảnh nào
     expect(previewSrc()).toBeNull();
+    const firstDialog = dialog();
     submit();
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // Sau hiệu ứng đóng, form mới có thể được mở lại.
+    await waitFor(() => expect(firstDialog.isConnected).toBe(false));
     expect(writes()).toEqual(['POST /api/v1/catalog/products']);
 
     // Tệp không đuôi (trình duyệt không biết kiểu): không chặn ở client, gửi để backend kiểm theo nội dung
@@ -1935,29 +1937,51 @@ describe('ProductsPage — ảnh Sản phẩm (FR-1, SP-01b)', () => {
   });
 });
 
-describe('ProductsPage — nhập từ Excel (FR-6, SP-06)', () => {
+describe('ProductsPage — nhập từ CSV và Excel (FR-6, SP-06)', () => {
   const IMPORT_PATH = `${PRODUCTS_PATH}/import`;
+  const IMPORT_PREVIEW_PATH = `${IMPORT_PATH}/preview`;
+  const importedNames = ['Nước suối Aquafina', 'Bánh quy Cosy', 'Kẹo dẻo'];
   /** Lần nhập không được dòng nào: chỉ báo dòng lỗi, không thêm Sản phẩm. */
   let importNothing: boolean;
 
-  /**
-   * Backend giả của `POST …/products/import`: nhập 3 dòng đúng, báo dòng 5 thiếu giá (hoặc, khi `importNothing`, chỉ
-   * báo dòng lỗi); các đường khác như `backend()`.
-   */
+  function saveCalls() {
+    return fetchMock.mock.calls.filter(
+      ([input, init]) => init?.method === 'POST' && new URL(String(input), 'http://localhost').pathname === IMPORT_PATH,
+    );
+  }
+
   beforeEach(() => {
     importNothing = false;
     const base = fetchMock.getMockImplementation();
     fetchMock.mockImplementation(async (input, init) => {
       const url = new URL(String(input), 'http://localhost');
-      if (url.pathname === IMPORT_PATH && init?.method === 'POST' && importNothing) {
+      if (url.pathname === IMPORT_PREVIEW_PATH && init?.method === 'POST') {
+        const names = importNothing ? ['Dòng thiếu giá'] : [...importedNames, 'Dòng thiếu giá'];
+        const rows = names.map((productName, index) => ({
+          row: index + 2,
+          parentCode: null,
+          productName,
+          variantName: null,
+          attributes: {},
+          sku: null,
+          barcode: null,
+          categoryName: null,
+          salePrice: productName === 'Dòng thiếu giá' ? null : 15000,
+          openingQuantity: 0,
+          openingUnitCost: null,
+          valid: productName !== 'Dòng thiếu giá',
+        }));
         return json({
-          imported: 0,
-          failed: [{ row: 2, column: 'Giá bán', message: 'Nhập giá bán' }],
-          createdCategories: [],
+          totalRows: rows.length,
+          validProducts: rows.length - 1,
+          validRows: rows.length - 1,
+          rows,
+          errors: [{ row: rows.length + 1, column: 'Giá bán', message: 'Nhập giá bán' }],
+          previewToken: 'preview-token',
         });
       }
       if (url.pathname === IMPORT_PATH && init?.method === 'POST') {
-        const imported = ['Nước suối Aquafina', 'Bánh quy Cosy', 'Kẹo dẻo'].map((name, i) => {
+        const imported = importedNames.map((name, i) => {
           const id = nextId++;
           return {
             ...product(id),
@@ -1981,13 +2005,16 @@ describe('ProductsPage — nhập từ Excel (FR-6, SP-06)', () => {
     renderPage();
     await within(table()).findByText('Sản phẩm 02');
 
-    fireEvent.click(screen.getByRole('button', { name: /Nhập từ Excel/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Nhập từ file' }));
     await screen.findByRole('dialog');
     const input = dialog().querySelector<HTMLInputElement>('input[type="file"]');
     if (!input) throw new Error('không có ô chọn file');
     fireEvent.change(input, { target: { files: [new File([new Uint8Array(64)], 'san-pham.xlsx')] } });
     await within(dialog()).findByText('san-pham.xlsx');
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Nhập' }));
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Xem trước' }));
+    const saveImport = await within(dialog()).findByRole('button', { name: 'Lưu 3 sản phẩm' });
+    expect(saveCalls()).toHaveLength(0);
+    fireEvent.click(saveImport);
 
     expect(await within(dialog()).findByText('Đã nhập 3 Sản phẩm. 1 dòng lỗi chưa được nhập.')).toBeTruthy();
     const errorRow = within(within(dialog()).getByRole('table')).getAllByRole('row')[1];
@@ -2018,28 +2045,28 @@ describe('ProductsPage — nhập từ Excel (FR-6, SP-06)', () => {
     const before = lastProductQuery();
     expect(before).toEqual({ status: 'ACTIVE', page: '1', size: '20', sort: 'salePrice,asc' });
 
-    fireEvent.click(screen.getByRole('button', { name: /Nhập từ Excel/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Nhập từ file' }));
     await screen.findByRole('dialog');
     const input = dialog().querySelector<HTMLInputElement>('input[type="file"]');
     if (!input) throw new Error('không có ô chọn file');
     fireEvent.change(input, { target: { files: [new File([new Uint8Array(64)], 'san-pham.xlsx')] } });
     await within(dialog()).findByText('san-pham.xlsx');
-    const queriesBefore = productQueries().length;
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Nhập' }));
-    expect(await within(dialog()).findByText('Đã nhập 0 Sản phẩm. 1 dòng lỗi chưa được nhập.')).toBeTruthy();
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Đóng' }));
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Xem trước' }));
+    const saveImport = await within(dialog()).findByRole<HTMLButtonElement>('button', { name: 'Lưu 0 sản phẩm' });
+    expect(saveImport.disabled).toBe(true);
+    expect(saveCalls()).toHaveLength(0);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Quay lại' }));
+    fireEvent.click(await within(dialog()).findByRole('button', { name: 'Hủy' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
 
-    // Bảng chỉ tải lại tại chỗ (invalidate), cùng bộ lọc, thứ tự, trang
-    await waitFor(() => expect(productQueries().length).toBeGreaterThan(queriesBefore));
     expect(lastProductQuery()).toEqual(before);
     expect(router.state.location.search).toBe('?status=ACTIVE');
     expect(rowNames()[0]).toBe('Sản phẩm 21');
   });
 
-  it('Nhân viên không thấy nút "Nhập từ Excel"', async () => {
+  it('Nhân viên không thấy nút "Nhập từ file"', async () => {
     renderPage('STAFF');
     await within(table()).findByText('Sản phẩm 01');
-    expect(screen.queryByRole('button', { name: /Nhập từ Excel/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Nhập từ file' })).toBeNull();
   });
 });

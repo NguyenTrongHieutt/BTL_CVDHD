@@ -37,8 +37,8 @@ final class VariantFields {
     static final String LABEL_SEPARATOR = " / ";
 
     static final TextFields.Rule LABEL = TextFields.Rule.optional("Nhãn Biến thể", LABEL_MAX);
-    private static final TextFields.Rule ATTRIBUTE_NAME = TextFields.Rule.optional("Tên thuộc tính", ATTRIBUTE_MAX);
-    private static final TextFields.Rule ATTRIBUTE_VALUE = TextFields.Rule.optional("Giá trị thuộc tính", ATTRIBUTE_MAX);
+    static final TextFields.Rule ATTRIBUTE_NAME = TextFields.Rule.optional("Tên thuộc tính", ATTRIBUTE_MAX);
+    static final TextFields.Rule ATTRIBUTE_VALUE = TextFields.Rule.optional("Giá trị thuộc tính", ATTRIBUTE_MAX);
 
     static final String LABEL_REQUIRED = "Nhập nhãn hoặc thuộc tính của Biến thể";
     static final String SINGLE_HAS_NO_LABEL =

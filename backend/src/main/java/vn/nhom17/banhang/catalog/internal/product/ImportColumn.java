@@ -14,7 +14,7 @@ import vn.nhom17.banhang.catalog.internal.TextFields;
 enum ImportColumn {
 
     NAME("Tên Sản phẩm", true, Kind.TEXT, "name",
-            "Bắt buộc. Tối đa 200 ký tự."),
+            "Bắt buộc. Tối đa 200 ký tự. Nhóm Biến thể có thể điền tên Sản phẩm một lần cho cả nhóm."),
     CATEGORY("Danh mục", false, Kind.TEXT, ImportColumn.CATEGORY_FIELD,
             "Tên Danh mục, tối đa 100 ký tự. Không phân biệt chữ hoa, chữ thường; chưa có thì hệ thống tạo mới. "
                     + "Để trống: không thuộc Danh mục nào."),
@@ -32,7 +32,18 @@ enum ImportColumn {
     BARCODE("Mã vạch", false, Kind.TEXT, "barcode",
             "Tối đa 50 ký tự, chỉ chữ cái không dấu và chữ số; không trùng Sản phẩm đã có hay dòng khác."),
     DESCRIPTION("Mô tả", false, Kind.TEXT, "description",
-            "Tối đa 2000 ký tự, được xuống dòng.");
+            "Tối đa 2000 ký tự, được xuống dòng."),
+    PARENT_CODE("Mã sản phẩm cha", false, Kind.TEXT, "parentCode",
+            "Tối đa 50 ký tự. Để trống: mỗi dòng là một Sản phẩm. Cùng mã trong file: 2–50 Biến thể của một Sản phẩm. "
+                    + "Không phân biệt hoa thường, khoảng trắng thừa. Mã chỉ dùng để nhóm trong file."),
+    VARIANT_NAME("Tên Biến thể", false, Kind.TEXT, "variantName",
+            "Tối đa 100 ký tự. Có Mã sản phẩm cha: nhập tên hoặc thuộc tính để ghép tên Biến thể.", "Nhãn Biến thể"),
+    ATTRIBUTE_NAME_1("Tên thuộc tính 1", false, Kind.TEXT, "attributeName1", "Tối đa 50 ký tự, điền cùng giá trị."),
+    ATTRIBUTE_VALUE_1("Giá trị thuộc tính 1", false, Kind.TEXT, "attributeValue1", "Tối đa 50 ký tự."),
+    ATTRIBUTE_NAME_2("Tên thuộc tính 2", false, Kind.TEXT, "attributeName2", "Tối đa 50 ký tự, không trùng tên khác."),
+    ATTRIBUTE_VALUE_2("Giá trị thuộc tính 2", false, Kind.TEXT, "attributeValue2", "Tối đa 50 ký tự."),
+    ATTRIBUTE_NAME_3("Tên thuộc tính 3", false, Kind.TEXT, "attributeName3", "Tối đa 50 ký tự, không trùng tên khác."),
+    ATTRIBUTE_VALUE_3("Giá trị thuộc tính 3", false, Kind.TEXT, "attributeValue3", "Tối đa 50 ký tự.");
 
     /** Ô chữ hay ô số (tiền, số lượng). */
     enum Kind { TEXT, NUMBER }

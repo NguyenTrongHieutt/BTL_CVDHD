@@ -26,7 +26,7 @@
  * đã nhập, dòng lỗi kèm số dòng và lý do). Nhập được ít nhất một Sản phẩm thì bảng làm như sau khi thêm: bỏ bộ lọc, sắp
  * mới nhất trước, về trang đầu, nên các Sản phẩm vừa nhập nằm đầu bảng.
  */
-import { FileExcelOutlined, MoreOutlined, PlusOutlined } from '@ant-design/icons';
+import { ImportOutlined, MoreOutlined, PlusOutlined } from '@ant-design/icons';
 import { App, Button, Dropdown, Flex, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
@@ -260,8 +260,8 @@ export function ProductsPage() {
         </Typography.Title>
         {isOwner ? (
           <Flex wrap gap={8}>
-            <Button icon={<FileExcelOutlined />} onClick={() => setImportOpen(true)}>
-              Nhập từ Excel
+            <Button icon={<ImportOutlined aria-hidden />} onClick={() => setImportOpen(true)}>
+              Nhập từ file
             </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>
               Thêm Sản phẩm

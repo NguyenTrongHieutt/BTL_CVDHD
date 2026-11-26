@@ -123,7 +123,7 @@ export function StockReportPage() {
             aria-label="Trạng thái tồn"
             placeholder="Tất cả trạng thái tồn"
             allowClear
-            value={filters.stockStatus}
+            value={filters.stockStatus ?? null}
             options={stockStatuses}
             onChange={(stockStatus) => changeFilters({ stockStatus })}
             style={{ width: '100%' }}

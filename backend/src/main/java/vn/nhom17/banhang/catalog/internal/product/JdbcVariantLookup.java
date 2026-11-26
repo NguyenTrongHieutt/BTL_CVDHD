@@ -99,6 +99,50 @@ class JdbcVariantLookup implements VariantLookup {
         return List.copyOf(ordered);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public PageResponse<SellableVariant> getForSaleByProductIds(Collection<UUID> productIds, int page, int size) {
+        UUID storeId = context.storeId();
+        int pageNo = Math.max(page, 0);
+        int pageSize = PageResponse.clampSize(size);
+        Set<UUID> wanted = new LinkedHashSet<>();
+        if (productIds != null) {
+            productIds.stream().filter(Objects::nonNull).forEach(wanted::add);
+        }
+        if (wanted.isEmpty()) {
+            return new PageResponse<>(List.of(), 0, pageNo, pageSize);
+        }
+
+        ProductSearch.Sql matching = ProductSearch.from(ProductSearch.Scope.SELLABLE, storeId,
+                ProductSearch.Criteria.NONE);
+        String from = matching.text() + " and p.id = any(?)\n";
+        List<Object> args = matching.args();
+        Long total = jdbc.query("select count(*)\n" + from, ps -> {
+            for (int i = 0; i < args.size(); i++) {
+                ps.setObject(i + 1, args.get(i));
+            }
+            ps.setArray(args.size() + 1, ps.getConnection().createArrayOf("uuid", wanted.toArray()));
+        }, rs -> {
+            rs.next();
+            return rs.getLong(1);
+        });
+        if (total == null || total == 0) {
+            return new PageResponse<>(List.of(), 0, pageNo, pageSize);
+        }
+        String order = "order by array_position(?::uuid[], p.id), v.is_default desc, v.created_at, v.id\n";
+        List<SellableVariant> items = jdbc.query(COLUMNS + from + order + "limit ? offset ?", ps -> {
+            for (int i = 0; i < args.size(); i++) {
+                ps.setObject(i + 1, args.get(i));
+            }
+            var ids = ps.getConnection().createArrayOf("uuid", wanted.toArray());
+            ps.setArray(args.size() + 1, ids);
+            ps.setArray(args.size() + 2, ids);
+            ps.setInt(args.size() + 3, pageSize);
+            ps.setLong(args.size() + 4, (long) pageNo * pageSize);
+        }, ROW);
+        return new PageResponse<>(items, total, pageNo, pageSize);
+    }
+
     /**
      * Tìm kiếm thường (FR-5) như {@code GET /api/v1/catalog/products} nhưng chỉ hàng còn bán, mỗi Biến thể một dòng;
      * giá, SKU, mã vạch là của chính Biến thể đó. Sắp theo tên không dấu. {@code page < 0} thành 0, {@code size}

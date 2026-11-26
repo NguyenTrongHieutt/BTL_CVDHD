@@ -229,7 +229,9 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       <Typography.Title level={1} className="pos-heading" style={{ marginTop: 0 }}>Bán hàng</Typography.Title>
       <div className="pos-grid">
         <div className="pos-main">
-      <Card title="Thêm hàng vào giỏ"><ProductPicker searchRef={search} onPick={add} autoFocus disabled={pending !== null} /></Card>
+      <Card title="Thêm hàng vào giỏ">
+        <ProductPicker searchRef={search} onPick={add} semantic autoFocus disabled={pending !== null} />
+      </Card>
       <Card title="Giỏ hàng" extra={
         <span role="status" aria-atomic="true">
           {itemCount > 0 ? (

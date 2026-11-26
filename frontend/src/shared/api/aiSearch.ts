@@ -33,14 +33,14 @@ export async function searchProducts(q: string, options: ProductSearchOptions = 
   const query = q.trim();
   if (!query) return { mode: 'normal', ids: [] };
   try {
-    return { mode: 'semantic', ids: await semanticSearch(query, options) };
+    return { mode: 'semantic', ids: await searchSemanticProductIds(query, options) };
   } catch (error) {
     if (options.signal?.aborted) throw error;
     return { mode: 'normal', ids: await normalSearch(query, options.signal) };
   }
 }
 
-async function semanticSearch(query: string, options: ProductSearchOptions): Promise<Uuid[]> {
+export async function searchSemanticProductIds(query: string, options: ProductSearchOptions = {}): Promise<Uuid[]> {
   const controller = new AbortController();
   const timer = setTimeout(
     () => controller.abort(new DOMException('Tìm kiếm ngữ nghĩa quá 1,5 giây', 'TimeoutError')),

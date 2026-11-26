@@ -375,7 +375,7 @@ beforeEach(() => {
     product(YOGURT, 'Sữa chua Ba Vì', [variant(YOGURT_VARIANT, 'SUA-CHUA', null, true)], { status: 'INACTIVE' }),
     product(SHIRT, 'Áo thun', [
       variant(SHIRT_DEFAULT, 'AO', null, true),
-      variant(SHIRT_RED, 'AO-DO-L', 'Đỏ / L', false),
+      variant(SHIRT_RED, 'AO-DO-L', 'Đỏ / L', false, '8934673123457'),
       variant(SHIRT_BLUE, 'AO-XANH-M', 'Xanh / M', false),
     ]),
     product(WATER, 'Nước suối', [variant(WATER_VARIANT, 'NUOC', null, true)]),
@@ -537,6 +537,12 @@ describe('Lịch sử xuất nhập kho (FR-28, KHO-07)', () => {
     // Sản phẩm chưa có Biến thể chưa là bộ lọc: không có "Xóa bộ lọc"
     expect(within(filterBar()).queryByRole('button', { name: 'Xóa bộ lọc' })).toBeNull();
 
+    const variantBox = within(filterBar()).getByLabelText('Chọn Biến thể');
+    fireEvent.mouseDown(variantBox);
+    fireEvent.change(variantBox, { target: { value: 'do / l' } });
+    await waitFor(() => expect(optionTitles()).toContain('Đỏ / L · AO-DO-L'));
+    expect(optionTitles()).not.toContain('Xanh / M · AO-XANH-M');
+    fireEvent.change(variantBox, { target: { value: '8934673123457' } });
     await pickOption('Chọn Biến thể', 'Đỏ / L · AO-DO-L');
 
     await waitFor(() => expect(lastLedgerQuery()).toEqual({ variantId: SHIRT_RED, page: '0', size: '20' }));

@@ -41,10 +41,7 @@ export function hasInvalidChars(value: string, multiline = false): boolean {
   });
 }
 
-/** Chữ thường, bỏ dấu, để tìm trong danh sách lựa chọn (Danh mục) không cần gõ dấu. */
-export function foldText(text: string): string {
-  return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/[đĐ]/g, 'd').toLowerCase();
-}
+export { foldText } from '../../../shared/foldText';
 
 /**
  * Đọc ô số: chữ số, dấu chấm nhóm nghìn. Trống thì `null`; có ký tự khác (dấu phẩy, dấu trừ, chữ…) thì `NaN`.

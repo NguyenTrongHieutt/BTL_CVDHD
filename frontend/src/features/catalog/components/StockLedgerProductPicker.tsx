@@ -20,6 +20,7 @@ import type { Product, ProductVariant } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { describeError } from '../../../shared/messages.vi';
 import { defaultVariant, fetchProduct, fetchProducts, productsQueryKey } from '../api/products';
+import { foldText } from './textUtils';
 
 const PAGE_SIZE = 20;
 const LOAD_MORE = '__load_more_products__';
@@ -182,12 +183,20 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
           <Select<Uuid>
             aria-label="Chọn Biến thể"
             allowClear
-            placeholder="Chọn Biến thể"
+            placeholder="Tìm biến thể, SKU hoặc mã vạch"
             status={variantId ? undefined : 'warning'}
-            value={variantId}
-            options={product.variants.map((v) => ({ value: v.id, label: variantLabel(v) }))}
+            value={variantId ?? null}
+            options={product.variants.map((variant) => ({
+              value: variant.id,
+              label: variantLabel(variant),
+              terms: foldText([variant.name, variant.sku, variant.barcode].filter(Boolean).join(' ')),
+            }))}
+            showSearch={{
+              filterOption: (input, option) => option?.terms?.includes(foldText(input.trim())) ?? false,
+            }}
+            notFoundContent="Không có biến thể khớp từ khóa."
             onChange={(id) => onChange({ productId: product.id, variantId: id ?? undefined })}
-            style={{ width: 220, maxWidth: '100%' }}
+            style={{ width: 255, maxWidth: '100%' }}
           />
         ) : null}
       </Flex>

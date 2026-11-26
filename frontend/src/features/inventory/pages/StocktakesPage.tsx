@@ -177,6 +177,7 @@ export function StocktakesPage() {
               current: search.page + 1,
               pageSize: search.size,
               total: stocks.data?.total ?? 0,
+              showTotal: total => total > 0 ? `Trang ${search.page + 1}/${Math.ceil(total / search.size)}` : null,
               showSizeChanger: false,
               onChange: page => setSearch(current => ({ ...current, page: page - 1 })),
             }}

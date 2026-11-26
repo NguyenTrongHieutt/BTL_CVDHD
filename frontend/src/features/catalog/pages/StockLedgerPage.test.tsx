@@ -551,6 +551,22 @@ describe('Lịch sử xuất nhập kho (FR-28, KHO-07)', () => {
     expect(within(filterBar()).queryByText('Chọn Biến thể để lọc')).toBeNull();
   });
 
+  it('chia biến thể thành từng trang và chọn được biến thể ở trang sau', async () => {
+    const extras = Array.from({ length: 5 }, (_, index) => variant(
+      'd1f7e80a-503a-478d-8ad6-00000000000' + index,
+      'AO-THEM-' + index, 'Biến thể thêm ' + index, false,
+    ));
+    products = products.map((item) => item.id === SHIRT ? { ...item, variants: [...item.variants, ...extras] } : item);
+    const { router } = renderPage(PAGE_PATH + '?productId=' + SHIRT);
+    fireEvent.mouseDown(await within(filterBar()).findByLabelText('Chọn Biến thể'));
+    expect(await screen.findByText('Trang 1/2')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Trang sau' }));
+    const last = await screen.findByTitle('Biến thể thêm 4 · AO-THEM-4');
+    expect(screen.queryByTitle('Đỏ / L · AO-DO-L')).toBeNull();
+    fireEvent.click(last);
+    await waitFor(() => expect(urlParams(router).variantId).toBe(extras[4].id));
+  });
+
   it('Chủ cửa hàng chọn "Nhập hàng" và một Sản phẩm: bảng chỉ còn các lần nhập của Sản phẩm đó', async () => {
     renderPage();
     await within(table()).findByText('Trả hàng');

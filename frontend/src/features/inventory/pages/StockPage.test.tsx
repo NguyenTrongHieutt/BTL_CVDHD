@@ -50,9 +50,10 @@ it('tải thêm kết quả tìm SKU, tự điền ngưỡng hiện tại và l�
     if (init?.method === 'PUT') return new Response(null, { status: 204 });
     if (pathname.endsWith('/low-stock')) return Response.json([]);
     const page = Number(searchParams.get('page'));
+    const size = Number(searchParams.get('size'));
     if (pathname.endsWith('/stock') && searchParams.get('q') === 'TRA') {
       const items = page === 0 ? [{ ...active, variantId: 'other', sku: 'TRA-330' }] : [active];
-      return Response.json({ items, total: 21, page, size: 20 });
+      return Response.json({ items, total: size + 1, page, size });
     }
     return Response.json({ items: [], total: 0, page, size: 20 });
   });
@@ -62,7 +63,7 @@ it('tải thêm kết quả tìm SKU, tự điền ngưỡng hiện tại và l�
     const choose = screen.getByRole('combobox', { name: 'Sản phẩm hoặc biến thể' });
     fireEvent.mouseDown(choose);
     fireEvent.change(choose, { target: { value: 'TRA' } });
-    fireEvent.click(await screen.findByTitle('Tải thêm kết quả'));
+    fireEvent.click(await screen.findByRole('button', { name: 'Trang sau' }));
     fireEvent.click(await screen.findByTitle('Trà nhài · 350 ml · TRA-350'));
     const threshold = screen.getByRole<HTMLInputElement>('spinbutton', { name: 'Ngưỡng tồn tối thiểu' });
     expect(threshold.value).toBe('2');

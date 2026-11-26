@@ -289,6 +289,39 @@ class CategoryIntegrationTest {
         list(owner, "?size=500").andExpect(jsonPath("$.size").value(100));
     }
 
+    @Test
+    void searchFindsCategoriesBeyondTheFirstPageAndTreatsWildcardsLiterally() throws Exception {
+        Owner owner = newStore();
+        asStore(owner.storeId(), () -> jdbc.update("""
+                insert into app.category (store_id, name)
+                select ?, 'Aaa ' || n from generate_series(1, 125) n
+                """, owner.storeId()));
+        UUID drinks = createOk(owner, "Đồ uống");
+        UUID coldDrinks = createOk(owner, "Đồ uống lạnh");
+        UUID literal = createOk(owner, "Khuyến mãi 50%_\\A");
+        createOk(owner, "Khuyến mãi 50XYA");
+        createOk(newStore(), "Đồ uống cửa hàng khác");
+
+        mvc.perform(get(CATEGORIES).cookie(owner.cookie()).param("q", "  DO\tuong\u200b ").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(drinks.toString()));
+        mvc.perform(get(CATEGORIES).cookie(owner.cookie()).param("q", "đồ uống").param("page", "1")
+                        .param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items[0].id").value(coldDrinks.toString()));
+        mvc.perform(get(CATEGORIES).cookie(owner.cookie()).param("q", "%_\\"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].id").value(literal.toString()));
+        mvc.perform(get(CATEGORIES).cookie(owner.cookie()).param("q", "\u00a0 \t\u200b"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(129));
+    }
+
     // --- Tách dữ liệu giữa Cửa hàng và phân quyền --------------------------------------------------------------
 
     @Test

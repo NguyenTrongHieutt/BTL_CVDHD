@@ -190,6 +190,8 @@ class RoleMatrixTest {
                 // reporting: chỉ Chủ cửa hàng
                 row("GET", "/api/v1/reporting/dashboard", U, F, A),
                 row("GET", "/api/v1/reporting/q/{id}", U, F, A),
+                row("GET", "/api/v1/reporting/stock", U, F, A),
+                row("GET", "/api/v1/reporting/stock/export", U, F, A),
                 // Chỉ dịch vụ AI, bằng X-Service-Key: token người dùng không đủ (xem serviceKey…)
                 row("GET", "/internal/catalog/product-changes", U, F, F),
                 // Route chưa khai báo: mặc định cấm (AD-16)

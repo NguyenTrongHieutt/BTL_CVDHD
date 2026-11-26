@@ -34,9 +34,10 @@ class CategoryController {
     }
 
     @GetMapping
-    PageResponse<CategoryView> list(@RequestParam(required = false) Integer page,
+    PageResponse<CategoryView> list(@RequestParam(required = false) String q,
+                                    @RequestParam(required = false) Integer page,
                                     @RequestParam(required = false) Integer size) {
-        return categories.list(page, size);
+        return categories.list(q, page, size);
     }
 
     @PostMapping

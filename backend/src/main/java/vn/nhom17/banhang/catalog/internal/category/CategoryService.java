@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -13,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import vn.nhom17.banhang.catalog.internal.Constraints;
 import vn.nhom17.banhang.catalog.internal.FieldErrors;
+import vn.nhom17.banhang.catalog.internal.SearchText;
 import vn.nhom17.banhang.catalog.internal.TextFields;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.PageResponse;
@@ -51,25 +53,32 @@ class CategoryService {
         this.clock = clock;
     }
 
-    /** Sắp theo tên không dấu, không phân biệt hoa thường; {@code page} bắt đầu từ 0 (AD-19). */
+    /** Tìm tên không dấu, không phân biệt hoa thường; giữ thứ tự tên và phân trang từ 0 (AD-19). */
     @Transactional(readOnly = true)
-    PageResponse<CategoryView> list(Integer page, Integer size) {
+    PageResponse<CategoryView> list(String q, Integer page, Integer size) {
         int pageNo = page == null || page < 0 ? 0 : page;
         int pageSize = PageResponse.clampSize(size);
-        UUID storeId = context.storeId();
-        Long total = jdbc.queryForObject("select count(*) from app.category where store_id = ?", Long.class, storeId);
+        StringBuilder where = new StringBuilder("from app.category c where c.store_id = ?\n");
+        List<Object> args = new ArrayList<>(List.of(context.storeId()));
+        String query = SearchText.query(q);
+        if (query != null) {
+            where.append(" and ").append(SearchText.containsFolded("c.name")).append('\n');
+            args.add(query);
+        }
+        Long total = jdbc.queryForObject("select count(*) " + where, Long.class, args.toArray());
+        args.add(pageSize);
+        args.add((long) pageNo * pageSize);
         List<CategoryView> items = jdbc.query("""
                 select c.id, c.name,
                        (select count(*) from app.product p
                          where p.store_id = c.store_id and p.category_id = c.id) as product_count
-                from app.category c
-                where c.store_id = ?
+                """ + where + """
                 order by app.f_unaccent(lower(c.name)), lower(c.name), c.id
                 limit ? offset ?
                 """,
                 (rs, i) -> new CategoryView(rs.getObject("id", UUID.class), rs.getString("name"),
                         rs.getLong("product_count")),
-                storeId, pageSize, (long) pageNo * pageSize);
+                args.toArray());
         return new PageResponse<>(items, total == null ? 0 : total, pageNo, pageSize);
     }
 

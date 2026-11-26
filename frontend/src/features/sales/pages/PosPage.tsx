@@ -90,6 +90,9 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
   const [completedOrder, setCompletedOrder] = useState<SaleResult | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [pending, setPending] = useState<CreateOrderRequest | null>(null);
+  const [cashMode, setCashMode] = useState(false);
+  const [cashReceived, setCashReceived] = useState<number | null>(null);
+  const hasLines = cart.lines.length > 0;
   const selectedCustomerId = cart.customerId;
   const itemCount = cart.lines.reduce((total, line) => total + line.quantity, 0);
   const selectedCustomer = useQuery({
@@ -118,6 +121,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       setCompletedOrder(order);
       setCart(emptyCart());
       setPending(null);
+      setCashMode(false);
       setCashReceived(null);
       setMethod('CASH');
       setProducts(new Map());
@@ -139,7 +143,6 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
     },
   });
 
-  const [cashReceived, setCashReceived] = useState<number | null>(null);
   const [debouncedQuote, setDebouncedQuote] = useState('');
   const request: QuoteRequest = {
     lines: cart.lines,
@@ -147,7 +150,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
     pointsRedeemed: cart.customerId ? cart.pointsRedeemed : undefined,
     orderDiscount: cart.orderDiscount,
     paymentMethod: method,
-    cashReceived: method === 'CASH' ? cashReceived ?? undefined : undefined,
+    cashReceived: method === 'CASH' && cashMode ? cashReceived ?? undefined : undefined,
   };
   const quoteBody = JSON.stringify(request);
 
@@ -156,25 +159,35 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
     return () => clearTimeout(timer);
   }, [quoteBody]);
 
-  const quote = useQuery({
+  const quote = useQuery<QuoteResponse>({
     queryKey: ['sales', 'quote', storeId, userId, cart.idempotencyKey, debouncedQuote],
-    enabled: cart.lines.length > 0 && debouncedQuote === quoteBody,
+    enabled: hasLines && debouncedQuote === quoteBody,
+    placeholderData: (previous, query) => query?.queryKey[4] === cart.idempotencyKey ? previous : undefined,
     queryFn: ({ signal }) => api.post<QuoteResponse>(
       '/api/v1/sales/orders/quote', JSON.parse(debouncedQuote),
       { signal, idempotencyKey: cart.idempotencyKey },
     ),
     retry: false,
   });
-  const pricing = debouncedQuote === quoteBody ? quote.data : undefined;
+  const displayPricing = hasLines ? quote.data : undefined;
+  const pricing = debouncedQuote === quoteBody && !quote.isPlaceholderData ? displayPricing : undefined;
   const account = pricing?.loyalty ?? loyalty.data;
-  const cashTendered = cashReceived ?? (pricing?.total === 0 ? 0 : null);
-  const bankAvailable = pricing?.bankTransferAvailable ?? method === 'BANK_TRANSFER';
-  const calculating = pending === null && (debouncedQuote !== quoteBody || quote.isFetching);
+  const cashTendered = pricing ? cashMode && pricing.total > 0 ? cashReceived : pricing.total : null;
+  const bankAvailable = displayPricing?.bankTransferAvailable || method === 'BANK_TRANSFER';
+  const calculating = hasLines && pending === null && (debouncedQuote !== quoteBody || quote.isFetching || quote.isPlaceholderData);
   const quoteFailed = pending === null && debouncedQuote === quoteBody && quote.isError;
-  const pointError = quoteFailed && cart.pointsRedeemed && isApiError(quote.error)
-    ? quote.error.errors.find((error) => error.field === 'pointsRedeemed')?.message
-      ?? (quote.error.type === '/errors/sales/loyalty-insufficient' ? quote.error.detail ?? 'Số dư điểm không đủ.' : undefined)
+  const quoteError = quoteFailed && isApiError(quote.error) ? quote.error : undefined;
+  const pointError = cart.pointsRedeemed && quoteError
+    ? quoteError.errors.find((error) => error.field === 'pointsRedeemed')?.message
+      ?? (quoteError.type === '/errors/sales/loyalty-insufficient' ? quoteError.detail ?? 'Số dư điểm không đủ.' : undefined)
     : undefined;
+  const discountError = (field: string) => quoteError?.errors.find((error) => error.field === field)?.message;
+  const hasDiscountError = quoteError?.errors.some(({ field }) => field === 'orderDiscount' || /^lines\[\d+\]\.discount$/u.test(field ?? ''));
+  const showCashOption = hasLines && method === 'CASH' && displayPricing?.total !== 0;
+  const cashShort = method === 'CASH' && pricing && cashTendered !== null && cashTendered < pricing.total;
+  const checkoutNotice = calculating ? 'Đang cập nhật tổng tiền…'
+    : cashShort ? 'Tiền khách đưa chưa đủ.'
+      : pricing?.warnings.length ? 'Có sản phẩm vượt số lượng tồn. Kiểm tra lại giỏ hàng.' : null;
 
   useEffect(() => saveCart(storeId, userId, cart), [storeId, userId, cart]);
 
@@ -201,6 +214,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       return;
     }
     setWarning('');
+    if (!hasLines) setCompletedOrder(null);
     setCart({
       ...cart,
       lines: existing
@@ -211,7 +225,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
 
   function lineName(line: QuoteLineRequest) {
     const item = products.get(line.variantId);
-    const priced = pricing?.lines.find((entry) => entry.variantId === line.variantId);
+    const priced = displayPricing?.lines.find((entry) => entry.variantId === line.variantId);
     if (priced) return [priced.productName, priced.variantName].filter(Boolean).join(' · ');
     return item
       ? [item.name, item.variantName].filter(Boolean).join(' · ')
@@ -238,6 +252,11 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
 
   function removeLine(line: QuoteLineRequest) {
     setWarning('');
+    if (cart.lines.length === 1) {
+      setCashReceived(null);
+      setCashMode(false);
+      setMethod('CASH');
+    }
     setCart((previous) => {
       const lines = previous.lines.filter((current) => current.variantId !== line.variantId);
       return lines.length ? { ...previous, lines } : emptyCart();
@@ -253,11 +272,11 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       <Typography.Title level={1} className="pos-heading" style={{ marginTop: 0 }}>Bán hàng</Typography.Title>
       <div className="pos-grid">
         <div className="pos-main">
-      <Card title="Thêm hàng vào giỏ"><ProductPicker searchRef={search} onPick={add} autoFocus disabled={pending !== null} /></Card>
+      <Card title="Thêm hàng vào giỏ"><ProductPicker searchRef={search} onPick={add} disabled={pending !== null} /></Card>
       <Card title="Giỏ hàng" extra={
         <span role="status" aria-atomic="true">
           {itemCount > 0 ? (
-            <span className="pos-cart-count" key={itemCount}>
+            <span className="pos-cart-count">
               {itemCount} sản phẩm<span className="visually-hidden"> trong giỏ hàng</span>
             </span>
           ) : <span className="visually-hidden">Giỏ hàng chưa có sản phẩm.</span>}
@@ -278,7 +297,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
           />
         )}
         {warning && <Alert type="warning" showIcon title={warning} />}
-        <Space orientation="vertical" style={{ width: '100%', marginBottom: 16 }}>
+        <Space orientation="vertical" className="pos-customer-section">
           <Typography.Text strong>Khách hàng</Typography.Text>
           <CustomerPicker
             value={selectedCustomer.data}
@@ -287,7 +306,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             disabled={pending !== null}
             placeholder={cart.customerId && selectedCustomer.isPending ? 'Đang tải khách đã chọn…' : undefined}
           />
-          {selectedCustomer.data && (
+          <div className="pos-customer-status">{selectedCustomer.data && (
             account ? <Typography.Text type="secondary" role="status">
               Số dư điểm <strong>{account.balance.toLocaleString('vi-VN')} điểm</strong>
             </Typography.Text> : loyalty.isError ? (
@@ -296,7 +315,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
                 <Button type="link" onClick={() => void loyalty.refetch()} loading={loyalty.isFetching}>Tải lại số dư</Button>
               </Space>
             ) : <Typography.Text type="secondary" role="status">Đang tải số dư điểm…</Typography.Text>
-          )}
+          )}</div>
           {cart.customerId && selectedCustomer.isError && !selectedCustomer.data && (
             <>
               <ErrorAlert error={selectedCustomer.error} retryLabel="Tải lại khách đã chọn"
@@ -318,10 +337,10 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
           rowKey="variantId"
           dataSource={cart.lines}
           pagination={false}
-          scroll={{ x: true }}
+          scroll={{ x: 500 }}
           columns={[
             { title: 'Sản phẩm', key: 'productName', render: (_, line) => lineName(line) },
-            { title: 'Số lượng', key: 'quantity', render: (_, line, index) => (
+            { title: 'Số lượng', key: 'quantity', width: 104, render: (_, line, index) => (
               <CartQuantityInput
                 label={`Số lượng dòng ${index + 1}`}
                 disabled={pending !== null}
@@ -333,8 +352,10 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             {
               title: 'Giảm giá',
               key: 'discount',
+              width: 145,
               render: (_, line, index) => (
-                <DiscountInput label={`Giảm giá dòng ${index + 1}`} value={line.discount} disabled={pending !== null}
+                <DiscountInput label={`Giảm giá dòng ${index + 1}`} scope="line" value={line.discount}
+                  error={discountError(`lines[${index}].discount`)} disabled={pending !== null}
                   onChange={(discount) => setLineDiscount(line, discount)}
                 />
               ),
@@ -342,11 +363,12 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             {
               title: 'Thành tiền',
               key: 'netLineAmount',
-              render: (_, line) => <MoneyText value={pricing?.lines.find(
+              width: 120,
+              render: (_, line) => <MoneyText value={displayPricing?.lines.find(
                 (entry) => entry.variantId === line.variantId,
               )?.netLineAmount} />,
             },
-            { title: 'Thao tác', key: 'actions', render: (_, line, index) => (
+            { title: 'Thao tác', key: 'actions', width: 66, render: (_, line, index) => (
               <Button danger aria-label={`Xóa dòng ${index + 1} khỏi giỏ`} disabled={pending !== null} onClick={() => removeLine(line)}>Xóa</Button>
             ) },
           ]}
@@ -361,39 +383,43 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       </Card>
         </div>
         <div className="pos-side">
-      {cart.lines.length > 0 && (
+      {hasLines && (
         <Card title={<h2 className="pos-payment-heading" tabIndex={-1} ref={paymentHeading}>Thanh toán</h2>}>
-          <Space orientation="vertical" style={{ width: '100%' }}>
-            {pricing && (
-              <div className="pos-total">
-                <Typography.Text strong>Khách phải trả</Typography.Text>
-                <MoneyText value={pricing.total} strong />
-              </div>
-            )}
+          <Space orientation="vertical" className="pos-payment-stack">
+            <div className="pos-total">
+              <Typography.Text strong>Khách phải trả</Typography.Text>
+              <MoneyText value={displayPricing?.total} strong />
+            </div>
+            <Descriptions className="pos-payment-summary" column={1} items={[
+              { key: 'subtotal', label: 'Tổng tiền hàng', children: <MoneyText value={displayPricing?.subtotal} /> },
+              { key: 'lineDiscount', label: 'Giảm theo dòng', children: <MoneyText value={displayPricing?.lineDiscountTotal} /> },
+              { key: 'orderDiscount', label: 'Giảm cả đơn', children: <MoneyText value={displayPricing?.orderDiscount} /> },
+              ...(selectedCustomerId ? [
+                { key: 'pointsDiscount', label: 'Giảm do dùng điểm', children: <MoneyText value={displayPricing?.pointsDiscount} /> },
+                { key: 'pointsEarned', label: 'Điểm dự kiến cộng',
+                  children: displayPricing?.loyalty ? `${displayPricing.loyalty.pointsEarned.toLocaleString('vi-VN')} điểm` : '—' },
+              ] : []),
+            ]} />
             <div className="pos-payment-fields">
-              <div>Giảm giá cả đơn
-              <DiscountInput label="Giảm giá cả đơn" value={cart.orderDiscount} disabled={pending !== null}
-                onChange={(orderDiscount) => pending === null && setCart((previous) => ({ ...previous, orderDiscount }))}
+              <DiscountInput label="Giảm giá cả đơn" scope="order" value={cart.orderDiscount}
+                error={discountError('orderDiscount')} disabled={pending !== null}
+                onChange={(orderDiscount) => setCart((previous) => ({ ...previous, orderDiscount }))}
               />
-              </div>
-              <div>Phương thức thanh toán
-              <Select<PaymentMethod> aria-label="Phương thức thanh toán" value={method}
-                disabled={pending !== null}
-                options={[
-                  { value: 'CASH', label: 'Tiền mặt' },
-                  ...(bankAvailable ? [{ value: 'BANK_TRANSFER' as const, label: 'Chuyển khoản' }] : []),
-                ]}
-                onChange={(value) => setMethod(value)}
-              />
-              </div>
-              {method === 'CASH' && pricing?.total !== 0 && <>
-                <div>Tiền khách đưa
-                <InputNumber aria-label="Tiền khách đưa" min={0} max={Number.MAX_SAFE_INTEGER}
-                  inputMode="numeric"
+              <div>
+                <label htmlFor="pos-payment-method">Phương thức thanh toán</label>
+                <Select<PaymentMethod> id="pos-payment-method" value={method}
                   disabled={pending !== null}
-                  precision={0} value={cashReceived} onChange={setCashReceived} />
-                </div>
-              </>}
+                  options={[
+                    { value: 'CASH', label: 'Tiền mặt' },
+                    ...(bankAvailable ? [{ value: 'BANK_TRANSFER' as const, label: 'Chuyển khoản' }] : []),
+                  ]}
+                  onChange={(value) => {
+                    setMethod(value);
+                    setCashMode(false);
+                    setCashReceived(null);
+                  }}
+                />
+              </div>
             </div>
             {selectedCustomerId && (
               <LoyaltyRedemption account={account} points={cart.pointsRedeemed}
@@ -401,41 +427,44 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
                 error={pointError}
                 onChange={(pointsRedeemed) => setCart((previous) => ({ ...previous, pointsRedeemed }))} />
             )}
-            {quoteFailed && !pointError && <ErrorAlert error={quote.error} retryLabel="Thử lại tính tiền"
+            {showCashOption && (
+              <div className="pos-cash">
+                <Button type="link" className="pos-cash-toggle" aria-expanded={cashMode} aria-controls="pos-cash-details"
+                  disabled={pending !== null} onClick={() => {
+                    setCashMode(!cashMode);
+                    setCashReceived(null);
+                  }}>
+                  {cashMode ? 'Khách trả đúng số tiền' : 'Tính tiền thừa'}
+                </Button>
+                <div id="pos-cash-details" hidden={!cashMode}>
+                  {cashMode && (
+                    <div className="pos-cash-fields">
+                      <label htmlFor="pos-cash-received">Tiền khách đưa</label>
+                      <InputNumber id="pos-cash-received" min={0} max={Number.MAX_SAFE_INTEGER} inputMode="numeric"
+                        disabled={pending !== null} precision={0} value={cashReceived} onChange={setCashReceived} />
+                      <div className="pos-cash-change">Tiền thừa <MoneyText value={displayPricing?.change} strong /></div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {quoteFailed && !pointError && !hasDiscountError && <ErrorAlert error={quote.error} retryLabel="Thử lại tính tiền"
               onRetry={() => void quote.refetch()} retrying={quote.isFetching} />}
-            {calculating && <Typography.Text role="status">Đang tính tiền…</Typography.Text>}
             {payment.isError && <ErrorAlert error={payment.error} />}
             {pending && payment.isError && <Typography.Text>
               Thử lại cùng giao dịch sau khi kết nối ổn định để tránh ghi nhận đơn hai lần.
             </Typography.Text>}
-            {pricing?.vietqrPayload && (
-              <Space orientation="vertical">
-                <QRCode value={pricing.vietqrPayload} />
-                {pricing.bankAccountName && <div>Tên tài khoản <Typography.Text strong>{pricing.bankAccountName}</Typography.Text></div>}
-                {pricing.transferRef && <div>Nội dung chuyển khoản <Typography.Text strong>{pricing.transferRef}</Typography.Text></div>}
+            {method === 'BANK_TRANSFER' && displayPricing?.vietqrPayload && (
+              <Space orientation="vertical" className="pos-transfer-details"
+                style={{ visibility: pricing?.vietqrPayload && !calculating && !quoteFailed ? 'visible' : 'hidden' }}>
+                <QRCode value={displayPricing.vietqrPayload} />
+                {displayPricing.bankAccountName && <div>Tên tài khoản <Typography.Text strong>{displayPricing.bankAccountName}</Typography.Text></div>}
+                {displayPricing.transferRef && <div>Nội dung chuyển khoản <Typography.Text strong>{displayPricing.transferRef}</Typography.Text></div>}
               </Space>
             )}
-            {pricing && (
-              <>
-                <Descriptions column={1} items={[
-                  { key: 'subtotal', label: 'Tổng tiền hàng', children: <MoneyText value={pricing.subtotal} /> },
-                  { key: 'lineDiscount', label: 'Giảm theo dòng', children: <MoneyText value={pricing.lineDiscountTotal} /> },
-                  { key: 'orderDiscount', label: 'Giảm cả đơn', children: <MoneyText value={pricing.orderDiscount} /> },
-                  ...(pricing.pointsDiscount > 0 ? [{ key: 'pointsDiscount', label: 'Giảm do dùng điểm',
-                    children: <MoneyText value={pricing.pointsDiscount} /> }] : []),
-                  ...(pricing.loyalty?.pointsEarned ? [{ key: 'pointsEarned', label: 'Điểm dự kiến cộng',
-                    children: `${pricing.loyalty.pointsEarned.toLocaleString('vi-VN')} điểm` }] : []),
-                  ...(method === 'CASH' && pricing.total !== 0 ? [{ key: 'change', label: 'Tiền thừa',
-                    children: <MoneyText value={pricing.change} /> }] : []),
-                ]} />
-                {method === 'CASH' && cashReceived !== null && cashReceived < pricing.total && (
-                  <Alert type="warning" showIcon title="Tiền khách đưa chưa đủ." />
-                )}
-                {pricing.warnings.length > 0 && (
-                  <Alert type="warning" showIcon title="Có sản phẩm vượt số lượng tồn. Kiểm tra lại giỏ hàng." />
-                )}
-              </>
-            )}
+            <div className="pos-checkout-notice" role="status">
+              {checkoutNotice && <Typography.Text type={calculating ? 'secondary' : 'warning'}>{checkoutNotice}</Typography.Text>}
+            </div>
             <Button className="pos-submit" type="primary" loading={payment.isPending} onClick={confirmPayment}
               disabled={payment.isPending || (!pending && (
                 !customerReady || !pricing || quote.isFetching || quote.isError || pricing.warnings.length > 0 ||
@@ -443,7 +472,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
               ))}
             >
               {pending && payment.isError ? 'Thử lại xác nhận'
-                : pricing?.total === 0 ? 'Hoàn tất đơn' : 'Xác nhận đã nhận tiền'}
+                : displayPricing?.total === 0 ? 'Hoàn tất đơn' : 'Xác nhận đã nhận tiền'}
             </Button>
           </Space>
         </Card>

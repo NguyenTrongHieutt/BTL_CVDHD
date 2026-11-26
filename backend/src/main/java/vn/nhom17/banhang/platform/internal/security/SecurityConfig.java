@@ -75,7 +75,8 @@ class SecurityConfig {
                         .requestMatchers("/api/v1/sales/**").hasAnyRole(OWNER, STAFF)
                         // inventory: Nhân viên chỉ xem Tồn kho (DTO không có Giá vốn) và cảnh báo tồn thấp
                         .requestMatchers(HttpMethod.GET, "/api/v1/inventory/stock", "/api/v1/inventory/stock/**",
-                                "/api/v1/inventory/low-stock").hasAnyRole(OWNER, STAFF)
+                                "/api/v1/inventory/low-stock", "/api/v1/inventory/low-stock/page")
+                        .hasAnyRole(OWNER, STAFF)
                         .requestMatchers("/api/v1/inventory/**").hasRole(OWNER)
                         // reporting: chỉ Chủ cửa hàng
                         .requestMatchers("/api/v1/reporting/**").hasRole(OWNER)

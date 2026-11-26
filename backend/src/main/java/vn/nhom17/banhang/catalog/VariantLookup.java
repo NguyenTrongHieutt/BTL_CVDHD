@@ -25,6 +25,9 @@ public interface VariantLookup {
      */
     List<SellableVariant> getForSale(Collection<UUID> variantIds);
 
+    /** Chỉ lấy mã Biến thể còn bán để module khác lọc và phân trang trước khi tải thông tin chi tiết. */
+    List<UUID> findForSaleIds();
+
     /** Biến thể chưa xóa mềm khớp bộ lọc của màn Tồn kho. */
     List<SellableVariant> findForInventory(String query, UUID categoryId, boolean includeInactive);
 

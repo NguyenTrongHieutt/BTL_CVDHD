@@ -84,6 +84,37 @@ public class JdbcStockQuery implements StockQuery {
         );
     }
 
+    /**
+     * Chỉ tải các dòng trong trang. Mã hàng còn bán do catalog cung cấp qua API công khai (AD-3);
+     * không tải toàn bộ thông tin Biến thể hay đọc chéo bảng catalog ở đây.
+     */
+    @Transactional(readOnly = true)
+    public PageResponse<StockView> lowStockPage(Collection<UUID> sellableVariantIds, int page, Integer size) {
+        int pageNo = Math.max(page, 0);
+        int pageSize = PageResponse.clampSize(size);
+        if (sellableVariantIds.isEmpty()) {
+            return new PageResponse<>(List.of(), 0, 0, pageSize);
+        }
+
+        UUID storeId = context.storeId();
+        String ids = String.join(",", sellableVariantIds.stream().map(UUID::toString).toList());
+        String where = """
+            FROM app.stock
+            WHERE store_id = ? AND is_active AND quantity < min_quantity
+              AND variant_id = ANY(string_to_array(?, ',')::uuid[])
+            """;
+        long total = jdbc.queryForObject("SELECT count(*) " + where, Long.class, storeId, ids);
+        if (total == 0) {
+            return new PageResponse<>(List.of(), 0, 0, pageSize);
+        }
+        pageNo = (int) Math.min(pageNo, (total - 1) / pageSize);
+        List<StockView> items = jdbc.query(
+            "SELECT variant_id, quantity, min_quantity, avg_unit_cost, is_active " + where
+                + " ORDER BY variant_id LIMIT ? OFFSET ?",
+            STOCK_ROW_MAPPER, storeId, ids, pageSize, (long) pageNo * pageSize);
+        return new PageResponse<>(items, total, pageNo, pageSize);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public List<StockView> find(Collection<UUID> variantIds) {

@@ -180,6 +180,7 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/inventory/stock", U, A, A),
                 row("GET", "/api/v1/inventory/stock/{id}", U, A, A),
                 row("GET", "/api/v1/inventory/low-stock", U, A, A),
+                row("GET", "/api/v1/inventory/low-stock/page", U, A, A),
                 row("GET", "/api/v1/inventory/ledger", U, F, A),
                 row("GET", "/api/v1/inventory/ledger/documents/{type}/{id}", U, F, A),
                 row("POST", "/api/v1/inventory/purchase-receipts", U, F, A),

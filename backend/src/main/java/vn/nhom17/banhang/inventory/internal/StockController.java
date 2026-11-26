@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.web.bind.annotation.RequestParam;
 import vn.nhom17.banhang.catalog.SellableVariant;
 import vn.nhom17.banhang.inventory.internal.stock.JdbcStockQuery;
@@ -111,6 +112,24 @@ public class StockController {
                 );
             })
             .toList();
+    }
+
+    @GetMapping("/low-stock/page")
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
+    public PageResponse<LowStockResponse> lowStockPage(
+        @RequestParam(defaultValue = "0") int page,
+        @RequestParam(required = false) Integer size
+    ) {
+        var result = stockQuery.lowStockPage(variantLookup.findForSaleIds(), page, size);
+        Map<UUID, SellableVariant> variants = variantLookup.getForSale(
+                result.items().stream().map(StockView::variantId).toList()).stream()
+            .collect(Collectors.toMap(SellableVariant::variantId, Function.identity()));
+        List<LowStockResponse> items = result.items().stream().map(stock -> {
+            SellableVariant variant = variants.get(stock.variantId());
+            return new LowStockResponse(stock.variantId(), variant.productName(), variant.variantName(),
+                stock.quantity(), stock.minQuantity());
+        }).toList();
+        return new PageResponse<>(items, result.total(), result.page(), result.size());
     }
 
     @PutMapping("/stock/{variantId}/min-quantity")

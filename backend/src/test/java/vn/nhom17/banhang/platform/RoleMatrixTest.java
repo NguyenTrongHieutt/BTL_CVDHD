@@ -172,6 +172,7 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/sales/orders/{id}/returns/quote", U, A, A),
                 row("POST", "/api/v1/sales/orders/{id}/returns", U, A, A),
                 row("GET", "/api/v1/sales/customers/{id}/purchase-summary", U, A, A),
+                row("GET", "/api/v1/sales/customers/{id}/loyalty", U, A, A),
                 // inventory: Nhân viên chỉ xem Tồn kho (DTO không có Giá vốn) và cảnh báo tồn thấp
                 row("GET", "/api/v1/inventory/stock", U, A, A),
                 row("GET", "/api/v1/inventory/stock/{id}", U, A, A),

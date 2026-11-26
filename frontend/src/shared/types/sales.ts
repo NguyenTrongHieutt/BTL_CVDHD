@@ -30,6 +30,7 @@ export interface QuoteRequest {
   lines: QuoteLineRequest[];
   orderDiscount?: DiscountIntent;
   customerId?: Uuid;
+  pointsRedeemed?: number;
   paymentMethod: PaymentMethod;
   /** Tiền khách đưa (tiền mặt); backend trả lại `change` (FR-11). */
   cashReceived?: Money;
@@ -57,6 +58,7 @@ export interface QuoteResponse {
   lineDiscountTotal: Money;
   orderDiscount: Money;
   pointsDiscount: Money;
+  loyalty?: LoyaltyQuote | null;
   warnings: { variantId: Uuid; code: "INSUFFICIENT_STOCK"; available: Quantity }[];
   total: Money;
   /** Tiền thừa khi trả tiền mặt; `null` khi chưa nhập tiền khách đưa. */
@@ -66,6 +68,18 @@ export interface QuoteResponse {
   bankTransferAvailable: boolean;
   bankAccountName?: string | null;
   transferRef?: string | null;
+}
+
+export interface CustomerLoyalty {
+  balance: number;
+  earnAmountPerPoint: Money;
+  pointValue: Money;
+}
+
+export interface LoyaltyQuote extends CustomerLoyalty {
+  pointsEarned: number;
+  pointsRedeemed: number;
+  maxRedeemablePoints: number;
 }
 
 /** Body tạo Đơn hàng. Tổng tính lại khác `quotedTotal` thì backend trả `409 /errors/sales/cart-stale`. */
@@ -94,6 +108,7 @@ export interface StoredCart {
   lines: QuoteLineRequest[];
   orderDiscount?: DiscountIntent;
   customerId?: Uuid;
+  pointsRedeemed?: number;
   idempotencyKey: string;
   updatedAt: IsoDateTime;
 }

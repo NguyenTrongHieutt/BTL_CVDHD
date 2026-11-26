@@ -39,6 +39,8 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/sales/invalid-state` | 409 | Chuyển trạng thái Đơn hàng không hợp lệ, ví dụ hủy đơn đã hủy hoặc đã có Phiếu trả (AD-17) | sales |
 | `/errors/sales/return-stale` | 409 | Số lượng có thể trả hoặc số tiền hoàn đã thay đổi. Đọc lại đơn và tính lại trước khi lưu Phiếu trả hàng | sales |
 | `/errors/sales/cart-stale` | 409 | Tổng tiền tính lại khác `quotedTotal`, hoặc giá, trạng thái đã đổi (AD-8) | sales |
+| `/errors/sales/loyalty-insufficient` | 409 | Số dư điểm không đủ để dùng hoặc để thu hồi theo chứng từ. Giao dịch được hoàn tác. | sales |
+| `/errors/sales/loyalty-limit` | 409 | Số điểm cộng hoặc số dư sau giao dịch vượt giới hạn. Giao dịch được hoàn tác. | sales |
 | `/errors/ai/quota-exceeded` | 429 | Hết 50 câu Hỏi đáp dữ liệu trong ngày (AD-13) | ai |
 | `/errors/ai/unavailable` | 503 | Dịch vụ AI không sẵn sàng (nginx hoặc ai-service trả, AD-1) | ai |
 | `/errors/ai/not-implemented` | 501 | Endpoint AI chưa làm (khung GĐ0: `/ai/search` trước AI-01, `/ai/ask` trước AI-03) | ai |

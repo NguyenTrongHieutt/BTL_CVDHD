@@ -5,10 +5,12 @@ import { Alert, Button, Card, Descriptions, InputNumber, QRCode, Select, Space, 
 import type { InputRef } from 'antd';
 import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { customersQueryKey, fetchCustomer } from '../../../shared/api/customers';
+import { customerLoyaltyKey, useCustomerLoyalty } from '../../../shared/api/loyalty';
 import { CustomerPicker } from '../../../shared/components/CustomerPicker';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
 import { MoneyText } from '../../../shared/components/MoneyText';
 import { DiscountInput } from './DiscountInput';
+import { LoyaltyRedemption } from './LoyaltyRedemption';
 import { OrderReceipt } from './OrderReceipt';
 import { useCurrentUser } from '../../../shared/api/session';
 import { LowStockPanel } from '../../../shared/components/LowStockPanel';
@@ -18,6 +20,13 @@ import { useDocumentTitle } from '../../../shared/components/useDocumentTitle';
 import type { CustomerSummary } from '../../../shared/types/catalog';
 import type { CreateOrderRequest, PaymentMethod, QuoteLineRequest, QuoteRequest, QuoteResponse, SellableItem } from '../../../shared/types/sales';
 import { emptyCart, loadCart, saveCart } from '../cart/cartStorage';
+
+interface SaleResult {
+  orderId: string;
+  orderCode: string;
+  pointsEarned?: number;
+  pointsRedeemed?: number;
+}
 
 function CartQuantityInput({ label, quantity, available, disabled, onCommit }: {
   label: string;
@@ -78,7 +87,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
   const [warning, setWarning] = useState('');
   const queryClient = useQueryClient();
   const [method, setMethod] = useState<PaymentMethod>('CASH');
-  const [completedOrder, setCompletedOrder] = useState<{ orderId: string; orderCode: string } | null>(null);
+  const [completedOrder, setCompletedOrder] = useState<SaleResult | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [pending, setPending] = useState<CreateOrderRequest | null>(null);
   const selectedCustomerId = cart.customerId;
@@ -88,16 +97,21 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
     queryFn: selectedCustomerId ? ({ signal }) => fetchCustomer(selectedCustomerId, signal) : skipToken,
     retry: false,
   });
+  const loyalty = useCustomerLoyalty(selectedCustomerId);
   const customerReady = !cart.customerId || Boolean(selectedCustomer.data);
 
   function changeCustomer(customer: CustomerSummary | null) {
     if (customer) {
       queryClient.setQueryData([...customersQueryKey, 'pos-selected', customer.customerId], customer);
     }
-    setCart((current) => ({ ...current, customerId: customer?.customerId }));
+    setCart((current) => ({
+      ...current,
+      customerId: customer?.customerId,
+      pointsRedeemed: current.customerId === customer?.customerId ? current.pointsRedeemed : undefined,
+    }));
   }
   const payment = useMutation({
-    mutationFn: (order: CreateOrderRequest) => api.post<{ orderId: string; orderCode: string }>(
+    mutationFn: (order: CreateOrderRequest) => api.post<SaleResult>(
       '/api/v1/sales/orders', order, { idempotencyKey: cart.idempotencyKey },
     ),
     onSuccess: (order) => {
@@ -110,6 +124,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       for (const key of [
         ['sales', 'sellable'], ['sales', 'orders'], ['sales', 'order-sellers'],
         ['inventory', 'stock'], ['inventory', 'low-stock'],
+        customerLoyaltyKey,
       ]) {
         void queryClient.invalidateQueries({ queryKey: key });
       }
@@ -119,6 +134,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       setPending(null);
       if (isApiError(error) && error.status === 409) {
         setCart((previous) => ({ ...previous, idempotencyKey: newIdempotencyKey() }));
+        void queryClient.invalidateQueries({ queryKey: customerLoyaltyKey });
       }
     },
   });
@@ -128,6 +144,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
   const request: QuoteRequest = {
     lines: cart.lines,
     customerId: cart.customerId,
+    pointsRedeemed: cart.customerId ? cart.pointsRedeemed : undefined,
     orderDiscount: cart.orderDiscount,
     paymentMethod: method,
     cashReceived: method === 'CASH' ? cashReceived ?? undefined : undefined,
@@ -149,9 +166,15 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
     retry: false,
   });
   const pricing = debouncedQuote === quoteBody ? quote.data : undefined;
+  const account = pricing?.loyalty ?? loyalty.data;
+  const cashTendered = cashReceived ?? (pricing?.total === 0 ? 0 : null);
   const bankAvailable = pricing?.bankTransferAvailable ?? method === 'BANK_TRANSFER';
   const calculating = pending === null && (debouncedQuote !== quoteBody || quote.isFetching);
   const quoteFailed = pending === null && debouncedQuote === quoteBody && quote.isError;
+  const pointError = quoteFailed && cart.pointsRedeemed && isApiError(quote.error)
+    ? quote.error.errors.find((error) => error.field === 'pointsRedeemed')?.message
+      ?? (quote.error.type === '/errors/sales/loyalty-insufficient' ? quote.error.detail ?? 'Số dư điểm không đủ.' : undefined)
+    : undefined;
 
   useEffect(() => saveCart(storeId, userId, cart), [storeId, userId, cart]);
 
@@ -162,8 +185,9 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
       return;
     }
     if (!customerReady || !pricing || pricing.warnings.length || quote.isFetching || quote.isError) return;
-    if (method === 'CASH' && (cashReceived === null || cashReceived < pricing.total)) return;
-    const order = { ...request, quotedTotal: pricing.total };
+    if (method === 'CASH' && (cashTendered === null || cashTendered < pricing.total)) return;
+    const order = { ...request, cashReceived: method === 'CASH' ? cashTendered ?? undefined : undefined,
+      quotedTotal: pricing.total };
     setPending(order);
     payment.mutate(order);
   }
@@ -246,6 +270,10 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             type="success"
             showIcon
             title={'Đã bán hàng · ' + completedOrder.orderCode}
+            description={[
+              completedOrder.pointsRedeemed ? `Đã dùng ${completedOrder.pointsRedeemed.toLocaleString('vi-VN')} điểm` : null,
+              completedOrder.pointsEarned ? `Đã cộng ${completedOrder.pointsEarned.toLocaleString('vi-VN')} điểm` : null,
+            ].filter(Boolean).join(' · ') || undefined}
             action={<Button onClick={() => setShowReceipt(true)}>Xem hóa đơn</Button>}
           />
         )}
@@ -259,6 +287,16 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             disabled={pending !== null}
             placeholder={cart.customerId && selectedCustomer.isPending ? 'Đang tải khách đã chọn…' : undefined}
           />
+          {selectedCustomer.data && (
+            account ? <Typography.Text type="secondary" role="status">
+              Số dư điểm <strong>{account.balance.toLocaleString('vi-VN')} điểm</strong>
+            </Typography.Text> : loyalty.isError ? (
+              <Space size={4} wrap>
+                <Typography.Text type="secondary">Chưa tải được số dư điểm.</Typography.Text>
+                <Button type="link" onClick={() => void loyalty.refetch()} loading={loyalty.isFetching}>Tải lại số dư</Button>
+              </Space>
+            ) : <Typography.Text type="secondary" role="status">Đang tải số dư điểm…</Typography.Text>
+          )}
           {cart.customerId && selectedCustomer.isError && !selectedCustomer.data && (
             <>
               <ErrorAlert error={selectedCustomer.error} retryLabel="Tải lại khách đã chọn"
@@ -348,7 +386,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
                 onChange={(value) => setMethod(value)}
               />
               </div>
-              {method === 'CASH' && <>
+              {method === 'CASH' && pricing?.total !== 0 && <>
                 <div>Tiền khách đưa
                 <InputNumber aria-label="Tiền khách đưa" min={0} max={Number.MAX_SAFE_INTEGER}
                   inputMode="numeric"
@@ -357,7 +395,13 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
                 </div>
               </>}
             </div>
-            {quoteFailed && <ErrorAlert error={quote.error} retryLabel="Thử lại tính tiền"
+            {selectedCustomerId && (
+              <LoyaltyRedemption account={account} points={cart.pointsRedeemed}
+                maxRedeemable={pricing?.loyalty?.maxRedeemablePoints} disabled={pending !== null}
+                error={pointError}
+                onChange={(pointsRedeemed) => setCart((previous) => ({ ...previous, pointsRedeemed }))} />
+            )}
+            {quoteFailed && !pointError && <ErrorAlert error={quote.error} retryLabel="Thử lại tính tiền"
               onRetry={() => void quote.refetch()} retrying={quote.isFetching} />}
             {calculating && <Typography.Text role="status">Đang tính tiền…</Typography.Text>}
             {payment.isError && <ErrorAlert error={payment.error} />}
@@ -377,7 +421,12 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
                   { key: 'subtotal', label: 'Tổng tiền hàng', children: <MoneyText value={pricing.subtotal} /> },
                   { key: 'lineDiscount', label: 'Giảm theo dòng', children: <MoneyText value={pricing.lineDiscountTotal} /> },
                   { key: 'orderDiscount', label: 'Giảm cả đơn', children: <MoneyText value={pricing.orderDiscount} /> },
-                  ...(method === 'CASH' ? [{ key: 'change', label: 'Tiền thừa', children: <MoneyText value={pricing.change} /> }] : []),
+                  ...(pricing.pointsDiscount > 0 ? [{ key: 'pointsDiscount', label: 'Giảm do dùng điểm',
+                    children: <MoneyText value={pricing.pointsDiscount} /> }] : []),
+                  ...(pricing.loyalty?.pointsEarned ? [{ key: 'pointsEarned', label: 'Điểm dự kiến cộng',
+                    children: `${pricing.loyalty.pointsEarned.toLocaleString('vi-VN')} điểm` }] : []),
+                  ...(method === 'CASH' && pricing.total !== 0 ? [{ key: 'change', label: 'Tiền thừa',
+                    children: <MoneyText value={pricing.change} /> }] : []),
                 ]} />
                 {method === 'CASH' && cashReceived !== null && cashReceived < pricing.total && (
                   <Alert type="warning" showIcon title="Tiền khách đưa chưa đủ." />
@@ -390,10 +439,11 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
             <Button className="pos-submit" type="primary" loading={payment.isPending} onClick={confirmPayment}
               disabled={payment.isPending || (!pending && (
                 !customerReady || !pricing || quote.isFetching || quote.isError || pricing.warnings.length > 0 ||
-                (method === 'CASH' && (cashReceived === null || cashReceived < pricing.total))
+                (method === 'CASH' && (cashTendered === null || cashTendered < pricing.total))
               ))}
             >
-              {pending && payment.isError ? 'Thử lại xác nhận' : 'Xác nhận đã nhận tiền'}
+              {pending && payment.isError ? 'Thử lại xác nhận'
+                : pricing?.total === 0 ? 'Hoàn tất đơn' : 'Xác nhận đã nhận tiền'}
             </Button>
           </Space>
         </Card>

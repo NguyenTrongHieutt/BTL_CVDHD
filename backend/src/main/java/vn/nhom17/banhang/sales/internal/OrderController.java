@@ -1,7 +1,9 @@
 package vn.nhom17.banhang.sales.internal;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -34,16 +36,19 @@ public class OrderController {
     private final OrderCodes codes;
     private final StockService stock;
     private final QuoteController pricing;
+    private final LoyaltyService loyalty;
     private final Clock clock;
 
     public OrderController(JdbcTemplate jdbc, CurrentContext context, IdempotencyService idempotency,
-                           OrderCodes codes, StockService stock, QuoteController pricing, Clock clock) {
+                           OrderCodes codes, StockService stock, QuoteController pricing, LoyaltyService loyalty,
+                           Clock clock) {
         this.jdbc = jdbc;
         this.context = context;
         this.idempotency = idempotency;
         this.codes = codes;
         this.stock = stock;
         this.pricing = pricing;
+        this.loyalty = loyalty;
         this.clock = clock;
     }
 
@@ -51,15 +56,23 @@ public class OrderController {
                               QuoteController.Discount orderDiscount, String paymentMethod,
                               java.math.BigDecimal cashReceived, java.math.BigDecimal quotedTotal,
                               // Giữ nguyên hash của các đơn khách lẻ đã lưu trước DH-06.
-                              @JsonInclude(JsonInclude.Include.NON_NULL) UUID customerId) {}
+                              @JsonInclude(JsonInclude.Include.NON_NULL) UUID customerId,
+                              // 0 được chuẩn hóa thành null trước khi hash để replay được cả đơn trước KH-04.
+                              @JsonAlias("pointsToRedeem")
+                              @JsonInclude(JsonInclude.Include.NON_NULL) BigDecimal pointsRedeemed) {}
 
-    public record Order(UUID orderId, String orderCode, String status, long total, OffsetDateTime createdAt) {}
+    public record Order(UUID orderId, String orderCode, String status, long total, OffsetDateTime createdAt,
+                        int pointsEarned, int pointsRedeemed, long pointsDiscount) {}
 
     @PostMapping
     public ResponseEntity<Order> create(@RequestHeader(value = "Idempotency-Key", required = false) UUID key,
                                         @RequestBody CreateOrder request) {
-        var result = idempotency.execute("SALE", key, idempotency.hash(request),
-            () -> save(key, request), this::load);
+        int redeemed = LoyaltyService.requestedPoints(request.pointsRedeemed());
+        var canonical = new CreateOrder(request.lines(), request.orderDiscount(), request.paymentMethod(),
+                request.cashReceived(), request.quotedTotal(), request.customerId(),
+                redeemed == 0 ? null : BigDecimal.valueOf(redeemed));
+        var result = idempotency.execute("SALE", key, idempotency.hash(canonical),
+            () -> save(key, canonical), this::load);
         if (result.replayed()) {
             return ResponseEntity.ok().header("Idempotent-Replay", "true").body(result.value());
         }
@@ -67,8 +80,9 @@ public class OrderController {
     }
 
     private UUID save(UUID key, CreateOrder request) {
-        var quote = pricing.quote(key, new QuoteController.QuoteRequest(
-            request.lines(), request.orderDiscount(), request.paymentMethod(), request.cashReceived(), request.customerId()));
+        var quote = pricing.quoteForSale(key, new QuoteController.QuoteRequest(
+            request.lines(), request.orderDiscount(), request.paymentMethod(), request.cashReceived(),
+            request.customerId(), request.pointsRedeemed()));
         if (request.quotedTotal() == null ||
                 request.quotedTotal().compareTo(java.math.BigDecimal.valueOf(quote.total())) != 0) {
             throw ProblemException.conflict("/errors/sales/cart-stale", "Giỏ hàng đã thay đổi",
@@ -91,11 +105,13 @@ public class OrderController {
         jdbc.update("""
             INSERT INTO app.sales_order
                 (id, store_id, customer_id, order_code, status, subtotal, line_discount_total, order_discount,
+                 points_redeemed, points_discount, points_earned, loyalty_earn_amount,
                  total_amount, created_by, created_at)
-            VALUES (?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, 'COMPLETED', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, orderId, storeId, request.customerId(), code, quote.subtotal(), quote.lineDiscountTotal(),
-            quote.orderDiscount(), quote.total(), context.userId(), now);
-
+            quote.orderDiscount(), quote.loyalty() == null ? 0 : quote.loyalty().pointsRedeemed(),
+            quote.pointsDiscount(), quote.loyalty() == null ? 0 : quote.loyalty().pointsEarned(),
+            quote.loyalty() == null ? 0 : quote.loyalty().earnAmountPerPoint(), quote.total(), context.userId(), now);
         var movements = quote.lines().stream().map(line ->
             new StockService.StockLine(line.lineNo(), line.variantId(), -line.quantity(), null))
             .sorted(Comparator.comparing(StockService.StockLine::variantId)).toList();
@@ -103,6 +119,7 @@ public class OrderController {
         for (var applied : stock.apply(StockDocumentType.SALE, orderId, movements)) {
             costs.put(applied.lineNo(), applied.unitCost());
         }
+        loyalty.recordSale(request.customerId(), orderId, quote.loyalty());
         for (var line : quote.lines()) {
             jdbc.update("""
                 INSERT INTO app.sales_order_line
@@ -125,10 +142,12 @@ public class OrderController {
 
     private Order load(UUID orderId) {
         return jdbc.queryForObject("""
-            SELECT id, order_code, status, total_amount, created_at FROM app.sales_order
+            SELECT id, order_code, status, total_amount, created_at, points_earned, points_redeemed, points_discount
+            FROM app.sales_order
             WHERE store_id = ? AND id = ?
             """, (rs, index) -> new Order(rs.getObject("id", UUID.class), rs.getString("order_code"),
-            rs.getString("status"), rs.getLong("total_amount"), rs.getObject("created_at", OffsetDateTime.class)),
+            rs.getString("status"), rs.getLong("total_amount"), rs.getObject("created_at", OffsetDateTime.class),
+            rs.getInt("points_earned"), rs.getInt("points_redeemed"), rs.getLong("points_discount")),
             context.storeId(), orderId);
     }
 }

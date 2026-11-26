@@ -133,6 +133,14 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
   },
 
   // sales
+  '/errors/sales/loyalty-insufficient': {
+    message: 'Số dư điểm của khách không đủ cho giao dịch.',
+    hint: 'Kiểm tra lại số dư và số điểm cần dùng hoặc thu hồi.',
+  },
+  '/errors/sales/loyalty-limit': {
+    message: 'Số điểm vượt giới hạn cho phép.',
+    hint: 'Kiểm tra lại tỷ lệ và số điểm của khách.',
+  },
   '/errors/sales/invalid-state': {
     message: 'Đơn hàng đã đổi trạng thái nên không làm được thao tác này.',
     hint: 'Đơn có thể đã bị hủy hoặc đã có Phiếu trả hàng. Tải lại Đơn hàng để xem trạng thái mới nhất.',

@@ -531,6 +531,7 @@ describe('Khách hàng (FR-18 KH-01, FR-19 KH-02)', () => {
 describe('Lịch sử mua của Khách hàng (KH-03)', () => {
   const ordersPath = '/api/v1/sales/orders';
   const summaryPath = '/api/v1/sales/customers/k-1/purchase-summary';
+  const loyaltyPath = '/api/v1/sales/customers/k-1/loyalty';
   const purchasedAt = '2026-11-10T19:15:00Z';
 
   function salesBackend(failure?: { path: string; status: number }) {
@@ -539,6 +540,9 @@ describe('Lịch sử mua của Khách hàng (KH-03)', () => {
       const url = new URL(String(input), 'http://localhost');
       if (url.pathname === failure?.path) return json({ status: failure.status, requestId: 'req-sales' }, failure.status);
       if ((init?.method ?? 'GET') === 'GET') {
+        if (url.pathname === loyaltyPath || url.pathname === '/api/v1/sales/customers/k-3/loyalty') {
+          return json({ balance: url.pathname === loyaltyPath ? 25 : 0, earnAmountPerPoint: 10000, pointValue: 1000 });
+        }
         if (url.pathname === summaryPath) {
           return json({ orderCount: 21, totalSpent: 210000, lastPurchaseAt: purchasedAt });
         }
@@ -576,6 +580,7 @@ describe('Lịch sử mua của Khách hàng (KH-03)', () => {
     salesBackend();
     renderPage();
     const first = await openHistory();
+    expect(await first.findByText('25 điểm', { exact: true })).toBeTruthy();
     const row = (await first.findByText('DH-1')).closest('tr')!;
     expect(row.textContent).toContain('Hoàn tất');
     expect(row.textContent).toContain('Lan');
@@ -590,6 +595,7 @@ describe('Lịch sử mua của Khách hàng (KH-03)', () => {
     expect(callsTo('GET', summaryPath)).toHaveLength(1);
     fireEvent.click(first.getByRole('button', { name: 'Đóng' }));
     const second = await openHistory('0933 000 111');
+    expect(await second.findByText('0 điểm', { exact: true })).toBeTruthy();
     expect(await second.findByText('Khách hàng chưa có đơn hàng.')).toBeTruthy();
     expect(second.getByText('Chưa mua hàng')).toBeTruthy();
     expect(second.queryByText('DH-21')).toBeNull();

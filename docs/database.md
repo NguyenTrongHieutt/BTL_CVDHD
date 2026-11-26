@@ -19,6 +19,7 @@ PostgreSQL 18 + pgvector (image `pgvector/pgvector:pg18`), một database `banha
 | `V202611102354__catalog_product_image.sql` | `product_image` (ảnh Sản phẩm, SP-01b) |
 | `V202611151000__catalog_product_import.sql` | `product_import` (kết quả nhập Sản phẩm từ Excel, SP-06) |
 | `V202611151400__catalog_variant_name_unique.sql` | Unique `product_variant_name_uq (store_id, product_id, lower(name))` của Biến thể chưa xóa mềm có nhãn (SP-07) |
+| `V202611261000__sales_loyalty_snapshots.sql` | Lưu `points_earned` và `loyalty_earn_amount` trên đơn bán để điều chỉnh điểm theo tỷ lệ lúc bán (KH-04) |
 
 ## Ai được ghi bảng nào (AD-3)
 

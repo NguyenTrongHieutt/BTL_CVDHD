@@ -43,15 +43,17 @@ public class OrderReturnController {
     private final IdempotencyService idempotency;
     private final StockService stock;
     private final AuditLog audit;
+    private final LoyaltyService loyalty;
     private final Clock clock;
 
     public OrderReturnController(JdbcTemplate jdbc, CurrentContext context, IdempotencyService idempotency,
-                                 StockService stock, AuditLog audit, Clock clock) {
+                                 StockService stock, AuditLog audit, LoyaltyService loyalty, Clock clock) {
         this.jdbc = jdbc;
         this.context = context;
         this.idempotency = idempotency;
         this.stock = stock;
         this.audit = audit;
+        this.loyalty = loyalty;
         this.clock = clock;
     }
 
@@ -117,13 +119,18 @@ public class OrderReturnController {
                       BigDecimal quotedRefundTotal) {
         UUID storeId = context.storeId();
         // Cùng khóa với hủy đơn; số đã trả chỉ đọc sau khi giữ khóa đơn.
-        requireCompleted(findOrder(storeId, orderId, true));
-        var plan = plan(findLines(storeId, orderId), selected);
+        var order = findOrder(storeId, orderId, true);
+        requireCompleted(order);
+        var orderLines = findLines(storeId, orderId);
+        var plan = plan(orderLines, selected);
         if (quotedRefundTotal.compareTo(BigDecimal.valueOf(plan.total())) != 0) {
             throw stale("Tiền hoàn đã thay đổi. Kiểm tra lại số tiền trước khi xác nhận.");
         }
 
         UUID returnId = UUID.randomUUID();
+        long refundedBefore = orderLines.stream().mapToLong(OrderLine::refunded).sum();
+        var loyaltyAdjustment = loyalty.prepareReturn(order.customerId(), returnId, order.total(), refundedBefore, plan.total(),
+                order.earnAmount(), order.pointsEarned());
         jdbc.update("""
                 INSERT INTO app.sales_return
                     (id, store_id, order_id, refund_amount, refund_method, reason, created_by, created_at)
@@ -143,6 +150,7 @@ public class OrderReturnController {
                 line.orderLine().lineNo(), line.orderLine().variantId(), line.quantity(), null))
                 .sorted(Comparator.comparing(StockService.StockLine::variantId)).toList();
         stock.apply(StockDocumentType.SALE_RETURN, returnId, changes);
+        loyalty.applyAdjustment(loyaltyAdjustment);
         if (plan.fullyReturned()) {
             jdbc.update("UPDATE app.sales_order SET status = 'RETURNED' WHERE store_id = ? AND id = ?",
                     storeId, orderId);
@@ -156,9 +164,12 @@ public class OrderReturnController {
     private Order findOrder(UUID storeId, UUID id, boolean lock) {
         try {
             return jdbc.queryForObject("""
-                    SELECT order_code, status FROM app.sales_order WHERE store_id = ? AND id = ?
+                    SELECT order_code, status, customer_id, total_amount, loyalty_earn_amount, points_earned
+                    FROM app.sales_order WHERE store_id = ? AND id = ?
                     """ + (lock ? " FOR UPDATE" : ""),
-                    (rs, row) -> new Order(rs.getString("order_code"), rs.getString("status")), storeId, id);
+                    (rs, row) -> new Order(rs.getString("order_code"), rs.getString("status"),
+                            rs.getObject("customer_id", UUID.class), rs.getLong("total_amount"),
+                            rs.getLong("loyalty_earn_amount"), rs.getInt("points_earned")), storeId, id);
         } catch (EmptyResultDataAccessException ex) {
             throw ProblemException.notFound("/errors/common/not-found", "Không tìm thấy đơn hàng",
                     "Đơn hàng không tồn tại trong cửa hàng hiện tại.");
@@ -270,7 +281,7 @@ public class OrderReturnController {
     public record Receipt(UUID returnId, long refundAmount, String refundMethod, String reason, OffsetDateTime createdAt) {}
     public record ReturnDetails(String orderCode, String status, List<ReturnableLine> lines, List<Receipt> receipts) {}
 
-    private record Order(String code, String status) {}
+    private record Order(String code, String status, UUID customerId, long total, long earnAmount, int pointsEarned) {}
     private record OrderLine(UUID id, UUID variantId, int lineNo, String productName, String variantName, int quantity,
                              long net, int returnedQuantity, long refunded) {
         int remaining() { return quantity - returnedQuantity; }

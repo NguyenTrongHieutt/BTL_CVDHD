@@ -7,6 +7,7 @@ import { api } from '../../../shared/api/client';
 import { DateRangePicker, ErrorAlert, MoneyText, RecordTable, todayInVietnam, useDocumentTitle } from '../../../shared/components';
 import type { DateRange } from '../../../shared/types/common';
 import type { QueryResponse } from '../../../shared/types/reporting';
+import { ReportExportButton } from '../ReportExportButton';
 
 interface RankedProduct {
   rank: number;
@@ -58,6 +59,7 @@ export function ProductRankingPage() {
     { title: 'Doanh thu thuần', dataIndex: 'revenue', align: 'right' as const,
       render: (amount: number) => <MoneyText value={amount} /> },
   ];
+  const ranking = query.data;
 
   return (
     <Flex vertical gap={16}>
@@ -67,7 +69,19 @@ export function ProductRankingPage() {
         </Typography.Title>
         <Typography.Text type="secondary">Xếp hạng theo số lượng bán ròng, đã trừ hàng trả.</Typography.Text>
       </div>
-      <DateRangePicker value={range} onChange={(next) => { if (next) setRange(next); }} />
+      <Flex gap={8} wrap>
+        <DateRangePicker value={range} onChange={(next) => { if (next) setRange(next); }} />
+        <ReportExportButton
+          filename={`bao-cao-xep-hang-${range.fromDate}-${range.toDate}`}
+          rows={ranking && !query.isError ? () => [
+            ['Nhóm', 'Hạng', 'Sản phẩm', 'Danh mục', 'Số lượng bán ròng', 'Doanh thu thuần'],
+            ...ranking.best.rows.map(row => ['Bán chạy nhất', row.rank, row.productName, row.categoryName,
+              row.quantity, row.revenue]),
+            ...ranking.slow.rows.map(row => ['Bán chậm nhất', row.rank, row.productName, row.categoryName,
+              row.quantity, row.revenue]),
+          ] : undefined}
+        />
+      </Flex>
       {query.isError && <ErrorAlert error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />}
       {query.isPending && <Typography.Text role="status">Đang tải xếp hạng sản phẩm…</Typography.Text>}
 

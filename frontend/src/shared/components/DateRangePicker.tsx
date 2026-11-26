@@ -45,7 +45,7 @@ export function DateRangePicker({
         presets={presets}
         allowClear={allowClear}
         disabled={disabled}
-        style={style}
+        style={{ overflowX: 'clip', ...style }}
         disabledDate={(current, { from }) => (from ? Math.abs(current.diff(from, 'day')) >= maxDays : false)}
       />
     </>

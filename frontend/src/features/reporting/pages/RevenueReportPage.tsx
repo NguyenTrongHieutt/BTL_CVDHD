@@ -7,6 +7,7 @@ import { api } from '../../../shared/api/client';
 import { DateRangePicker, ErrorAlert, MoneyText, RecordTable, todayInVietnam, useDocumentTitle } from '../../../shared/components';
 import type { DateRange, IsoDate } from '../../../shared/types/common';
 import type { QueryResponse } from '../../../shared/types/reporting';
+import { ReportExportButton } from '../ReportExportButton';
 
 interface RevenueDay {
   date: IsoDate;
@@ -78,7 +79,19 @@ export function RevenueReportPage() {
         </Typography.Title>
         <Typography.Text type="secondary">Doanh thu được tính sau giảm giá và trừ tiền hoàn theo ngày trả.</Typography.Text>
       </div>
-      <DateRangePicker value={range} onChange={(next) => { if (next) setRange(next); }} />
+      <Flex gap={8} wrap>
+        <DateRangePicker value={range} onChange={(next) => { if (next) setRange(next); }} />
+        <ReportExportButton
+          filename={`bao-cao-doanh-thu-${range.fromDate}-${range.toDate}`}
+          rows={revenue && orders && !query.isError ? () => [
+            ['Ngày', 'Doanh thu trước hoàn', 'Tiền hoàn', 'Doanh thu thuần', 'Giảm giá', 'Số đơn'],
+            ...revenue.rows.map(row => [row.date, row.grossSales, row.refundTotal, row.revenue,
+              row.discountTotal, orderCountsByDate.get(row.date) ?? 0]),
+            ['Tổng', revenue.summary.grossSales, revenue.summary.refundTotal, revenue.summary.revenue,
+              revenue.summary.discountTotal, orders.summary.orderCount],
+          ] : undefined}
+        />
+      </Flex>
 
       {query.isError && <ErrorAlert error={query.error} onRetry={() => void query.refetch()} retrying={query.isFetching} />}
       {query.isPending && <Typography.Text role="status">Đang tải báo cáo doanh thu…</Typography.Text>}

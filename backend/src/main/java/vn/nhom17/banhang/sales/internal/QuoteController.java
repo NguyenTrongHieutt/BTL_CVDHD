@@ -1,5 +1,8 @@
 package vn.nhom17.banhang.sales.internal;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.ArrayList;
@@ -35,25 +38,41 @@ public class QuoteController {
 
     private final StoreSettings settings;
     private final CustomerLookup customers;
+    private final LoyaltyService loyalty;
 
     public QuoteController(VariantLookup variants, StockQuery stocks, StoreSettings settings,
-                           CustomerLookup customers) {
+                           CustomerLookup customers, LoyaltyService loyalty) {
         this.settings = settings;
         this.variants = variants;
         this.stocks = stocks;
         this.customers = customers;
+        this.loyalty = loyalty;
     }
 
     @PostMapping("/quote")
     @Transactional(readOnly = true)
     public QuoteResponse quote(@RequestHeader(value = "Idempotency-Key", required = false) UUID key,
                                @RequestBody QuoteRequest request) {
+        return price(key, request, false);
+    }
+
+    QuoteResponse quoteForSale(UUID key, QuoteRequest request) {
+        return price(key, request, true);
+    }
+
+    private QuoteResponse price(UUID key, QuoteRequest request, boolean lockLoyalty) {
         if (request.lines() == null || request.lines().isEmpty()) {
             throw invalid("lines", "Giỏ hàng phải có ít nhất một dòng.");
         }
         if (request.customerId() != null && customers.findById(request.customerId()).isEmpty()) {
             throw invalid("customerId", "Khách hàng không có trong cửa hàng hiện tại. Chọn lại khách hoặc bán khách lẻ.");
         }
+        int redeemed = LoyaltyService.requestedPoints(request.pointsRedeemed());
+        if (request.customerId() == null && redeemed > 0) {
+            throw LoyaltyService.invalid("Chọn khách hàng trước khi sử dụng điểm tích lũy.");
+        }
+        Integer balance = request.customerId() == null ? null
+                : lockLoyalty ? loyalty.lockBalance(request.customerId()) : loyalty.balanceOf(request.customerId());
         boolean transfer = "BANK_TRANSFER".equals(request.paymentMethod());
         if (!transfer && request.paymentMethod() != null && !"CASH".equals(request.paymentMethod())) {
             throw invalid("paymentMethod", "Phương thức thanh toán không hợp lệ.");
@@ -113,7 +132,10 @@ public class QuoteController {
 
         long net = subtotal - lineDiscountTotal;
         long orderDiscount = discount(request.orderDiscount(), net, "orderDiscount");
-        long[] shares = allocate(priced, orderDiscount, net);
+        var store = settings.current();
+        var loyaltyQuote = balance == null ? null : loyalty.quote(balance, net - orderDiscount, redeemed, store);
+        long pointsDiscount = (long) redeemed * store.loyaltyPointValue();
+        long[] shares = allocate(priced, orderDiscount + pointsDiscount, net);
         List<QuoteLine> lines = new ArrayList<>();
         for (int i = 0; i < priced.size(); i++) {
             PricedLine line = priced.get(i);
@@ -121,9 +143,8 @@ public class QuoteController {
             lines.add(new QuoteLine(i + 1, variant.variantId(), variant.productName(), variant.variantName(),
                 line.quantity(), variant.salePrice(), line.discount(), shares[i], line.net() - shares[i]));
         }
-        long total = net - orderDiscount;
+        long total = net - orderDiscount - pointsDiscount;
         Long change = cash == null ? null : Math.max(0, cash - total);
-        var store = settings.current();
         String ref = null;
         String qr = null;
         if (transfer) {
@@ -133,8 +154,9 @@ public class QuoteController {
             ref = "TT" + key.toString().substring(0, 8).toUpperCase(java.util.Locale.ROOT);
             if (total > 0) qr = VietQr.encode(store.bankBin(), store.bankAccountNo(), total, ref);
         }
-        return new QuoteResponse(lines, subtotal, lineDiscountTotal, orderDiscount, 0,
-            total, change, warnings, store.hasBankAccount(), qr, ref, transfer ? store.bankAccountName() : null);
+        return new QuoteResponse(lines, subtotal, lineDiscountTotal, orderDiscount, pointsDiscount,
+            total, change, warnings, store.hasBankAccount(), qr, ref, transfer ? store.bankAccountName() : null,
+            loyaltyQuote);
     }
 
     private static long[] allocate(List<PricedLine> lines, long discount, long base) {
@@ -196,7 +218,8 @@ public class QuoteController {
     public record Discount(String type, BigDecimal value) {}
     public record LineRequest(UUID variantId, BigDecimal quantity, Discount discount) {}
     public record QuoteRequest(List<LineRequest> lines, Discount orderDiscount,
-                               String paymentMethod, BigDecimal cashReceived, UUID customerId) {}
+                               String paymentMethod, BigDecimal cashReceived, UUID customerId,
+                               @JsonAlias("pointsToRedeem") BigDecimal pointsRedeemed) {}
     private record PricedLine(SellableVariant variant, int quantity, long discount, long net) {}
     public record QuoteLine(int lineNo, UUID variantId, String productName, String variantName,
                             int quantity, long unitPrice, long lineDiscount, long orderDiscountShare,
@@ -205,5 +228,6 @@ public class QuoteController {
     public record QuoteResponse(List<QuoteLine> lines, long subtotal, long lineDiscountTotal,
                                 long orderDiscount, long pointsDiscount, long total, Long change,
                                 List<Warning> warnings, boolean bankTransferAvailable, String vietqrPayload,
-                                String transferRef, String bankAccountName) {}
+                                String transferRef, String bankAccountName,
+                                @JsonInclude(JsonInclude.Include.NON_NULL) LoyaltyService.QuoteLoyalty loyalty) {}
 }

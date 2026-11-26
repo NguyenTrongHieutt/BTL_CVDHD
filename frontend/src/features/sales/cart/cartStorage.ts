@@ -9,6 +9,7 @@
  * TODO(Anh, DH-01/DH-04): nối vào màn bán hàng; chỉ giữ khóa cũ khi `shouldReuseIdempotencyKey(error)`.
  */
 import { newIdempotencyKey } from '../../../shared/api/client';
+import { MAX_LOYALTY_POINTS } from '../../../shared/api/loyalty';
 import type { StoredCart } from '../../../shared/types/sales';
 
 export function cartStorageKey(storeId: string, userId: string): string {
@@ -43,7 +44,14 @@ export function loadCart(storeId: string, userId: string): StoredCart {
   try {
     const raw = storage()?.getItem(cartStorageKey(storeId, userId));
     const parsed: unknown = raw ? JSON.parse(raw) : null;
-    if (isStoredCart(parsed)) return parsed;
+    if (isStoredCart(parsed)) {
+      const { pointsRedeemed, ...cart } = parsed;
+      if (cart.customerId && typeof pointsRedeemed === 'number' && Number.isInteger(pointsRedeemed)
+        && pointsRedeemed > 0 && pointsRedeemed <= MAX_LOYALTY_POINTS) {
+        return { ...cart, pointsRedeemed };
+      }
+      return cart;
+    }
   } catch {
     // Giỏ hỏng hoặc trình duyệt chặn localStorage: bắt đầu giỏ mới.
   }

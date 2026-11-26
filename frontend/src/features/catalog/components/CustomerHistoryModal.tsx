@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Button, Card, Descriptions, Flex, Grid, Modal, Spin, Table, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useState } from 'react';
+import { useCustomerLoyalty } from '../../../shared/api/loyalty';
 import { DEFAULT_PAGE_SIZE } from '../../../shared/api/pagination';
 import { ErrorAlert, MoneyText } from '../../../shared/components';
 import { toAntdPagination, fromAntdChange } from '../../../shared/components/dataTablePaging';
@@ -58,6 +59,7 @@ export function CustomerHistoryModal({ customer, onClosed }: { customer: Custome
   const compact = Grid.useBreakpoint().md === false;
   const [open, setOpen] = useState(true);
   const [request, setRequest] = useState({ page: 0, size: DEFAULT_PAGE_SIZE });
+  const loyalty = useCustomerLoyalty(customerId);
   const summary = useQuery({
     queryKey: ['sales', 'purchase-summary', customerId],
     queryFn: ({ signal }) => fetchPurchaseSummary(customerId, signal),
@@ -77,6 +79,19 @@ export function CustomerHistoryModal({ customer, onClosed }: { customer: Custome
         body: { maxHeight: '62dvh', overflowY: 'auto' },
       }}
       footer={<Button onClick={() => setOpen(false)}>Đóng</Button>}>
+      <Card size="small" style={{ marginBottom: 12 }}>
+        <Flex wrap align="center" justify="space-between" gap={8}>
+          <Typography.Text strong>Điểm tích lũy</Typography.Text>
+          {loyalty.data ? (
+            <Typography.Text strong role="status">{loyalty.data.balance.toLocaleString('vi-VN')} điểm</Typography.Text>
+          ) : loyalty.isError ? (
+            <Flex wrap align="center" gap={8}>
+              <Typography.Text type="secondary">Chưa tải được số dư điểm.</Typography.Text>
+              <Button type="link" onClick={() => void loyalty.refetch()} loading={loyalty.isFetching}>Tải lại số dư</Button>
+            </Flex>
+          ) : <Spin aria-label="Đang tải số dư điểm" />}
+        </Flex>
+      </Card>
       <Typography.Title level={5}>Tổng quan mua hàng</Typography.Title>
       {summary.isError ? (
         <>

@@ -10,6 +10,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../shared/api/client';
+import { customerLoyaltyKey } from '../../../shared/api/loyalty';
 import { meQueryKey } from '../../../shared/api/session';
 import type { StoreInfo, UpdateStoreRequest } from '../../../shared/types/platform';
 
@@ -30,7 +31,12 @@ export function useUpdateStore() {
   return useMutation({
     mutationFn: (request: UpdateStoreRequest) => api.put<StoreInfo>(STORE_PATH, request),
     onSuccess: (store) => {
+      const previous = queryClient.getQueryData<StoreInfo>(storeQueryKey);
       queryClient.setQueryData(storeQueryKey, store);
+      if (previous?.loyaltyEarnAmount !== store.loyaltyEarnAmount || previous?.loyaltyPointValue !== store.loyaltyPointValue) {
+        void queryClient.invalidateQueries({ queryKey: customerLoyaltyKey });
+        void queryClient.invalidateQueries({ queryKey: ['sales', 'quote'] });
+      }
       return queryClient.invalidateQueries({ queryKey: meQueryKey });
     },
   });

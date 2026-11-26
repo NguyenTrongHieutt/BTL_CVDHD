@@ -34,15 +34,17 @@ public class OrderCancellationController {
     private final IdempotencyService idempotency;
     private final StockService stock;
     private final AuditLog audit;
+    private final LoyaltyService loyalty;
     private final Clock clock;
 
     public OrderCancellationController(JdbcTemplate jdbc, CurrentContext context, IdempotencyService idempotency,
-                                       StockService stock, AuditLog audit, Clock clock) {
+                                       StockService stock, AuditLog audit, LoyaltyService loyalty, Clock clock) {
         this.jdbc = jdbc;
         this.context = context;
         this.idempotency = idempotency;
         this.stock = stock;
         this.audit = audit;
+        this.loyalty = loyalty;
         this.clock = clock;
     }
 
@@ -73,12 +75,13 @@ public class OrderCancellationController {
         try {
             // Hủy và trả hàng phải khóa cùng dòng đơn trước khi kiểm tra trạng thái.
             order = jdbc.queryForObject("""
-                    SELECT status, created_by, created_at
+                    SELECT status, created_by, created_at, customer_id, points_earned, points_redeemed
                     FROM app.sales_order
                     WHERE store_id = ? AND id = ?
                     FOR UPDATE
                     """, (rs, row) -> new OrderForCancellation(rs.getString("status"),
-                    rs.getObject("created_by", UUID.class), rs.getObject("created_at", OffsetDateTime.class)),
+                    rs.getObject("created_by", UUID.class), rs.getObject("created_at", OffsetDateTime.class),
+                    rs.getObject("customer_id", UUID.class), rs.getInt("points_earned"), rs.getInt("points_redeemed")),
                     storeId, id);
         } catch (EmptyResultDataAccessException ex) {
             throw ProblemException.notFound("/errors/common/not-found", "Không tìm thấy đơn hàng",
@@ -102,6 +105,8 @@ public class OrderCancellationController {
             throw ProblemException.conflict("/errors/sales/invalid-state", "Không thể hủy đơn",
                     "Đơn đã có phiếu trả hàng.");
         }
+        var loyaltyAdjustment = loyalty.prepareCancellation(order.customerId(), id,
+                order.pointsEarned(), order.pointsRedeemed());
 
         var lines = jdbc.query("""
                 SELECT line_no, variant_id, quantity
@@ -112,6 +117,7 @@ public class OrderCancellationController {
         // Dùng cùng thứ tự khóa biến thể như khi tạo đơn.
         lines.sort(Comparator.comparing(StockService.StockLine::variantId));
         stock.apply(StockDocumentType.SALE_CANCEL, id, lines);
+        loyalty.applyAdjustment(loyaltyAdjustment);
         jdbc.update("""
                 UPDATE app.sales_order SET status = 'CANCELLED', cancelled_at = ?, cancelled_by = ?, cancel_reason = ?
                 WHERE store_id = ? AND id = ?
@@ -132,5 +138,6 @@ public class OrderCancellationController {
 
     public record CancellationRequest(String reason) {}
     public record Cancellation(UUID orderId, String status, OffsetDateTime cancelledAt, String reason) {}
-    private record OrderForCancellation(String status, UUID sellerId, OffsetDateTime createdAt) {}
+    private record OrderForCancellation(String status, UUID sellerId, OffsetDateTime createdAt, UUID customerId,
+                                        int pointsEarned, int pointsRedeemed) {}
 }

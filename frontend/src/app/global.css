@@ -693,6 +693,30 @@ textarea {
   width: 100%;
 }
 
+.pos-loyalty {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.pos-loyalty > label {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.pos-loyalty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.pos-loyalty-actions .ant-input-number {
+  width: min(100%, 160px);
+}
+
 .pos-submit {
   width: 100%;
   min-height: 46px;

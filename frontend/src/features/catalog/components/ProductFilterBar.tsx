@@ -15,9 +15,9 @@ import { Button, Flex, Input, Select, Typography } from 'antd';
 import { useEffect, useId, useRef, useState } from 'react';
 import { SearchInput, useCompactLayout } from '../../../shared/components';
 import type { ProductSearchParams, ProductStatus } from '../../../shared/types/catalog';
-import { useCategoryOptions } from '../api/categories';
 import { hasProductFilters } from './productFilterParams';
-import { MONEY_MAX, foldText, groupThousands, parseWholeNumber } from './textUtils';
+import { MONEY_MAX, groupThousands, parseWholeNumber } from './textUtils';
+import { ProductCategorySelect } from './ProductCategorySelect';
 
 const MIN_LABEL = 'Giá từ';
 const MAX_LABEL = 'Giá đến';
@@ -122,7 +122,6 @@ function PriceRange({ minPrice, maxPrice, onApply }: PriceRangeProps) {
 }
 
 export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
-  const categories = useCategoryOptions();
   const filterId = useId();
   const compact = useCompactLayout();
   const [showFilters, setShowFilters] = useState(false);
@@ -149,12 +148,6 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
     onChange({});
   };
 
-  /** Nhãn của Danh mục đang chọn khi không có trong danh sách. */
-  const missingCategoryLabel = () => {
-    if (categories.isLoading) return '…';
-    if (categories.isError) return 'Không tải được Danh mục';
-    return 'Danh mục không còn';
-  };
 
   const activeFilters = Number(Boolean(value.categoryId)) + Number(Boolean(value.status)) +
     Number(value.minPrice !== undefined || value.maxPrice !== undefined);
@@ -182,31 +175,14 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
       <div id={`${filterId}-extra`} className="product-extra-filters" hidden={compact && !showFilters}>
         <div className="filter-field">
           <label className="filter-field-label" htmlFor={`${filterId}-category`}>Danh mục</label>
-          <Select<string>
-          id={`${filterId}-category`}
-          aria-label="Lọc theo Danh mục"
-          allowClear
-          placeholder={categories.isError ? 'Không tải được Danh mục' : 'Mọi Danh mục'}
-          status={categories.isError ? 'error' : undefined}
-          value={value.categoryId}
-          loading={categories.isFetching}
-          options={(categories.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))}
-          // Danh mục trên URL không có trong danh sách (đã xóa, hoặc tải danh sách lỗi): không hiện id thô
-          labelRender={({ label }) => label ?? missingCategoryLabel()}
-          showSearch={{
-            filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
-          }}
-          notFoundContent={
-            categories.isError ? 'Danh mục chưa tải được' : 'Chưa có Danh mục nào'
-          }
-          onChange={(categoryId) => apply({ ...value, categoryId: categoryId ?? undefined })}
-          style={{ width: 200 }}
+          <ProductCategorySelect
+            id={`${filterId}-category`}
+            ariaLabel="Lọc theo Danh mục"
+            placeholder="Mọi Danh mục"
+            value={value.categoryId}
+            onChange={(categoryId) => apply({ ...value, categoryId })}
+            style={{ width: 200, maxWidth: '100%' }}
           />
-          {categories.isError ? (
-            <Button size="small" loading={categories.isFetching} onClick={() => void categories.refetch()}>
-              Tải lại Danh mục
-            </Button>
-          ) : null}
         </div>
         <div className="filter-field">
           <span className="filter-field-label">Khoảng giá bán</span>

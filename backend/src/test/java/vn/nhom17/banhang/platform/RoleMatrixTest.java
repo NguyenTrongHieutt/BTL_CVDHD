@@ -147,6 +147,7 @@ class RoleMatrixTest {
                 row("PUT", "/api/v1/catalog/products/{id}/image", U, F, A),
                 row("DELETE", "/api/v1/catalog/products/{id}/image", U, F, A),
                 row("GET", "/api/v1/catalog/categories", U, A, A),
+                row("GET", "/api/v1/catalog/categories/{id}/option", U, A, A),
                 row("POST", "/api/v1/catalog/categories", U, F, A),
                 row("PUT", "/api/v1/catalog/categories/{id}", U, F, A),
                 row("DELETE", "/api/v1/catalog/categories/{id}", U, F, A),

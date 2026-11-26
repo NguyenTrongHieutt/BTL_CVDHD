@@ -40,6 +40,11 @@ class CategoryController {
         return categories.list(q, page, size);
     }
 
+    @GetMapping("/{id}/option")
+    CategoryOption option(@PathVariable UUID id) {
+        return categories.option(id);
+    }
+
     @PostMapping
     ResponseEntity<CategoryView> create(@RequestBody CategoryRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(categories.create(request.name()));

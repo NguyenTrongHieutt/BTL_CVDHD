@@ -82,6 +82,14 @@ class CategoryService {
         return new PageResponse<>(items, total == null ? 0 : total, pageNo, pageSize);
     }
 
+    /** Chỉ đọc nhãn trong Cửa hàng hiện tại, không phụ thuộc trang danh sách hay đếm Sản phẩm. */
+    @Transactional(readOnly = true)
+    CategoryOption option(UUID id) {
+        return jdbc.query("select id, name from app.category where store_id = ? and id = ?",
+                (rs, i) -> new CategoryOption(rs.getObject("id", UUID.class), rs.getString("name")),
+                context.storeId(), id).stream().findFirst().orElseThrow(CategoryService::notFound);
+    }
+
     @Transactional
     CategoryView create(String rawName) {
         String name = normalizeName(rawName);

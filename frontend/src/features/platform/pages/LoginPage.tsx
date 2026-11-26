@@ -7,11 +7,13 @@
  * Chủ cửa hàng dùng số điện thoại hoặc email, Nhân viên dùng tên đăng nhập. `useLogin` cắt khoảng trắng; backend
  * cắt khoảng trắng, đổi chữ thường và `+84` → `0`.
  */
+import { ShopOutlined } from '@ant-design/icons';
 import { Button, Card, Form, Input, Typography } from 'antd';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useLogin } from '../../../shared/api/session';
 import { ErrorAlert, useDocumentTitle } from '../../../shared/components';
 import type { LoginRequest } from '../../../shared/types/platform';
+import '../auth.css';
 
 function redirectTarget(state: unknown): string {
   if (typeof state === 'object' && state !== null && 'from' in state && typeof state.from === 'string') {
@@ -37,19 +39,29 @@ export function LoginPage() {
   };
 
   return (
-    <div className="login-page">
-      <Card style={{ width: '100%', maxWidth: 400 }}>
-        <Typography.Title level={3} style={{ marginTop: 0 }}>
+    <main className="login-page" aria-labelledby="login-title">
+      <Card style={{ width: '100%', maxWidth: 440 }}>
+        <div className="login-mark"><ShopOutlined aria-hidden="true" /> Quản lý bán hàng</div>
+        <Typography.Title level={1} id="login-title" className="login-title">
           Đăng nhập
         </Typography.Title>
+        <p className="login-subtitle">Đăng nhập để tiếp tục công việc tại cửa hàng.</p>
         {login.isError ? <ErrorAlert error={login.error} /> : null}
-        <Form<LoginRequest> layout="vertical" requiredMark={false} onFinish={onFinish} disabled={login.isPending}>
+        <Form<LoginRequest>
+          name="login"
+          layout="vertical"
+          labelWrap
+          requiredMark={false}
+          scrollToFirstError={{ focus: true }}
+          onFinish={onFinish}
+          disabled={login.isPending}
+        >
           <Form.Item
             name="loginKey"
             label="Số điện thoại, email hoặc tên đăng nhập"
             rules={[{ required: true, whitespace: true, message: 'Nhập số điện thoại, email hoặc tên đăng nhập' }]}
           >
-            <Input autoComplete="username" autoFocus />
+            <Input autoComplete="username" autoCapitalize="none" spellCheck={false} />
           </Form.Item>
           <Form.Item name="password" label="Mật khẩu" rules={[{ required: true, message: 'Nhập mật khẩu' }]}>
             <Input.Password autoComplete="current-password" />
@@ -62,6 +74,6 @@ export function LoginPage() {
           Chưa có tài khoản? <Link to="/platform/register">Đăng ký Cửa hàng</Link>
         </Typography.Paragraph>
       </Card>
-    </div>
+    </main>
   );
 }

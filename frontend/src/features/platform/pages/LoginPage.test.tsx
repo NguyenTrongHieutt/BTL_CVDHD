@@ -52,6 +52,19 @@ beforeEach(() => {
 });
 
 describe('Đăng nhập (FR-44, TK-01)', () => {
+  it('đưa tiêu điểm về mật khẩu khi chưa nhập', async () => {
+    renderPage();
+    const password = screen.getByLabelText('Mật khẩu');
+    const submit = screen.getByRole('button', { name: 'Đăng nhập' });
+    fireEvent.change(screen.getByLabelText('Số điện thoại, email hoặc tên đăng nhập'), { target: { value: 'minh.lan' } });
+    submit.focus();
+    fireEvent.click(submit);
+
+    expect(await screen.findByText('Nhập mật khẩu')).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(password));
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('đăng nhập xong thì về trang đã định mở, gửi loginKey đã cắt khoảng trắng', async () => {
     fetchMock.mockResolvedValue(json(STAFF));
     const { router, queryClient } = renderPage({ from: '/sales/pos' });

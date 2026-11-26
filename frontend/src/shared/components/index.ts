@@ -15,6 +15,8 @@ export { PagePlaceholder } from './PagePlaceholder';
 export type { PagePlaceholderProps } from './PagePlaceholder';
 export { ProductPicker } from './ProductPicker';
 export type { ProductPickerProps } from './ProductPicker';
+export { RecordTable } from './RecordTable';
+export { useCompactLayout } from './useCompactLayout';
 export { SearchInput } from './SearchInput';
 export type { SearchInputProps } from './SearchInput';
 export { useConfirm } from './confirm';

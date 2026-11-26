@@ -15,6 +15,13 @@
  * Ô tiền, số lượng là ô chữ (không dùng `InputNumber`, vốn lặng lẽ bỏ hoặc kẹp giá trị sai): chỉ nhận chữ số, dấu
  * chấm là dấu nhóm nghìn (tự nhóm khi gõ); có dấu phẩy, dấu trừ hay ký tự khác thì báo lỗi dưới ô.
  *
+ * Nhiều Biến thể (FR-7, SP-07): khi thêm, bật "Có nhiều Biến thể" thì ô giá bán, SKU, mã vạch, Tồn kho đầu kỳ, Giá vốn
+ * cấp Sản phẩm ẩn đi, thay bằng bảng Biến thể (`VariantRowsField`): tên thuộc tính chung, mỗi dòng một Biến thể (2–50,
+ * dòng đầu là mặc định); lỗi của backend theo `variants[i].<trường>` hiện dưới ô của dòng đó. Khi sửa, phần "Biến thể"
+ * (`ProductVariantsSection`) thêm, sửa, ngừng từng Biến thể, lưu ngay; Sản phẩm nhiều Biến thể thì form không có ô giá,
+ * SKU, mã vạch và `PUT` không gửi ba trường này (backend giữ nguyên). Sản phẩm một Biến thể mà ô giá, SKU, mã vạch đang
+ * có thay đổi chưa lưu thì chưa thêm được Biến thể (ba ô sẽ biến mất cùng chữ đã gõ): phải bấm "Lưu" trước.
+ *
  * Ô Ảnh (SP-01b): chọn ảnh (antd `Upload`, không tự tải lên) thì kiểm kiểu phía client (JPEG, PNG, WebP; kiểu rỗng
  * hay không rõ thì để backend kiểm theo nội dung), thu nhỏ ở trình duyệt nếu lớn hơn 1 MB hoặc cạnh dài hơn 1280 px
  * (`downscaleImage`), rồi mới kiểm 1 MB và xem trước; ảnh chỉ gửi khi bấm "Thêm"/"Lưu". Tệp sai thì bỏ luôn ảnh đã chọn
@@ -24,12 +31,17 @@
  * của backend (sai kiểu, quá cỡ, lố giới hạn máy chủ) hiện dưới ô Ảnh.
  */
 import { DeleteOutlined, UploadOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Col, Flex, Form, Input, Modal, Row, Select, Upload } from 'antd';
+import { Alert, App, Button, Checkbox, Col, Flex, Form, Input, Modal, Row, Select, Typography, Upload } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { isApiError } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components';
 import { PROBLEM_MESSAGES, describeError } from '../../../shared/messages.vi';
-import type { CreateProductRequest, Product, UpdateProductRequest } from '../../../shared/types/catalog';
+import type {
+  CreateProductRequest,
+  CreateProductWithVariantsRequest,
+  Product,
+  UpdateProductRequest,
+} from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { useCategoryOptions } from '../api/categories';
 import {
@@ -44,23 +56,26 @@ import {
   useUploadProductImage,
 } from '../api/products';
 import { ProductThumbnail } from './ProductThumbnail';
+import { ProductVariantsSection } from './ProductVariantsSection';
+import { VariantRowsField } from './VariantRowsField';
 import { downscaleImage } from './imageResize';
 import {
-  MONEY_MAX,
-  foldText,
-  groupThousands,
-  hasInvalidChars,
-  normalizeText,
-  parseWholeNumber,
-  textLength,
-} from './textUtils';
-
-const NAME_MAX = 200;
-const UNIT_MAX = 30;
-const DESCRIPTION_MAX = 2000;
-const CODE_MAX = 50;
-const BARCODE_CHARS = /^[A-Za-z0-9]*$/;
-const QUANTITY_MAX = 2_147_483_647;
+  CODE_MAX,
+  DESCRIPTION_MAX,
+  NAME_MAX,
+  QUANTITY_MAX,
+  UNIT_MAX,
+  barcodeRules,
+  openingUnitCostRules,
+  optionalText,
+  salePriceRules,
+  textRules,
+  wholeNumber,
+} from './productFormRules';
+import { foldText, groupThousands, normalizeText, parseWholeNumber } from './textUtils';
+import { useCatalogDialog } from './useCatalogDialog';
+import { emptyAttributeNames, emptyVariantRow, variantInputsOf, variantRowsProblems } from './variantRows';
+import type { VariantRowValues } from './variantRows';
 
 /** Thêm hoặc sửa một Sản phẩm. */
 export type ProductEditing = { mode: 'create' } | { mode: 'edit'; product: Product };
@@ -76,9 +91,14 @@ interface ProductFormValues {
   openingQuantity?: string;
   openingUnitCost?: string;
   description?: string;
+  /** Thêm Sản phẩm nhiều Biến thể (SP-07): giá, mã, tồn đầu kỳ nằm ở từng dòng `variants`. */
+  multi?: boolean;
+  /** Tên thuộc tính chung của các Biến thể (tối đa 3). */
+  attributeNames?: string[];
+  variants?: VariantRowValues[];
 }
 
-type FormField = keyof ProductFormValues;
+type FormField = Exclude<keyof ProductFormValues, 'multi' | 'attributeNames' | 'variants'>;
 const FORM_FIELDS: readonly FormField[] = [
   'name',
   'categoryId',
@@ -104,30 +124,69 @@ const CONFLICT_FIELDS: Readonly<Record<string, FormField>> = {
 /** Sửa Sản phẩm đã ngừng kinh doanh (một chiều, không mở bán lại). */
 const PRODUCT_INACTIVE = '/errors/catalog/product-inactive';
 
+/** Sản phẩm một Biến thể còn thay đổi giá, mã chưa lưu: chưa cho thêm Biến thể (SP-07). */
+const ADD_VARIANT_BLOCKED = 'Lưu thay đổi Giá bán, SKU, Mã vạch trước khi thêm Biến thể';
+
 /** Khi sửa, SKU để trống là giữ SKU hiện tại (không tự sinh như khi thêm): hướng dẫn riêng cho trùng SKU. */
 const EDIT_SKU_TAKEN_HINT = 'Nhập SKU khác, hoặc để trống để giữ SKU hiện tại.';
 
+/** Đường dẫn ô của form: ô cấp Sản phẩm, hoặc ô của một dòng Biến thể (`['variants', i, trường]`). */
+type FormPath = FormField | (string | number)[];
+
+/** Ô của một dòng Biến thể khi thêm Sản phẩm nhiều Biến thể (SP-07). */
+const VARIANT_ROW_FIELDS: ReadonlySet<string> = new Set([
+  'name',
+  'salePrice',
+  'sku',
+  'barcode',
+  'openingQuantity',
+  'openingUnitCost',
+]);
+const VARIANT_FIELD = /^variants\[(\d+)\]\.(\w+)$/;
+/** Các ô cấp Sản phẩm vẫn có ở chế độ nhiều Biến thể. */
+const PRODUCT_LEVEL_FIELDS: ReadonlySet<string> = new Set(['name', 'categoryId', 'unit', 'description']);
+
+/** Ô của form ứng với tên trường của backend; `null` khi form không có ô đó (ẩn ở chế độ đang dùng). */
+function formPathOf(field: string, multi: boolean): FormPath | null {
+  const row = VARIANT_FIELD.exec(field);
+  if (row) {
+    // Thuộc tính không có một ô riêng: báo dưới ô Nhãn của dòng
+    const name = row[2] === 'attributes' ? 'name' : row[2];
+    return multi && VARIANT_ROW_FIELDS.has(name) ? ['variants', Number(row[1]), name] : null;
+  }
+  if (!isFormField(field)) return null;
+  return multi && !PRODUCT_LEVEL_FIELDS.has(field) ? null : field;
+}
+
 /**
  * Lỗi của backend đặt được hết dưới các ô của form; `null` nếu có phần không thuộc ô nào (khi đó hiện khung báo
- * lỗi chung).
+ * lỗi chung). `multi`: form không có ô giá, mã cấp Sản phẩm (thêm nhiều Biến thể, sửa Sản phẩm nhiều Biến thể); khi đó
+ * trùng SKU, mã vạch không biết của Biến thể nào nên cũng hiện ở khung báo lỗi.
  */
 function formErrorsOf(
   error: unknown,
   mode: ProductEditing['mode'] = 'create',
-): { name: FormField; errors: string[] }[] | null {
+  multi = false,
+): { name: FormPath; errors: string[] }[] | null {
   if (!isApiError(error)) return null;
   const conflictField = CONFLICT_FIELDS[error.type];
   if (conflictField) {
+    if (multi) return null;
     const { message, hint } = PROBLEM_MESSAGES[error.type];
     const guide = mode === 'edit' && conflictField === 'sku' ? EDIT_SKU_TAKEN_HINT : hint;
     return [{ name: conflictField, errors: guide ? [message, guide] : [message] }];
   }
-  if (error.errors.length === 0 || !error.errors.every((e) => isFormField(e.field))) return null;
-  const byField = new Map<FormField, string[]>();
+  if (error.errors.length === 0 || !error.errors.every((e) => formPathOf(e.field, multi) !== null)) return null;
+  const byField = new Map<string, { name: FormPath; errors: string[] }>();
   for (const { field, message } of error.errors) {
-    if (isFormField(field)) byField.set(field, [...(byField.get(field) ?? []), message]);
+    const name = formPathOf(field, multi);
+    if (name === null) continue;
+    const key = JSON.stringify(name);
+    const entry = byField.get(key) ?? { name, errors: [] };
+    entry.errors.push(message);
+    byField.set(key, entry);
   }
-  return [...byField].map(([name, errors]) => ({ name, errors }));
+  return [...byField.values()];
 }
 
 function isKeyReuse(error: unknown): boolean {
@@ -171,62 +230,27 @@ function hasAcceptedType(file: File): boolean {
   return UNKNOWN_FILE_TYPES.has(file.type) || (PRODUCT_IMAGE_TYPES as readonly string[]).includes(file.type);
 }
 
-/** Chuỗi tùy chọn: chuẩn hóa, bỏ trống thì không gửi. */
-function optionalText(value: string | undefined, multiline = false): string | undefined {
-  const text = value === undefined ? '' : normalizeText(value, multiline);
-  return text === '' ? undefined : text;
-}
-
-/** Độ dài tối đa và ký tự không hợp lệ, kiểm như backend. */
-function textRules(label: string, max: number, multiline = false) {
-  return [
-    {
-      validator: (_: unknown, value?: string) =>
-        value === undefined || !hasInvalidChars(value, multiline)
-          ? Promise.resolve()
-          : Promise.reject(new Error(`${label} có ký tự không hợp lệ`)),
-    },
-    {
-      validator: (_: unknown, value?: string) =>
-        value === undefined || textLength(value, multiline) <= max
-          ? Promise.resolve()
-          : Promise.reject(new Error(`${label} tối đa ${max} ký tự`)),
-    },
-  ];
-}
-
-/** Số nguyên từ 0 tới `max`; bỏ trống thì để luật `required` (nếu có) báo. */
-function wholeNumber(label: string, max: number) {
-  return {
-    validator: (_: unknown, text?: string) => {
-      const value = parseWholeNumber(text);
-      if (value === null) return Promise.resolve();
-      if (Number.isNaN(value)) {
-        return Promise.reject(
-          new Error(text?.trim().startsWith('-') ? `${label} không được âm` : `${label} phải là số nguyên`),
-        );
-      }
-      if (value > max) return Promise.reject(new Error(`${label} quá lớn`));
-      return Promise.resolve();
-    },
-  };
-}
-
-/** Giá trị hợp lệ của ô số (đã qua `wholeNumber`), hoặc `null` khi trống hay sai. */
-function validNumber(text: string | undefined, max: number): number | null {
-  const value = parseWholeNumber(text);
-  return value === null || Number.isNaN(value) || value > max ? null : value;
-}
-
-/** Các trường chung của thêm và sửa, đã chuẩn hóa như backend; ô tùy chọn bỏ trống thì không gửi. */
-function commonFields(values: ProductFormValues): UpdateProductRequest {
+/** Các trường cấp Sản phẩm, đã chuẩn hóa như backend; ô tùy chọn bỏ trống thì không gửi. */
+function productFields(values: ProductFormValues): UpdateProductRequest {
   return {
     name: normalizeText(values.name),
-    // `required` và `wholeNumber` đã chặn giá trống hoặc sai
-    salePrice: parseWholeNumber(values.salePrice) ?? 0,
     categoryId: values.categoryId ?? undefined,
     unit: optionalText(values.unit),
     description: optionalText(values.description, true),
+  };
+}
+
+/**
+ * Các trường chung của thêm và sửa Sản phẩm một Biến thể, đã chuẩn hóa như backend; ô tùy chọn bỏ trống thì không
+ * gửi.
+ */
+function commonFields(values: ProductFormValues): UpdateProductRequest & { salePrice: number } {
+  const { name, ...rest } = productFields(values);
+  return {
+    name,
+    // `required` và `wholeNumber` đã chặn giá trống hoặc sai
+    salePrice: parseWholeNumber(values.salePrice) ?? 0,
+    ...rest,
     sku: optionalText(values.sku),
     barcode: optionalText(values.barcode),
   };
@@ -234,16 +258,20 @@ function commonFields(values: ProductFormValues): UpdateProductRequest {
 
 /**
  * Dữ liệu sửa (đã chuẩn hóa) không khác Sản phẩm đang sửa: khỏi gửi. So như backend: đơn vị trống là "cái", SKU trống
- * là giữ SKU cũ, SKU và mã vạch không phân biệt hoa thường (backend lưu chữ HOA).
+ * là giữ SKU cũ, SKU và mã vạch không phân biệt hoa thường (backend lưu chữ HOA). Sản phẩm nhiều Biến thể chỉ so các
+ * trường cấp Sản phẩm (không gửi giá, mã).
  */
 function isUnchanged(product: Product, request: UpdateProductRequest): boolean {
   const variant = defaultVariant(product);
-  return (
-    variant !== undefined &&
+  const sameProduct =
     request.name === product.name &&
     (request.categoryId ?? null) === product.categoryId &&
     (request.unit ?? DEFAULT_UNIT) === product.unit &&
-    (request.description ?? null) === product.description &&
+    (request.description ?? null) === product.description;
+  if (product.hasVariants) return sameProduct;
+  return (
+    variant !== undefined &&
+    sameProduct &&
     request.salePrice === variant.salePrice &&
     (request.sku === undefined || request.sku.toUpperCase() === variant.sku) &&
     (request.barcode?.toUpperCase() ?? null) === variant.barcode
@@ -252,7 +280,15 @@ function isUnchanged(product: Product, request: UpdateProductRequest): boolean {
 
 /** Giá trị ban đầu của form: trống khi thêm, dữ liệu hiện tại của Sản phẩm (và Biến thể mặc định) khi sửa. */
 function initialValuesOf(editing: ProductEditing): Partial<ProductFormValues> {
-  if (editing.mode === 'create') return { openingQuantity: '0', openingUnitCost: '0' };
+  if (editing.mode === 'create') {
+    return {
+      openingQuantity: '0',
+      openingUnitCost: '0',
+      multi: false,
+      attributeNames: emptyAttributeNames(),
+      variants: [emptyVariantRow(), emptyVariantRow()],
+    };
+  }
   const { product } = editing;
   const variant = defaultVariant(product);
   return {
@@ -282,6 +318,7 @@ export type ProductFormModalProps =
 
 export function ProductFormModal({ editing, onClose, onCreated }: ProductFormModalProps) {
   const [form] = Form.useForm<ProductFormValues>();
+  const { initialInput, close, modalProps } = useCatalogDialog(onClose);
   const { message } = App.useApp();
   const create = useCreateProduct();
   const update = useUpdateProduct();
@@ -308,9 +345,28 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
   const closeOnly =
     editing.mode === 'edit' &&
     ((update.isError && cannotEditAnyMore(update.error)) || cannotEditAnyMore(imageRequestError));
+  // Sản phẩm đang sửa, mới nhất: thêm, sửa, ngừng Biến thể (lưu ngay) trả chi tiết mới (SP-07)
+  const [current, setCurrent] = useState<Product | null>(editing.mode === 'edit' ? editing.product : null);
+  // Form không có ô giá, mã cấp Sản phẩm: đang thêm nhiều Biến thể, hoặc sửa Sản phẩm nhiều Biến thể
+  const multiCreate = Form.useWatch('multi', form) === true;
+  const multi = editing.mode === 'create' ? multiCreate : current?.hasVariants === true;
+  // Sản phẩm một Biến thể mà ô giá, SKU, mã vạch đang khác dữ liệu đã lưu: thêm Biến thể sẽ làm Sản phẩm thành nhiều
+  // Biến thể, ba ô biến mất và "Lưu" sau đó bỏ mất chữ đã gõ, nên phải lưu trước. Ô chưa đọc được (undefined) coi như
+  // chưa đổi; SKU để trống là giữ SKU cũ (như khi lưu).
+  const watchedPrice = Form.useWatch('salePrice', form) as string | undefined;
+  const watchedSku = Form.useWatch('sku', form) as string | undefined;
+  const watchedBarcode = Form.useWatch('barcode', form) as string | undefined;
+  const savedVariant = current && !current.hasVariants ? defaultVariant(current) : undefined;
+  const typedSku = optionalText(watchedSku);
+  const unsavedVariantFields =
+    savedVariant !== undefined &&
+    ((watchedPrice !== undefined && parseWholeNumber(watchedPrice) !== savedVariant.salePrice) ||
+      (typedSku !== undefined && typedSku.toUpperCase() !== savedVariant.sku) ||
+      (watchedBarcode !== undefined &&
+        (optionalText(watchedBarcode)?.toUpperCase() ?? null) !== savedVariant.barcode));
 
   // Ảnh hiện có của Sản phẩm đang sửa, và ảnh đang hiện ở ô xem trước
-  const currentImageUrl = editing.mode === 'edit' ? editing.product.imageUrl : null;
+  const currentImageUrl = current?.imageUrl ?? null;
   const previewSrc = image.kind === 'upload' ? image.previewUrl : image.kind === 'remove' ? null : currentImageUrl;
 
   // Thu hồi URL xem trước khi chọn ảnh khác hoặc đóng hộp thoại
@@ -321,8 +377,8 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
   }, [image]);
 
   const showErrors = (error: unknown) => {
-    const errors = formErrorsOf(error, editing.mode);
-    if (errors) form.setFields(errors);
+    const errors = formErrorsOf(error, editing.mode, multi);
+    if (errors) form.setFields(errors as Parameters<typeof form.setFields>[0]);
   };
 
   // Lỗi tải, gỡ ảnh của lần trước không còn đúng khi người dùng đổi lựa chọn hoặc gửi lại
@@ -395,15 +451,28 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
     if (closeOnly || preparingImage) return;
     resetImageRequests();
     if (editing.mode === 'create') {
-      const request: CreateProductRequest = {
-        ...commonFields(values),
-        openingQuantity: parseWholeNumber(values.openingQuantity) ?? undefined,
-        openingUnitCost: parseWholeNumber(values.openingUnitCost) ?? undefined,
-      };
+      let request: CreateProductRequest | CreateProductWithVariantsRequest;
+      if (values.multi) {
+        // Nhiều Biến thể (SP-07): giá, mã, tồn đầu kỳ ở từng dòng; trùng nhãn, mã giữa các dòng báo trước khi gửi
+        const names = values.attributeNames ?? [];
+        const rows = values.variants ?? [];
+        const problems = variantRowsProblems(names, rows);
+        if (problems.length > 0) {
+          form.setFields(problems as Parameters<typeof form.setFields>[0]);
+          return;
+        }
+        request = { ...productFields(values), variants: variantInputsOf(names, rows) };
+      } else {
+        request = {
+          ...commonFields(values),
+          openingQuantity: parseWholeNumber(values.openingQuantity) ?? undefined,
+          openingUnitCost: parseWholeNumber(values.openingUnitCost) ?? undefined,
+        };
+      }
       const added = (product: Product) => {
         void message.success(`Đã thêm Sản phẩm "${product.name}"`);
         onCreated?.(product);
-        onClose();
+        close();
       };
       create.mutate(request, {
         // Hai bước: Sản phẩm đã tạo rồi mới tải ảnh. Tải ảnh lỗi thì Sản phẩm vẫn đã có: đóng hộp thoại (gửi lại sẽ tạo
@@ -417,25 +486,27 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
               8,
             );
             onCreated?.(product);
-            onClose();
+            close();
           }),
         onError: showErrors,
       });
       return;
     }
-    const request = commonFields(values);
-    const fieldsChanged = attempted.current || !isUnchanged(editing.product, request);
+    const product = current ?? editing.product;
+    // Sản phẩm nhiều Biến thể: không gửi giá, SKU, mã vạch (backend giữ nguyên); sửa từng Biến thể ở phần Biến thể
+    const request = product.hasVariants ? productFields(values) : commonFields(values);
+    const fieldsChanged = attempted.current || !isUnchanged(product, request);
     if (!fieldsChanged && image.kind === 'keep') {
-      onClose();
+      close();
       return;
     }
-    const saved = (product: Product) => {
-      void message.success(`Đã lưu Sản phẩm "${product.name}"`);
-      onClose();
+    const saved = (savedProduct: Product) => {
+      void message.success(`Đã lưu Sản phẩm "${savedProduct.name}"`);
+      close();
     };
     // Chỉ đổi ảnh: không gửi PUT Sản phẩm
     if (!fieldsChanged) {
-      saveImage(editing.product, saved, showImageError);
+      saveImage(product, saved, showImageError);
       return;
     }
     attempted.current = true;
@@ -443,11 +514,11 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
       { id: editing.product.id, request },
       {
         // Các trường đã lưu, chỉ ảnh lỗi: nói rõ phần nào đã lưu; hộp thoại vẫn mở để thử lại ảnh
-        onSuccess: (product) =>
-          saveImage(product, saved, (error) => {
+        onSuccess: (savedProduct) =>
+          saveImage(savedProduct, saved, (error) => {
             showImageError(error);
             void message.warning(
-              `Đã lưu thông tin, chưa lưu được ảnh của Sản phẩm "${product.name}": ${describeError(error).message}`,
+              `Đã lưu thông tin, chưa lưu được ảnh của Sản phẩm "${savedProduct.name}": ${describeError(error).message}`,
               8,
             );
           }),
@@ -473,14 +544,15 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
 
   return (
     <Modal
-      open
+      {...modalProps}
+      className="product-form-modal"
       title={editing.mode === 'create' ? 'Thêm Sản phẩm' : 'Sửa Sản phẩm'}
       okText={editing.mode === 'create' ? 'Thêm' : 'Lưu'}
       cancelText={closeOnly ? 'Đóng' : 'Hủy'}
-      width={720}
+      width={multiCreate ? 960 : 720}
       onOk={() => form.submit()}
       onCancel={() => {
-        if (!busy) onClose();
+        if (!busy) close();
       }}
       confirmLoading={pending}
       okButtonProps={{ disabled: closeOnly || preparingImage }}
@@ -498,7 +570,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
           style={{ marginBottom: 16 }}
         />
       ) : null}
-      {mutation.isError && !isKeyReuse(mutation.error) && !formErrorsOf(mutation.error) ? (
+      {mutation.isError && !isKeyReuse(mutation.error) && !formErrorsOf(mutation.error, editing.mode, multi) ? (
         <ErrorAlert error={mutation.error} />
       ) : null}
       {editing.mode === 'edit' && imageRequestError && !isImageFileError(imageRequestError) ? (
@@ -507,24 +579,32 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
       <Form<ProductFormValues>
         form={form}
         layout="vertical"
-        requiredMark={false}
         onFinish={onFinish}
+        scrollToFirstError={{ focus: true }}
         disabled={pending || closeOnly}
         initialValues={initialValuesOf(editing)}
       >
+        <div className="form-section-title">Thông tin sản phẩm</div>
         <Form.Item
           name="name"
           label="Tên Sản phẩm"
           rules={[{ required: true, whitespace: true, message: 'Nhập tên Sản phẩm' }, ...textRules('Tên Sản phẩm', NAME_MAX)]}
         >
-          <Input autoFocus autoComplete="off" />
+          <Input ref={initialInput} autoComplete="off" />
         </Form.Item>
         <Row gutter={16}>
           <Col xs={24} sm={16}>
             <Form.Item
               name="categoryId"
               label="Danh mục"
-              help={categories.isError ? 'Không tải được danh sách Danh mục. Đóng hộp thoại rồi mở lại.' : undefined}
+              extra={categories.isError ? (
+                <Flex wrap align="center" gap={8}>
+                  <Typography.Text role="alert" type="danger">Không tải được danh sách Danh mục.</Typography.Text>
+                  <Button size="small" loading={categories.isFetching} onClick={() => void categories.refetch()}>
+                    Tải lại Danh mục
+                  </Button>
+                </Flex>
+              ) : undefined}
               validateStatus={categories.isError ? 'warning' : undefined}
             >
               <Select
@@ -535,7 +615,7 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
                 showSearch={{
                   filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
                 }}
-                notFoundContent="Chưa có Danh mục nào"
+                notFoundContent={categories.isError ? 'Danh mục chưa tải được' : 'Chưa có Danh mục nào'}
                 // Ô không có luật kiểm, nên lỗi của backend (Danh mục không tồn tại) phải tự xóa khi chọn lại
                 onChange={() => form.setFields([{ name: 'categoryId', errors: [] }])}
               />
@@ -547,43 +627,36 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
             </Form.Item>
           </Col>
         </Row>
-        <Row gutter={16}>
-          <Col xs={24} sm={8}>
-            <Form.Item
-              name="salePrice"
-              label="Giá bán"
-              normalize={groupThousands}
-              rules={[{ required: true, whitespace: true, message: 'Nhập giá bán' }, wholeNumber('Giá bán', MONEY_MAX)]}
-            >
-              <Input {...numberInputProps} suffix="₫" />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Form.Item name="sku" label="SKU" rules={textRules('SKU', CODE_MAX)}>
-              <Input
-                placeholder={editing.mode === 'create' ? 'Để trống để tự sinh' : 'Để trống để giữ SKU cũ'}
-                autoComplete="off"
-              />
-            </Form.Item>
-          </Col>
-          <Col xs={24} sm={8}>
-            <Form.Item
-              name="barcode"
-              label="Mã vạch"
-              rules={[
-                ...textRules('Mã vạch', CODE_MAX),
-                {
-                  transform: (value?: string) => (value === undefined ? undefined : normalizeText(value)),
-                  pattern: BARCODE_CHARS,
-                  message: 'Mã vạch chỉ gồm chữ cái không dấu và chữ số',
-                },
-              ]}
-            >
-              <Input autoComplete="off" />
-            </Form.Item>
-          </Col>
-        </Row>
         {editing.mode === 'create' ? (
+          <Form.Item name="multi" valuePropName="checked">
+            <Checkbox>Có nhiều Biến thể (ví dụ màu, size): mỗi Biến thể có mã, giá và Tồn kho riêng</Checkbox>
+          </Form.Item>
+        ) : null}
+        {!multi ? <div className="form-section-title">Giá và mã sản phẩm</div> : null}
+        {multi ? null : (
+          <Row gutter={16}>
+            <Col xs={24} sm={8}>
+              <Form.Item name="salePrice" label="Giá bán" normalize={groupThousands} rules={salePriceRules()}>
+                <Input {...numberInputProps} suffix="₫" />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="sku" label="SKU" rules={textRules('SKU', CODE_MAX)}>
+                <Input
+                  placeholder={editing.mode === 'create' ? 'Để trống để tự sinh' : 'Để trống để giữ SKU cũ'}
+                  autoComplete="off"
+                />
+              </Form.Item>
+            </Col>
+            <Col xs={24} sm={8}>
+              <Form.Item name="barcode" label="Mã vạch" rules={barcodeRules()}>
+                <Input autoComplete="off" />
+              </Form.Item>
+            </Col>
+          </Row>
+        )}
+        {editing.mode === 'create' && !multi ? <div className="form-section-title">Tồn kho đầu kỳ</div> : null}
+        {editing.mode === 'create' && !multi ? (
           <Row gutter={16}>
             <Col xs={24} sm={12}>
               <Form.Item
@@ -603,34 +676,15 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
                 extra="Giá nhập của mỗi đơn vị hàng tồn đầu kỳ."
                 dependencies={['openingQuantity']}
                 normalize={groupThousands}
-                rules={[
-                  wholeNumber('Giá vốn ban đầu', MONEY_MAX),
-                  ({ getFieldValue }) => ({
-                    validator: (_: unknown, text?: string) => {
-                      const quantity = validNumber(
-                        getFieldValue('openingQuantity') as string | undefined,
-                        QUANTITY_MAX,
-                      );
-                      if (!quantity) return Promise.resolve();
-                      const cost = parseWholeNumber(text);
-                      if (cost === null || cost === 0) {
-                        return Promise.reject(new Error('Có Tồn kho đầu kỳ thì nhập Giá vốn ban đầu lớn hơn 0'));
-                      }
-                      const validCost = validNumber(text, MONEY_MAX);
-                      // Như backend: tổng giá trị tồn đầu kỳ phải còn là một số tiền hợp lệ
-                      if (validCost !== null && BigInt(quantity) * BigInt(validCost) > BigInt(MONEY_MAX)) {
-                        return Promise.reject(new Error('Tồn kho đầu kỳ × Giá vốn ban đầu quá lớn'));
-                      }
-                      return Promise.resolve();
-                    },
-                  }),
-                ]}
+                rules={openingUnitCostRules(['openingQuantity'])}
               >
                 <Input {...numberInputProps} suffix="₫" />
               </Form.Item>
             </Col>
           </Row>
         ) : null}
+        {editing.mode === 'create' && multi ? <VariantRowsField /> : null}
+        <div className="form-section-title">Thông tin bổ sung</div>
         <Form.Item name="description" label="Mô tả" rules={textRules('Mô tả', DESCRIPTION_MAX, true)}>
           <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} />
         </Form.Item>
@@ -663,6 +717,14 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
           </Flex>
         </Form.Item>
       </Form>
+      {current ? (
+        <ProductVariantsSection
+          product={current}
+          disabled={pending || closeOnly}
+          addBlockedReason={unsavedVariantFields ? ADD_VARIANT_BLOCKED : undefined}
+          onChange={setCurrent}
+        />
+      ) : null}
     </Modal>
   );
 }

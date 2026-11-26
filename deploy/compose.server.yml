@@ -1,0 +1,11 @@
+# TH-02: proxy HTTPS trên cùng máy chuyển tiếp tới cổng web loopback.
+services:
+  db:
+    ports: !reset []
+  web:
+    ports: !override
+      - "127.0.0.1:${WEB_PORT:-8088}:80"
+  backend:
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
+      APP_SECURITY_COOKIESECURE: "true"

@@ -10,9 +10,10 @@
  * giá đến, thì báo dưới ô (gắn với ô qua `aria-describedby`, đọc ngay nhờ `role="alert"`) và không áp dụng (backend
  * cũng từ chối, `400`).
  */
+import { DownOutlined } from '@ant-design/icons';
 import { Button, Flex, Input, Select, Typography } from 'antd';
 import { useEffect, useId, useRef, useState } from 'react';
-import { SearchInput } from '../../../shared/components';
+import { SearchInput, useCompactLayout } from '../../../shared/components';
 import type { ProductSearchParams, ProductStatus } from '../../../shared/types/catalog';
 import { useCategoryOptions } from '../api/categories';
 import { hasProductFilters } from './productFilterParams';
@@ -87,8 +88,8 @@ function PriceRange({ minPrice, maxPrice, onApply }: PriceRangeProps) {
   const messages = [errors.min, errors.max].filter(Boolean);
 
   return (
-    <Flex vertical gap={4}>
-      <Flex align="center" gap={8}>
+    <Flex vertical gap={4} role="group" aria-label="Khoảng giá bán">
+      <Flex className="price-range-fields" align="center" gap={8}>
         <Input
           {...inputProps}
           aria-label={MIN_LABEL}
@@ -122,6 +123,9 @@ function PriceRange({ minPrice, maxPrice, onApply }: PriceRangeProps) {
 
 export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
   const categories = useCategoryOptions();
+  const filterId = useId();
+  const compact = useCompactLayout();
+  const [showFilters, setShowFilters] = useState(false);
   // Bộ lọc đổi mà không phải do ô tìm kiếm, ô giá gửi lên (URL đổi từ nơi khác): dựng lại hai ô này theo `value`.
   const sent = useRef(textFilters(value));
   const [inputsKey, setInputsKey] = useState(0);
@@ -152,50 +156,81 @@ export function ProductFilterBar({ value, onChange }: ProductFilterBarProps) {
     return 'Danh mục không còn';
   };
 
+  const activeFilters = Number(Boolean(value.categoryId)) + Number(Boolean(value.status)) +
+    Number(value.minPrice !== undefined || value.maxPrice !== undefined);
   return (
-    <Flex role="search" aria-label="Bộ lọc Sản phẩm" wrap gap={8} align="flex-start" style={{ marginBottom: 16 }}>
-      <SearchInput
+    <Flex role="search" aria-label="Bộ lọc Sản phẩm" wrap gap={12} align="flex-end" className="product-filter-bar">
+      <div className="filter-field">
+        <label className="filter-field-label" htmlFor={`${filterId}-search`}>Tìm Sản phẩm</label>
+        <SearchInput
         key={`q-${inputsKey}`}
+        id={`${filterId}-search`}
         aria-label="Tìm Sản phẩm"
         placeholder="Tìm theo tên, SKU, mã vạch"
         defaultValue={value.q ?? ''}
         onSearch={(q) => apply({ ...value, q: q || undefined })}
         style={{ width: 280 }}
-      />
-      <Select<string>
-        aria-label="Lọc theo Danh mục"
-        allowClear
-        placeholder={categories.isError ? 'Không tải được Danh mục' : 'Mọi Danh mục'}
-        status={categories.isError ? 'error' : undefined}
-        value={value.categoryId}
-        loading={categories.isLoading}
-        options={(categories.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))}
-        // Danh mục trên URL không có trong danh sách (đã xóa, hoặc tải danh sách lỗi): không hiện id thô
-        labelRender={({ label }) => label ?? missingCategoryLabel()}
-        showSearch={{
-          filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
-        }}
-        notFoundContent={
-          categories.isError ? 'Không tải được danh sách Danh mục. Hãy tải lại trang.' : 'Chưa có Danh mục nào'
-        }
-        onChange={(categoryId) => apply({ ...value, categoryId: categoryId ?? undefined })}
-        style={{ width: 200 }}
-      />
-      <PriceRange
-        key={`price-${inputsKey}`}
-        minPrice={value.minPrice}
-        maxPrice={value.maxPrice}
-        onApply={(minPrice, maxPrice) => apply({ ...value, minPrice, maxPrice })}
-      />
-      <Select<ProductStatus>
-        aria-label="Lọc theo trạng thái"
-        allowClear
-        placeholder="Mọi trạng thái"
-        value={value.status}
-        options={STATUS_OPTIONS}
-        onChange={(status) => apply({ ...value, status: status ?? undefined })}
-        style={{ width: 180 }}
-      />
+        />
+      </div>
+      {compact && (
+        <Button icon={<DownOutlined className="filter-toggle-chevron" aria-hidden="true" />}
+          aria-expanded={showFilters} aria-controls={`${filterId}-extra`}
+          onClick={() => setShowFilters(!showFilters)}>
+          Bộ lọc{activeFilters > 0 ? ` (${activeFilters})` : ''}
+        </Button>
+      )}
+      <div id={`${filterId}-extra`} className="product-extra-filters" hidden={compact && !showFilters}>
+        <div className="filter-field">
+          <label className="filter-field-label" htmlFor={`${filterId}-category`}>Danh mục</label>
+          <Select<string>
+          id={`${filterId}-category`}
+          aria-label="Lọc theo Danh mục"
+          allowClear
+          placeholder={categories.isError ? 'Không tải được Danh mục' : 'Mọi Danh mục'}
+          status={categories.isError ? 'error' : undefined}
+          value={value.categoryId}
+          loading={categories.isFetching}
+          options={(categories.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }))}
+          // Danh mục trên URL không có trong danh sách (đã xóa, hoặc tải danh sách lỗi): không hiện id thô
+          labelRender={({ label }) => label ?? missingCategoryLabel()}
+          showSearch={{
+            filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
+          }}
+          notFoundContent={
+            categories.isError ? 'Danh mục chưa tải được' : 'Chưa có Danh mục nào'
+          }
+          onChange={(categoryId) => apply({ ...value, categoryId: categoryId ?? undefined })}
+          style={{ width: 200 }}
+          />
+          {categories.isError ? (
+            <Button size="small" loading={categories.isFetching} onClick={() => void categories.refetch()}>
+              Tải lại Danh mục
+            </Button>
+          ) : null}
+        </div>
+        <div className="filter-field">
+          <span className="filter-field-label">Khoảng giá bán</span>
+          <PriceRange
+          key={`price-${inputsKey}`}
+          minPrice={value.minPrice}
+          maxPrice={value.maxPrice}
+          onApply={(minPrice, maxPrice) => apply({ ...value, minPrice, maxPrice })}
+          />
+        </div>
+        <div className="filter-field">
+          <label className="filter-field-label" htmlFor={`${filterId}-status`}>Trạng thái</label>
+          <Select<ProductStatus>
+          id={`${filterId}-status`}
+          aria-label="Lọc theo trạng thái"
+          allowClear
+          placeholder="Mọi trạng thái"
+          value={value.status}
+          options={STATUS_OPTIONS}
+          onChange={(status) => apply({ ...value, status: status ?? undefined })}
+          style={{ width: 180 }}
+          />
+        </div>
+      </div>
       {hasProductFilters(value) ? <Button onClick={clear}>Xóa bộ lọc</Button> : null}
     </Flex>
   );

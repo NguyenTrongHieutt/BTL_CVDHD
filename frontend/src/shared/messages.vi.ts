@@ -111,9 +111,25 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Cửa hàng đã có Khách hàng dùng số điện thoại này.',
     hint: 'Mở Khách hàng đã có để xem hoặc sửa, thay vì thêm mới.',
   },
+  '/errors/catalog/import-invalid-file': {
+    message: 'File nhập không đọc được hoặc không đúng mẫu.',
+    hint: 'Dùng mẫu CSV hoặc Excel, giữ dòng tiêu đề và chọn file tối đa 2 MB, 1.000 dòng.',
+  },
+  '/errors/catalog/import-preview-stale': {
+    message: 'Dữ liệu đã thay đổi từ lúc xem trước.',
+    hint: 'Xem trước lại file để kiểm tra các dòng còn có thể lưu.',
+  },
   '/errors/catalog/supplier-code-taken': {
     message: 'Cửa hàng đã có Nhà cung cấp dùng mã này.',
     hint: 'Mã không phân biệt chữ hoa, chữ thường. Nhập mã khác, hoặc để trống.',
+  },
+  '/errors/catalog/variant-name-taken': {
+    message: 'Sản phẩm đã có Biến thể dùng nhãn này.',
+    hint: 'Nhãn không phân biệt chữ hoa, chữ thường, và Biến thể đã ngừng kinh doanh vẫn giữ nhãn. Hãy đặt nhãn khác.',
+  },
+  '/errors/catalog/last-active-variant': {
+    message: 'Đây là Biến thể đang bán cuối cùng của Sản phẩm nên không ngừng riêng được.',
+    hint: 'Muốn thôi bán, hãy dùng "Ngừng kinh doanh" cho cả Sản phẩm ở bảng Sản phẩm.',
   },
 
   // sales
@@ -121,12 +137,20 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
     message: 'Đơn hàng đã đổi trạng thái nên không làm được thao tác này.',
     hint: 'Đơn có thể đã bị hủy hoặc đã có Phiếu trả hàng. Tải lại Đơn hàng để xem trạng thái mới nhất.',
   },
+  '/errors/sales/return-stale': {
+    message: 'Số lượng có thể trả hoặc số tiền hoàn đã thay đổi.',
+    hint: 'Kiểm tra lại số lượng và tổng tiền hoàn trước khi xác nhận.',
+  },
   '/errors/sales/cart-stale': {
     message: 'Giá hoặc Tồn kho của hàng trong giỏ vừa thay đổi.',
     hint: 'Hệ thống đã tính lại tiền. Kiểm tra tổng tiền (và mã QR mới nếu chuyển khoản) rồi xác nhận lại.',
   },
 
   // inventory
+  '/errors/inventory/stocktake-stale': {
+    message: 'Tồn hệ thống đã thay đổi trong lúc kiểm kho.',
+    hint: 'Kiểm tra lại số đếm và lý do trên các dòng đã cập nhật trước khi lưu.',
+  },
   '/errors/inventory/variant-inactive': {
     message: 'Sản phẩm này đã ngừng kinh doanh nên không nhập hàng được.',
     hint: 'Bỏ dòng này khỏi Phiếu nhập. Kiểm kho và trả hàng vẫn làm được với hàng còn tồn.',

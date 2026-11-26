@@ -52,6 +52,8 @@ cd frontend && npm install && npm run dev
 
 Nếu cổng 8080 đã bị dùng: chạy backend với `SERVER_PORT=8081` và frontend với `BACKEND_URL=http://localhost:8081 npm run dev`.
 
+Triển khai lên máy chủ và kiểm tra URL xem [hướng dẫn TH-02](deploy/TH-02.md).
+
 ## Chạy toàn bộ bằng Docker (bản demo)
 
 ```bash

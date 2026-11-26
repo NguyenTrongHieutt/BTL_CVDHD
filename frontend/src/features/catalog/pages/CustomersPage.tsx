@@ -7,8 +7,7 @@
  * thoại khớp một phần ("345 678", "+84 912"); đổi từ khóa thì bảng về trang đầu. Thêm, sửa trong hộp thoại
  * (`CustomerFormModal`); thêm chỉ cần số điện thoại. Thêm xong thì ô tìm kiếm điền số vừa thêm, nên Khách hàng mới hiện
  * ngay trong bảng dù danh sách dài. Tìm một số điện thoại đầy đủ mà không ra ai thì có nút "Thêm Khách hàng với số
- * này" (hộp thoại thêm điền sẵn số). Không có xóa Khách hàng. Tab Lịch sử mua (FR-20, KH-03) làm ở GĐ2, gọi
- * `GET /api/v1/sales/orders?customerId=` của Anh qua shared/api, không import features/sales.
+ * này" (hộp thoại thêm điền sẵn số). Lịch sử mua (FR-20, KH-03) dùng API sales.
  */
 import { PlusOutlined } from '@ant-design/icons';
 import { Button, Flex, Typography } from 'antd';
@@ -19,6 +18,7 @@ import { VIETNAM_TIME_ZONE } from '../../../shared/components/dateRange';
 import type { Customer } from '../../../shared/types/catalog';
 import { customerLabel, customersQueryKey, fetchCustomers, formatPhone, normalizePhone } from '../api/customers';
 import { CustomerFormModal } from '../components/CustomerFormModal';
+import { CustomerHistoryModal } from '../components/CustomerHistoryModal';
 import type { CustomerEditing } from '../components/CustomerFormModal';
 
 const EMPTY = '—';
@@ -39,6 +39,7 @@ export function CustomersPage() {
   // Đổi key thì ô tìm kiếm dựng lại với từ khóa mới (sau khi thêm Khách hàng).
   const [searchKey, setSearchKey] = useState(0);
   const [editing, setEditing] = useState<CustomerEditing | null>(null);
+  const [history, setHistory] = useState<Customer | null>(null);
   // Tìm theo một số điện thoại đầy đủ mà không ra ai: mời thêm Khách hàng với số đó.
   const searchedPhone = normalizePhone(q);
 
@@ -78,24 +79,26 @@ export function CustomersPage() {
     {
       title: 'Thao tác',
       key: 'actions',
-      width: 100,
+      width: 160,
       render: (_, customer) => (
-        <Button
-          type="link"
-          size="small"
-          aria-label={`Sửa ${customerLabel(customer)}`}
-          onClick={() => setEditing({ mode: 'edit', customer })}
-        >
-          Sửa
-        </Button>
+        <Flex wrap>
+          <Button type="link" size="small" aria-label={`Lịch sử mua của ${customerLabel(customer)}`}
+            onClick={() => setHistory(customer)}>
+            Lịch sử mua
+          </Button>
+          <Button type="link" size="small" aria-label={`Sửa ${customerLabel(customer)}`}
+            onClick={() => setEditing({ mode: 'edit', customer })}>
+            Sửa
+          </Button>
+        </Flex>
       ),
     },
   ];
 
   return (
-    <div>
+    <div className="catalog-page">
       <Flex justify="space-between" align="center" wrap gap={8} style={{ marginBottom: 16 }}>
-        <Typography.Title level={3} style={{ margin: 0 }}>
+        <Typography.Title level={1} style={{ margin: 0 }}>
           Khách hàng
         </Typography.Title>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setEditing({ mode: 'create' })}>
@@ -111,6 +114,7 @@ export function CustomersPage() {
         style={{ width: 320, maxWidth: '100%', marginBottom: 16 }}
       />
       <DataTable<Customer>
+        compactColumns={{ title: 'name', actions: 'actions' }}
         rowKey="customerId"
         queryKey={[...customersQueryKey, { q }]}
         fetchPage={(request, signal) => fetchCustomers(request, q, signal)}
@@ -145,6 +149,7 @@ export function CustomersPage() {
           ),
         }}
       />
+      {history && <CustomerHistoryModal key={history.customerId} customer={history} onClosed={() => setHistory(null)} />}
       {editing ? (
         <CustomerFormModal
           key={editing.mode === 'edit' ? editing.customer.customerId : 'create'}

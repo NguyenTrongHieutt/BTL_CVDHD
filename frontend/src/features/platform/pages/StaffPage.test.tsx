@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { App as AntdApp } from 'antd';
+import { App as AntdApp, ConfigProvider } from 'antd';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StoreUser } from '../../../shared/types/platform';
 import { StaffPage } from './StaffPage';
@@ -81,9 +81,11 @@ function renderPage() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
-      <AntdApp>
-        <StaffPage />
-      </AntdApp>
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <StaffPage />
+        </AntdApp>
+      </ConfigProvider>
     </QueryClientProvider>,
   );
 }
@@ -171,6 +173,18 @@ beforeEach(() => {
 });
 
 describe('Tài khoản Nhân viên (FR-45, TK-02)', () => {
+  it('trả tiêu điểm về nút thêm nhân viên khi đóng hộp thoại', async () => {
+    renderPage();
+    const trigger = screen.getByRole('button', { name: 'Thêm Nhân viên' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const modal = await screen.findByRole('dialog');
+    fireEvent.click(within(modal).getByRole('button', { name: 'Hủy' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+  });
+
   it('hiện bảng tài khoản: vai trò, trạng thái, số điện thoại, ngày tạo; dòng Chủ cửa hàng không có thao tác', async () => {
     renderPage();
     expect(await within(table()).findByText('nv.lan')).toBeTruthy();

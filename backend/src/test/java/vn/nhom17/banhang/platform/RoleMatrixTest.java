@@ -125,12 +125,21 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/platform/users/{id}/unlock", U, F, A),
                 row("POST", "/api/v1/platform/users/{id}/reset-password", U, F, A),
                 row("GET", "/api/v1/platform/audit-log", U, F, A),
+                row("GET", "/api/v1/platform/audit-log/actions", U, F, A),
                 // catalog: xem cả hai vai trò; thêm, sửa Sản phẩm (cả giá), Danh mục, Nhà cung cấp chỉ Chủ cửa hàng
                 row("GET", "/api/v1/catalog/products", U, A, A),
                 row("GET", "/api/v1/catalog/products/{id}", U, A, A),
                 row("POST", "/api/v1/catalog/products", U, F, A),
                 row("PUT", "/api/v1/catalog/products/{id}", U, F, A),
                 row("POST", "/api/v1/catalog/products/{id}/deactivate", U, F, A),
+                // Biến thể (SP-07): thêm, sửa, ngừng từng Biến thể chỉ Chủ cửa hàng. Body "{}" là dữ liệu sai (400),
+                // id cố định không có (404), nên không đổi gì ở dữ liệu dev.
+                row("POST", "/api/v1/catalog/products/{id}/variants", U, F, A),
+                row("PUT", "/api/v1/catalog/products/{id}/variants/{id}", U, F, A),
+                row("POST", "/api/v1/catalog/products/{id}/variants/{id}/deactivate", U, F, A),
+                // Nhập Sản phẩm từ Excel (SP-06): chỉ Chủ cửa hàng, cả tải file mẫu (Nhân viên không nhập được)
+                row("GET", "/api/v1/catalog/products/import-template", U, F, A),
+                row("POST", "/api/v1/catalog/products/import", U, F, A),
                 // Ảnh Sản phẩm (SP-01b): xem cả hai vai trò (<img src> gửi cookie), tải lên, gỡ chỉ Chủ cửa hàng
                 row("GET", "/api/v1/catalog/products/{id}/image", U, A, A),
                 row("PUT", "/api/v1/catalog/products/{id}/image", U, F, A),
@@ -155,7 +164,11 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/sales/orders/quote", U, A, A),
                 row("POST", "/api/v1/sales/orders", U, A, A),
                 row("GET", "/api/v1/sales/orders", U, A, A),
+                row("GET", "/api/v1/sales/orders/sellers", U, A, A),
+                row("GET", "/api/v1/sales/orders/{id}/receipt", U, A, A),
                 row("POST", "/api/v1/sales/orders/{id}/cancel", U, A, A),
+                row("GET", "/api/v1/sales/orders/{id}/returns", U, A, A),
+                row("POST", "/api/v1/sales/orders/{id}/returns/quote", U, A, A),
                 row("POST", "/api/v1/sales/orders/{id}/returns", U, A, A),
                 row("GET", "/api/v1/sales/customers/{id}/purchase-summary", U, A, A),
                 // inventory: Nhân viên chỉ xem Tồn kho (DTO không có Giá vốn) và cảnh báo tồn thấp
@@ -167,6 +180,7 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/inventory/stocktakes", U, F, A),
                 row("PUT", "/api/v1/inventory/stock/{id}/min-quantity", U, F, A),
                 // reporting: chỉ Chủ cửa hàng
+                row("GET", "/api/v1/reporting/dashboard", U, F, A),
                 row("GET", "/api/v1/reporting/q/{id}", U, F, A),
                 // Chỉ dịch vụ AI, bằng X-Service-Key: token người dùng không đủ (xem serviceKey…)
                 row("GET", "/internal/catalog/product-changes", U, F, F),

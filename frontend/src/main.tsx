@@ -13,6 +13,7 @@ import { RouterProvider } from 'react-router/dom';
 import { createAppQueryClient } from './app/queryClient';
 import { createAppRouter } from './app/router';
 import { installSessionHandlers } from './app/session';
+import { appTheme } from './app/theme';
 import './app/global.css';
 
 dayjs.locale('vi');
@@ -27,7 +28,7 @@ if (!rootElement) throw new Error('Không tìm thấy #root trong index.html');
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <ConfigProvider locale={viVN}>
+      <ConfigProvider locale={viVN} theme={appTheme}>
         <AntdApp>
           <RouterProvider router={router} />
         </AntdApp>

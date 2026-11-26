@@ -2,7 +2,7 @@
  * Kiểu dữ liệu của module `inventory`: Tồn kho, lịch sử xuất nhập, Phiếu nhập, Phiếu kiểm kho.
  * Người giữ: Anh (A). Màn FR-28 của Hiếu (features/catalog) dùng `StockLedgerEntry` (AD-20).
  */
-import type { IsoDateTime, Money, Quantity, Uuid } from './common';
+import type { IsoDate, IsoDateTime, Money, Quantity, Uuid } from './common';
 
 /** Một dòng Tồn kho theo Biến thể (AD-6). */
 export interface StockLevel {
@@ -17,16 +17,43 @@ export interface StockLevel {
 }
 
 /**
- * Một bản ghi lịch sử xuất nhập (FR-22, FR-28), từ `GET /api/v1/inventory/ledger`.
- * TODO(Anh, KHO-01, GĐ1): chốt tên trường và danh sách `documentType` ở CB-03.
+ * Loại chứng từ làm thay đổi Tồn kho, như enum `StockDocumentType` của backend (`stock_ledger.document_type`):
+ * Tồn đầu kỳ (AD-14), bán hàng, hủy Đơn hàng, trả hàng, Phiếu nhập, Phiếu kiểm kho.
+ */
+export type StockDocumentType = 'OPENING' | 'SALE' | 'SALE_CANCEL' | 'SALE_RETURN' | 'PURCHASE_RECEIPT' | 'STOCKTAKE';
+
+/**
+ * Một dòng sổ kho (FR-22, FR-28), từ `GET /api/v1/inventory/ledger` (CB-03 mục 3.3, KHO-01). Chỉ Chủ cửa hàng.
+ * Sửa theo phản hồi thật ở KHO-07 (Hiếu sửa, Anh duyệt).
  */
 export interface StockLedgerEntry {
-  occurredAt: IsoDateTime;
-  /** Loại chứng từ, ví dụ `OPENING` (tồn đầu kỳ, AD-14). */
-  documentType: string;
+  /** Thời điểm ghi sổ, ISO-8601 UTC. */
+  createdAt: IsoDateTime;
+  /** Loại chứng từ. Kiểu là `string` để màn hình vẫn hiện được loại mới mà frontend chưa biết. */
+  documentType: StockDocumentType | (string & {});
   documentId: Uuid;
   variantId: Uuid;
+  /** `null` khi Biến thể không còn (không tra được ở catalog). */
+  productName: string | null;
+  /** `null` với Biến thể mặc định, hoặc khi Biến thể không còn. */
+  variantName: string | null;
   /** Số lượng thay đổi: dương là cộng, âm là trừ. */
-  quantityChange: Quantity;
-  performedBy: string;
+  delta: Quantity;
+  /** Tồn kho của Biến thể ngay sau lần thay đổi này. */
+  quantityAfter: Quantity;
+  /** Tên người thực hiện; `null` khi không có (ví dụ tài khoản không còn). */
+  actorName: string | null;
+}
+
+/**
+ * Bộ lọc của `GET /api/v1/inventory/ledger`. Trường bỏ trống thì không lọc. `fromDate`, `toDate` theo lịch Việt Nam,
+ * gồm cả hai đầu, tối đa 366 ngày (AD-19; ngoài khoảng: `400 /errors/common/validation` trên `toDate`).
+ * `actorId` chỉ dùng khi backend đã hỗ trợ lọc người thực hiện (FR-28).
+ */
+export interface StockLedgerSearchParams {
+  actorId?: Uuid;
+  variantId?: Uuid;
+  documentType?: StockDocumentType;
+  fromDate?: IsoDate;
+  toDate?: IsoDate;
 }

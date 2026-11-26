@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { App as AntdApp } from 'antd';
+import { App as AntdApp, ConfigProvider } from 'antd';
 import { createMemoryRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -16,6 +16,8 @@ import type { Me, Role } from '../../../shared/types/platform';
 import { downscaleImage } from '../components/imageResize';
 import { foldText } from '../components/textUtils';
 import { ProductsPage } from './ProductsPage';
+
+vi.setConfig({ testTimeout: 15_000 });
 
 // jsdom không giải mã, không vẽ được ảnh: thay bộ thu nhỏ ảnh; mặc định trả nguyên tệp (beforeEach)
 vi.mock('../components/imageResize', () => ({ downscaleImage: vi.fn<(file: File) => Promise<File>>() }));
@@ -53,8 +55,18 @@ function product(n: number, overrides: Partial<Product> = {}): Product {
     createdAt: '2026-11-10T03:00:00Z',
     updatedAt: '2026-11-10T03:00:00Z',
     variants: [
-      { id: `v-${n}`, sku: `SP-0000000${n}`, barcode: null, name: null, salePrice: 1000 * n, isDefault: true, status: 'ACTIVE' },
+      {
+        id: `v-${n}`,
+        sku: `SP-0000000${n}`,
+        barcode: null,
+        name: null,
+        attributes: {},
+        salePrice: 1000 * n,
+        isDefault: true,
+        status: 'ACTIVE',
+      },
     ],
+    priceRange: { min: 1000 * n, max: 1000 * n },
     ...overrides,
   };
 }
@@ -175,7 +187,9 @@ function updateProduct(id: string, body: UpdateProductRequest): Response {
     categoryName: category?.name ?? null,
     unit: body.unit ?? 'cái',
     description: body.description ?? null,
-    variants: existing.variants.map((v) => (v.isDefault ? { ...v, salePrice: body.salePrice, sku, barcode } : v)),
+    variants: existing.variants.map((v) =>
+      v.isDefault ? { ...v, salePrice: body.salePrice ?? v.salePrice, sku, barcode } : v,
+    ),
   };
   products = products.map((p) => (p.id === id ? edited : p));
   if (loseNextPutResponse) {
@@ -297,6 +311,7 @@ function backend() {
             sku: body.sku ?? `SP-NEW0000${id}`,
             barcode: body.barcode ?? null,
             name: null,
+            attributes: {},
             salePrice: body.salePrice,
             isDefault: true,
             status: 'ACTIVE',
@@ -355,11 +370,13 @@ function renderPage(role: Role = 'OWNER', path = PAGE_PATH) {
   const router = createMemoryRouter([{ path: PAGE_PATH, Component: ProductsPage }], { initialEntries: [path] });
   render(
     <QueryClientProvider client={queryClient}>
-      <AntdApp>
-        <CurrentUserContext value={me(role)}>
-          <RouterProvider router={router} />
-        </CurrentUserContext>
-      </AntdApp>
+      <ConfigProvider theme={{ token: { motion: false } }}>
+        <AntdApp>
+          <CurrentUserContext value={me(role)}>
+            <RouterProvider router={router} />
+          </CurrentUserContext>
+        </AntdApp>
+      </ConfigProvider>
     </QueryClientProvider>,
   );
   return { queryClient, router };
@@ -852,6 +869,23 @@ describe('ProductsPage', () => {
     expect(within(rowOf('Sản phẩm 01')).queryByRole('button')).toBeNull();
     expect(within(rowOf('Sản phẩm 02')).getByRole('button', { name: 'Ngừng kinh doanh Sản phẩm 02' })).toBeTruthy();
     expect(within(rowOf('Sản phẩm 02')).getByRole('button', { name: 'Sửa Sản phẩm 02' })).toBeTruthy();
+  });
+
+  it('Chủ cửa hàng có "Lịch sử kho" ở mọi dòng, cả hàng đã ngừng: link lọc sẵn theo Biến thể mặc định', async () => {
+    products = [product(2), product(1, { status: 'INACTIVE' })];
+    renderPage();
+    await within(table()).findByText('Sản phẩm 01');
+
+    const stopped = within(rowOf('Sản phẩm 01')).getByRole('link', { name: 'Lịch sử kho Sản phẩm 01' });
+    expect(stopped.getAttribute('href')).toBe('/catalog/stock-ledger?productId=p-1&variantId=v-1');
+    const selling = within(rowOf('Sản phẩm 02')).getByRole('link', { name: 'Lịch sử kho Sản phẩm 02' });
+    expect(selling.getAttribute('href')).toBe('/catalog/stock-ledger?productId=p-2&variantId=v-2');
+  });
+
+  it('Nhân viên không thấy "Lịch sử kho" (màn chỉ dành cho Chủ cửa hàng)', async () => {
+    renderPage('STAFF');
+    await within(table()).findByText('Sản phẩm 01');
+    expect(screen.queryByRole('link', { name: /Lịch sử kho/ })).toBeNull();
   });
 
   it('mất mạng khi ngừng kinh doanh: báo ở khung lỗi, đóng được, dòng vẫn "Đang bán"', async () => {
@@ -1440,7 +1474,7 @@ describe('ProductsPage — sửa Sản phẩm (FR-2, SP-02)', () => {
     expect(within(dialog()).queryByRole('alert')).toBeNull();
   });
 
-  it('không tải được Danh mục: ô Danh mục vẫn hiện tên Danh mục hiện tại, không hiện id', async () => {
+  it('không tải được Danh mục: giữ tên hiện tại và cho tải lại mà không mất nội dung sửa', async () => {
     failCategories = true;
     renderPage();
     await within(table()).findByText('Sản phẩm 02');
@@ -1448,10 +1482,17 @@ describe('ProductsPage — sửa Sản phẩm (FR-2, SP-02)', () => {
     await openEditDialog('Sản phẩm 02');
 
     expect(
-      await within(dialog()).findByText('Không tải được danh sách Danh mục. Đóng hộp thoại rồi mở lại.'),
+      await within(dialog()).findByText('Không tải được danh sách Danh mục.'),
     ).toBeTruthy();
     expect(within(dialog()).getByText('Đồ uống')).toBeTruthy();
     expect(within(dialog()).queryByText('c-1')).toBeNull();
+
+    fireEvent.change(field('Tên Sản phẩm'), { target: { value: 'Tên mới đang sửa' } });
+    failCategories = false;
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Tải lại Danh mục' }));
+
+    await waitFor(() => expect(within(dialog()).queryByText('Không tải được danh sách Danh mục.')).toBeNull());
+    expect((field('Tên Sản phẩm') as HTMLInputElement).value).toBe('Tên mới đang sửa');
   });
 
   it('mất phản hồi sau khi máy chủ đã lưu: báo lỗi mạng, mọi bảng liên quan tải lại; gõ lại giá cũ vẫn gửi', async () => {
@@ -1741,8 +1782,10 @@ describe('ProductsPage — ảnh Sản phẩm (FR-1, SP-01b)', () => {
     expect(await within(dialog()).findByText('Ảnh phải là JPEG, PNG hoặc WebP.')).toBeTruthy();
     // Ảnh đã chọn trước đó cũng bị bỏ: không xem trước, "Thêm" không gửi ảnh nào
     expect(previewSrc()).toBeNull();
+    const firstDialog = dialog();
     submit();
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    // Sau hiệu ứng đóng, form mới có thể được mở lại.
+    await waitFor(() => expect(firstDialog.isConnected).toBe(false));
     expect(writes()).toEqual(['POST /api/v1/catalog/products']);
 
     // Tệp không đuôi (trình duyệt không biết kiểu): không chặn ở client, gửi để backend kiểm theo nội dung
@@ -1891,5 +1934,139 @@ describe('ProductsPage — ảnh Sản phẩm (FR-1, SP-01b)', () => {
     products = products.map((p) => (p.id === 'p-2' ? { ...p, imageUrl: `${PRODUCTS_PATH}/p-2/image?v=2` } : p));
     await act(() => queryClient.invalidateQueries({ queryKey: ['catalog', 'products'] }));
     await waitFor(() => expect(thumbnailOf('Sản phẩm 02')).toBe('/api/v1/catalog/products/p-2/image?v=2'));
+  });
+});
+
+describe('ProductsPage — nhập từ CSV và Excel (FR-6, SP-06)', () => {
+  const IMPORT_PATH = `${PRODUCTS_PATH}/import`;
+  const IMPORT_PREVIEW_PATH = `${IMPORT_PATH}/preview`;
+  const importedNames = ['Nước suối Aquafina', 'Bánh quy Cosy', 'Kẹo dẻo'];
+  /** Lần nhập không được dòng nào: chỉ báo dòng lỗi, không thêm Sản phẩm. */
+  let importNothing: boolean;
+
+  function saveCalls() {
+    return fetchMock.mock.calls.filter(
+      ([input, init]) => init?.method === 'POST' && new URL(String(input), 'http://localhost').pathname === IMPORT_PATH,
+    );
+  }
+
+  beforeEach(() => {
+    importNothing = false;
+    const base = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation(async (input, init) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname === IMPORT_PREVIEW_PATH && init?.method === 'POST') {
+        const names = importNothing ? ['Dòng thiếu giá'] : [...importedNames, 'Dòng thiếu giá'];
+        const rows = names.map((productName, index) => ({
+          row: index + 2,
+          parentCode: null,
+          productName,
+          variantName: null,
+          attributes: {},
+          sku: null,
+          barcode: null,
+          categoryName: null,
+          salePrice: productName === 'Dòng thiếu giá' ? null : 15000,
+          openingQuantity: 0,
+          openingUnitCost: null,
+          valid: productName !== 'Dòng thiếu giá',
+        }));
+        return json({
+          totalRows: rows.length,
+          validProducts: rows.length - 1,
+          validRows: rows.length - 1,
+          rows,
+          errors: [{ row: rows.length + 1, column: 'Giá bán', message: 'Nhập giá bán' }],
+          previewToken: 'preview-token',
+        });
+      }
+      if (url.pathname === IMPORT_PATH && init?.method === 'POST') {
+        const imported = importedNames.map((name, i) => {
+          const id = nextId++;
+          return {
+            ...product(id),
+            name,
+            createdAt: new Date(Date.UTC(2026, 10, 15, 3, 0, 0) + i * 1000).toISOString(),
+          };
+        });
+        products = [...imported, ...products];
+        return json({
+          imported: 3,
+          failed: [{ row: 5, column: 'Giá bán', message: 'Nhập giá bán' }],
+          createdCategories: ['Bánh kẹo'],
+        });
+      }
+      if (!base) throw new Error('chưa có backend giả');
+      return base(input, init);
+    });
+  });
+
+  it('Chủ cửa hàng nhập file 3 dòng đúng, 1 dòng sai: 3 Sản phẩm mới hiện đầu bảng, hộp thoại báo dòng sai', async () => {
+    renderPage();
+    await within(table()).findByText('Sản phẩm 02');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nhập từ file' }));
+    await screen.findByRole('dialog');
+    const input = dialog().querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error('không có ô chọn file');
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array(64)], 'san-pham.xlsx')] } });
+    await within(dialog()).findByText('san-pham.xlsx');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Xem trước' }));
+    const saveImport = await within(dialog()).findByRole('button', { name: 'Lưu 3 sản phẩm' });
+    expect(saveCalls()).toHaveLength(0);
+    fireEvent.click(saveImport);
+
+    expect(await within(dialog()).findByText('Đã nhập 3 Sản phẩm. 1 dòng lỗi chưa được nhập.')).toBeTruthy();
+    const errorRow = within(within(dialog()).getByRole('table')).getAllByRole('row')[1];
+    expect(within(errorRow).getAllByRole('cell').map((cell) => cell.textContent)).toEqual([
+      '5',
+      'Giá bán',
+      'Nhập giá bán',
+    ]);
+
+    // Bảng phía sau: bỏ bộ lọc, mới nhất trước, trang đầu, nên 3 Sản phẩm vừa nhập đứng đầu
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Đóng' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() =>
+      expect(rowNames()).toEqual(['Kẹo dẻo', 'Bánh quy Cosy', 'Nước suối Aquafina', 'Sản phẩm 02', 'Sản phẩm 01']),
+    );
+    expect(lastProductQuery()).toEqual({ page: '0', size: '20', sort: 'createdAt,desc' });
+  });
+
+  it('không nhập được dòng nào: bảng giữ nguyên bộ lọc, thứ tự sắp và trang đang xem', async () => {
+    importNothing = true;
+    products = Array.from({ length: 25 }, (_, i) => product(25 - i));
+    const { router } = renderPage('OWNER', `${PAGE_PATH}?status=ACTIVE`);
+    await within(table()).findByText('Sản phẩm 01');
+    fireEvent.click(within(table()).getByRole('columnheader', { name: /Giá bán/ }));
+    await waitFor(() => expect(lastProductQuery().sort).toBe('salePrice,asc'));
+    fireEvent.click(within(screen.getByTitle('2')).getByRole('button'));
+    expect(await within(table()).findByText('Sản phẩm 21')).toBeTruthy();
+    const before = lastProductQuery();
+    expect(before).toEqual({ status: 'ACTIVE', page: '1', size: '20', sort: 'salePrice,asc' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Nhập từ file' }));
+    await screen.findByRole('dialog');
+    const input = dialog().querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error('không có ô chọn file');
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array(64)], 'san-pham.xlsx')] } });
+    await within(dialog()).findByText('san-pham.xlsx');
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Xem trước' }));
+    const saveImport = await within(dialog()).findByRole<HTMLButtonElement>('button', { name: 'Lưu 0 sản phẩm' });
+    expect(saveImport.disabled).toBe(true);
+    expect(saveCalls()).toHaveLength(0);
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Quay lại' }));
+    fireEvent.click(await within(dialog()).findByRole('button', { name: 'Hủy' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+
+    expect(lastProductQuery()).toEqual(before);
+    expect(router.state.location.search).toBe('?status=ACTIVE');
+    expect(rowNames()[0]).toBe('Sản phẩm 21');
+  });
+
+  it('Nhân viên không thấy nút "Nhập từ file"', async () => {
+    renderPage('STAFF');
+    await within(table()).findByText('Sản phẩm 01');
+    expect(screen.queryByRole('button', { name: 'Nhập từ file' })).toBeNull();
   });
 });

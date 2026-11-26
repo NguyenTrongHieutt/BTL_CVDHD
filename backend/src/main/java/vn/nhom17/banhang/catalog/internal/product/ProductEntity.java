@@ -41,7 +41,10 @@ public class ProductEntity {
 
     private String description;
 
-    /** {@code false} khi chỉ có Biến thể mặc định; nhiều Biến thể là SP-07 (GĐ3). */
+    /**
+     * {@code false} khi chỉ có Biến thể mặc định (không nhãn); {@code true} khi có nhiều Biến thể (FR-7, SP-07), mỗi
+     * Biến thể có nhãn. Chỉ đổi từ {@code false} sang {@code true} (thêm Biến thể), không đổi ngược.
+     */
     @Column(name = "has_variants", nullable = false)
     private boolean hasVariants;
 
@@ -63,12 +66,18 @@ public class ProductEntity {
 
     /** Sản phẩm mới đang kinh doanh, chỉ có Biến thể mặc định; mọi mốc giờ là {@code now} (lấy từ {@code Clock}). */
     ProductEntity(UUID id, String name, UUID categoryId, String unit, String description, Instant now) {
+        this(id, name, categoryId, unit, description, false, now);
+    }
+
+    /** Sản phẩm mới đang kinh doanh; {@code hasVariants}: tạo kèm nhiều Biến thể (SP-07). */
+    ProductEntity(UUID id, String name, UUID categoryId, String unit, String description, boolean hasVariants,
+                  Instant now) {
         this.id = id;
         this.name = name;
         this.categoryId = categoryId;
         this.unit = unit;
         this.description = description;
-        this.hasVariants = false;
+        this.hasVariants = hasVariants;
         this.status = ACTIVE;
         this.createdAt = now;
         this.updatedAt = now;

@@ -173,11 +173,14 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/sales/orders/{id}/returns", U, A, A),
                 row("GET", "/api/v1/sales/customers/{id}/purchase-summary", U, A, A),
                 row("GET", "/api/v1/sales/customers/{id}/loyalty", U, A, A),
+                // Sổ kho và chứng từ nguồn (KHO-07): chỉ Chủ cửa hàng.
+                row("GET", "/api/v1/sales/ledger-documents/{type}/{id}", U, F, A),
                 // inventory: Nhân viên chỉ xem Tồn kho (DTO không có Giá vốn) và cảnh báo tồn thấp
                 row("GET", "/api/v1/inventory/stock", U, A, A),
                 row("GET", "/api/v1/inventory/stock/{id}", U, A, A),
                 row("GET", "/api/v1/inventory/low-stock", U, A, A),
                 row("GET", "/api/v1/inventory/ledger", U, F, A),
+                row("GET", "/api/v1/inventory/ledger/documents/{type}/{id}", U, F, A),
                 row("POST", "/api/v1/inventory/purchase-receipts", U, F, A),
                 row("GET", "/api/v1/inventory/purchase-receipts/import-template", U, F, A),
                 row("POST", "/api/v1/inventory/purchase-receipts/import/preview", U, F, A),

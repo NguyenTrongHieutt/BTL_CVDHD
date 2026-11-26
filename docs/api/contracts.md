@@ -162,6 +162,12 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 
 **Màn KHO-07 (Hiếu, `features/catalog`, route `/catalog/stock-ledger`, chỉ Chủ cửa hàng) dùng:** `GET /api/v1/inventory/ledger` với `variantId`, `documentType`, `actorId` (khi bật bộ lọc người thực hiện), `fromDate`, `toDate`, `page`, `size` (tham số trống không gửi), khóa TanStack Query `['inventory', 'ledger', params]`: mutation nào làm đổi Tồn kho mà invalidate `['inventory']` (hoặc `['inventory', 'ledger']`) thì bảng tự tải lại; mở lại màn cũng luôn tải lại (`staleTime: 0`). Ô chọn Sản phẩm dùng `GET /api/v1/catalog/products?q=` (không gửi `status`, nên có cả hàng đã ngừng kinh doanh) và `GET /api/v1/catalog/products/{id}` (khi mở từ link có `productId`). Khoảng ngày kiểm ở client như `StockLedgerQuery` (`fromDate ≤ toDate`, `toDate − fromDate` ≤ 365, tức tối đa 366 ngày tính cả hai đầu), sai thì không gửi; lỗi `400` có `errors[]` trên `fromDate`/`toDate` hiện dưới ô ngày. Bộ lọc nằm trên URL: `?type=<documentType>&productId=&variantId=&actorId=&from=<yyyy-MM-dd>&to=<yyyy-MM-dd>` (`actorId` chỉ dùng khi bật bộ lọc); màn khác muốn mở sẵn lịch sử của một Biến thể chỉ cần link `/catalog/stock-ledger?variantId=<id>` (tên Sản phẩm lấy từ dòng sổ kho).
 
+**Mở chứng từ gốc từ mã trong sổ kho.** URL giữ bộ lọc và thêm `sourceType`, `sourceId`. Hộp thoại đọc chi tiết chỉ cho Chủ cửa hàng và trả `404` nếu chứng từ nằm ngoài cửa hàng hiện tại hoặc không có. Các API trả `documentType`, `documentId`, `recordedAt`, `lines` và thông tin theo loại chứng từ như số phiếu, người thực hiện, tổng tiền hoặc lý do.
+
+- `GET /api/v1/inventory/ledger/documents/{type}/{id}` đọc Phiếu nhập (`PURCHASE_RECEIPT`), Phiếu kiểm kho (`STOCKTAKE`) hoặc ghi nhận Tồn đầu kỳ (`OPENING`). Tồn đầu kỳ dùng mã Biến thể làm mã chứng từ.
+- `GET /api/v1/sales/ledger-documents/{type}/{id}` đọc Đơn bán (`SALE`), Hủy đơn (`SALE_CANCEL`) hoặc Phiếu trả (`SALE_RETURN`). Hai loại đầu dùng mã định danh đơn. Phiếu trả dùng mã định danh lượt trả và trả kèm `orderId`, `relatedOrderCode` để mở đơn gốc.
+- `lines` trả toàn bộ dòng của chứng từ gốc, kể cả khi sổ kho đang lọc một Biến thể. Các giá trị tiền dùng đồng. Phiếu kiểm kho có số lượng đếm thực tế (`quantity`), tồn hệ thống (`systemQuantity`) và chênh lệch (`delta`).
+
 **Tích hợp KHO-07:**
 
 - Bộ lọc người thực hiện bật mặc định, danh sách lấy từ `GET /api/v1/platform/users`. Chỉ đặt `VITE_LEDGER_ACTOR_FILTER=false` khi cần build web chạy với backend cũ chưa hỗ trợ `actorId`.

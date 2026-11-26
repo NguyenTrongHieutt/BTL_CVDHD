@@ -47,7 +47,7 @@ export const STOCK_DOCUMENT_TYPE_INFO: Readonly<Record<StockDocumentType, Docume
 
 export const STOCK_DOCUMENT_TYPES = Object.keys(STOCK_DOCUMENT_TYPE_INFO) as StockDocumentType[];
 
-function isStockDocumentType(value: string): value is StockDocumentType {
+export function isStockDocumentType(value: string): value is StockDocumentType {
   return Object.hasOwn(STOCK_DOCUMENT_TYPE_INFO, value);
 }
 

@@ -69,6 +69,8 @@ class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/products/import-template").hasRole(OWNER)
                         .requestMatchers(HttpMethod.GET, "/api/v1/catalog/**").hasAnyRole(OWNER, STAFF)
                         .requestMatchers("/api/v1/catalog/**").hasRole(OWNER)
+                        // Chứng từ nguồn từ Sổ kho (KHO-07): chỉ Chủ cửa hàng.
+                        .requestMatchers("/api/v1/sales/ledger-documents/**").hasRole(OWNER)
                         // sales: bán hàng, trả hàng, tra cứu cả hai; quy tắc hủy đơn của Nhân viên kiểm trong sales (AD-16)
                         .requestMatchers("/api/v1/sales/**").hasAnyRole(OWNER, STAFF)
                         // inventory: Nhân viên chỉ xem Tồn kho (DTO không có Giá vốn) và cảnh báo tồn thấp

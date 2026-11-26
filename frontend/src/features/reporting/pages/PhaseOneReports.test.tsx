@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ProductRankingPage } from './ProductRankingPage';
+import { ProfitReportPage } from './ProfitReportPage';
 import { RevenueReportPage } from './RevenueReportPage';
 import { StockReportPage } from './StockReportPage';
 
@@ -61,6 +62,26 @@ it('renders best and slow product rankings returned by Q4', async () => {
   expect(screen.getByText('Trà thảo mộc')).toBeTruthy();
   expect(screen.getByText('Bán chạy nhất')).toBeTruthy();
   expect(screen.getByText('Bán chậm nhất')).toBeTruthy();
+});
+
+it('shows the gross profit totals and a negative day after a return', async () => {
+  setupPage(<ProfitReportPage />, (url) => {
+    expect(url).toMatch(/\/api\/v1\/reporting\/q\/Q3\?fromDate=\d{4}-\d\d-\d\d&toDate=\d{4}-\d\d-\d\d/);
+    return Response.json({
+      queryId: 'Q3', range: { fromDate: '2026-11-01', toDate: '2026-11-02' },
+      params: {}, columns: [], rows: [
+        { date: '2026-11-01', revenue: 100_000, costOfGoodsSold: 60_000, grossProfit: 40_000 },
+        { date: '2026-11-02', revenue: -50_000, costOfGoodsSold: -30_000, grossProfit: -20_000 },
+      ],
+      summary: { revenue: 50_000, costOfGoodsSold: 30_000, grossProfit: 20_000 },
+    });
+  });
+
+  expect(await screen.findByRole('heading', { name: 'Báo cáo lợi nhuận' })).toBeTruthy();
+  const table = await screen.findByRole('table');
+  const returnDay = within(table).getByRole('row', { name: /02\/11\/2026/ });
+  expect(within(returnDay).getByText(/-20\.000/)).toBeTruthy();
+  expect(screen.getAllByText(/20\.000/)).toHaveLength(2);
 });
 
 it('shows inventory valuation and variant rows returned by Q5', async () => {

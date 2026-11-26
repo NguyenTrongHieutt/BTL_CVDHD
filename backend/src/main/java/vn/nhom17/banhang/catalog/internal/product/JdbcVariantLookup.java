@@ -20,10 +20,10 @@ import vn.nhom17.banhang.platform.PageResponse;
 import vn.nhom17.banhang.platform.ProblemException;
 
 /**
- * Hiện thực {@link VariantLookup} cho {@code sales} (AD-2, AD-8; SP-05). Dùng chung truy vấn của {@link ProductSearch}
- * với phạm vi {@link ProductSearch.Scope#SELLABLE}: chỉ Biến thể {@code ACTIVE}, chưa xóa mềm, của Sản phẩm
- * {@code ACTIVE}, chưa xóa mềm, của Cửa hàng hiện tại ({@code store_id} và RLS). Không có Giá vốn (AD-15); không đọc
- * bảng {@code inventory}.
+ * Hiện thực {@link VariantLookup} cho {@code sales} và {@code inventory} (AD-2, AD-8; SP-05). Dùng chung truy vấn của
+ * {@link ProductSearch}: phạm vi {@link ProductSearch.Scope#SELLABLE} chỉ gồm hàng còn bán; phạm vi
+ * {@link ProductSearch.Scope#INVENTORY} gồm cả hàng đã ngừng kinh doanh. Chỉ trả Sản phẩm và Biến thể chưa xóa mềm
+ * của Cửa hàng hiện tại ({@code store_id} và RLS). Không có Giá vốn (AD-15); không đọc bảng {@code inventory}.
  *
  * <p>Mỗi phương thức chạy trong transaction chỉ đọc, hoặc tham gia transaction của bên gọi (ví dụ lúc tạo Đơn hàng),
  * nên dùng được cả dưới {@code TenantScope.runAs}.
@@ -77,6 +77,16 @@ class JdbcVariantLookup implements VariantLookup {
     @Override
     @Transactional(readOnly = true)
     public List<SellableVariant> getForSale(Collection<UUID> variantIds) {
+        return getByIds(variantIds, ProductSearch.Scope.SELLABLE);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<SellableVariant> getForInventory(Collection<UUID> variantIds) {
+        return getByIds(variantIds, ProductSearch.Scope.INVENTORY);
+    }
+
+    private List<SellableVariant> getByIds(Collection<UUID> variantIds, ProductSearch.Scope scope) {
         // Không có ngữ cảnh Cửa hàng thì lỗi ngay, kể cả khi danh sách rỗng
         UUID storeId = context.storeId();
         if (variantIds == null || variantIds.isEmpty()) {
@@ -87,8 +97,7 @@ class JdbcVariantLookup implements VariantLookup {
         if (wanted.isEmpty()) {
             return List.of();
         }
-        ProductSearch.Sql matching = ProductSearch.from(ProductSearch.Scope.SELLABLE, storeId,
-                ProductSearch.Criteria.NONE);
+        ProductSearch.Sql matching = ProductSearch.from(scope, storeId, ProductSearch.Criteria.NONE);
         List<Object> args = matching.args();
         List<SellableVariant> found = jdbc.query(COLUMNS + matching.text() + " and v.id = any(?)\n", ps -> {
             for (int i = 0; i < args.size(); i++) {

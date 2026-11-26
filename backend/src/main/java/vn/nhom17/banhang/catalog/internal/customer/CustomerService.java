@@ -114,7 +114,7 @@ class CustomerService {
         List<Object> args = new ArrayList<>(List.of(context.storeId()));
         String query = SearchText.query(q);
         if (query != null) {
-            where.append(" and (").append(SearchText.containsFolded("c.name"));
+            where.append(" and (").append(SearchText.containsPrecomputed("c.search_name"));
             args.add(query);
             String digits = CustomerPhones.searchDigits(query);
             if (digits != null) {

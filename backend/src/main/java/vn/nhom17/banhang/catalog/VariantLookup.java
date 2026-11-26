@@ -6,9 +6,10 @@ import java.util.UUID;
 import vn.nhom17.banhang.platform.PageResponse;
 
 /**
- * Thông tin bán hàng của Biến thể cho sales (AD-2, AD-8). Hiện thực ở catalog (Hiếu, SP-05). Chỉ trả hàng còn bán:
- * Biến thể {@code ACTIVE}, chưa xóa mềm, của Sản phẩm {@code ACTIVE}, chưa xóa mềm, của Cửa hàng hiện tại. Không có
- * Giá vốn; không đọc Tồn kho (lọc theo Tồn kho là việc của sales). Gọi trong hoặc ngoài transaction đều được.
+ * Thông tin Biến thể cho sales và inventory (AD-2, AD-8). Hiện thực ở catalog (Hiếu, SP-05). Các phương thức cho sales
+ * chỉ trả hàng còn bán: Biến thể {@code ACTIVE}, chưa xóa mềm, của Sản phẩm {@code ACTIVE}, chưa xóa mềm, của Cửa hàng
+ * hiện tại. Các phương thức cho inventory có thể gồm hàng đã ngừng kinh doanh. Không có Giá vốn; không đọc Tồn kho
+ * (lọc theo Tồn kho là việc của sales). Gọi trong hoặc ngoài transaction đều được.
  *
  * <p>Cửa hàng hiện tại lấy từ {@code CurrentContext}: JWT của request, hoặc {@code TenantScope.runAs} (seed, test).
  * Không có ngữ cảnh nào (ngoài request, không có {@code TenantScope}): mọi phương thức ném
@@ -30,6 +31,15 @@ public interface VariantLookup {
 
     /** Biến thể chưa xóa mềm khớp bộ lọc của màn Tồn kho. */
     List<SellableVariant> findForInventory(String query, UUID categoryId, boolean includeInactive);
+
+    /**
+     * Biến thể trong {@code variantIds} chưa xóa mềm của Cửa hàng hiện tại, gồm cả Sản phẩm và Biến thể đã ngừng
+     * kinh doanh. Giữ thứ tự id đầu vào, bỏ id trùng, {@code null}, id lạ và id của Cửa hàng khác; bỏ Biến thể hoặc
+     * Sản phẩm đã xóa mềm.
+     *
+     * @throws IllegalStateException không có ngữ cảnh Cửa hàng, kể cả khi {@code variantIds} rỗng
+     */
+    List<SellableVariant> getForInventory(Collection<UUID> variantIds);
 
     /**
      * Tìm kiếm thường (FR-5) trên Biến thể còn bán, cùng quy tắc với {@code GET /api/v1/catalog/products}:

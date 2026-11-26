@@ -185,24 +185,28 @@ class ReportingQueryController {
                       AND r.created_at >= :from AND r.created_at < :until
                 ), events AS (
                     SELECT (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS date,
-                           o.total_amount AS revenue, 0::bigint AS cost_of_goods_sold
+                           sum(o.total_amount) AS revenue, 0::bigint AS cost_of_goods_sold
                     FROM sales o
+                    GROUP BY (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
                     UNION ALL
                     SELECT (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
-                           -r.refund_amount, 0::bigint
+                           sum(-r.refund_amount), 0::bigint
                     FROM returns r
+                    GROUP BY (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
                     UNION ALL
                     SELECT (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
-                           0::bigint, l.quantity::bigint * l.unit_cost
+                           0::bigint, sum(l.quantity::bigint * l.unit_cost)
                     FROM sales o
                     JOIN app.sales_order_line l ON l.order_id = o.id AND l.store_id = o.store_id
+                    GROUP BY (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
                     UNION ALL
                     SELECT (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
-                           0::bigint, -(rl.quantity::bigint * ol.unit_cost)
+                           0::bigint, sum(-(rl.quantity::bigint * ol.unit_cost))
                     FROM returns r
                     JOIN app.sales_return_line rl ON rl.return_id = r.id AND rl.store_id = r.store_id
                     JOIN app.sales_order_line ol ON ol.id = rl.order_line_id AND ol.store_id = rl.store_id
                                                AND ol.order_id = r.order_id AND ol.variant_id = rl.variant_id
+                    GROUP BY (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
                 )
                 SELECT c.date,
                        coalesce(sum(e.revenue), 0)::bigint AS revenue,
@@ -262,13 +266,21 @@ class ReportingQueryController {
                     JOIN app.sales_return_line l ON l.return_id = r.id AND l.store_id = r.store_id
                     WHERE r.store_id = :storeId AND o.status <> 'CANCELLED'
                       AND r.created_at >= :from AND r.created_at < :until
+                ), variant_totals AS (
+                    SELECT variant_id,
+                           sum(sold_quantity) AS sold_quantity,
+                           sum(sales_amount) AS sales_amount,
+                           sum(returned_quantity) AS returned_quantity,
+                           sum(refund_amount) AS refund_amount
+                    FROM movements
+                    GROUP BY variant_id
                 ), totals AS (
                     SELECT v.product_id,
                            (sum(m.sold_quantity) - sum(m.returned_quantity))::bigint AS quantity,
                            (sum(m.sales_amount) - sum(m.refund_amount))::bigint AS revenue,
                            sum(m.sold_quantity)::bigint AS sold_quantity,
                            sum(m.returned_quantity)::bigint AS returned_quantity
-                    FROM movements m
+                    FROM variant_totals m
                     JOIN app.product_variant v ON v.id = m.variant_id AND v.store_id = :storeId
                     GROUP BY v.product_id
                 )

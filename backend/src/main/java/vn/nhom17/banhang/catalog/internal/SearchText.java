@@ -52,8 +52,17 @@ public final class SearchText {
      * {@code \ % _}, để ký tự mà {@code unaccent} sinh ra cũng được thoát. {@code column} {@code null} thì không khớp.
      */
     public static String containsFolded(String column) {
-        return MATCH_FOLD.formatted(column)
-                + " like ('%' || replace(replace(replace(" + MATCH_FOLD.formatted("?")
+        return containsPrecomputed(MATCH_FOLD.formatted(column));
+    }
+
+    /**
+     * Như {@link #containsFolded}, nhưng {@code column} đã lưu kết quả
+     * {@code regexp_replace(lower(app.f_unaccent(name)), '\s+', ' ', 'g')} bằng cột sinh {@code STORED}.
+     * Không chuẩn hóa lại từng dòng; phía tham số vẫn bỏ dấu, gộp khoảng trắng rồi thoát ký tự như trước.
+     * Cột sinh giữ {@code null} khi tên chưa có, nên vẫn không khớp.
+     */
+    public static String containsPrecomputed(String column) {
+        return column + " like ('%' || replace(replace(replace(" + MATCH_FOLD.formatted("?")
                 + ", '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '%') escape '\\'";
     }
 

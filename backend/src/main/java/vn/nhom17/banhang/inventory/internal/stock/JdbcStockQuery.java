@@ -34,29 +34,38 @@ public class JdbcStockQuery implements StockQuery {
             return new PageResponse<>(List.of(), 0, page, size);
         }
 
-        String where = """
+        UUID storeId = context.storeId();
+        String ids = String.join(",", variantIds.stream().map(UUID::toString).toList());
+        // Khi không lấy hàng ngừng kinh doanh, catalog đã giới hạn variantIds
+        // trong nhóm đang bán. Stock vẫn phải đang hoạt động.
+        String where = includeInactive ? """
                 FROM (
                     SELECT variant_id, quantity, min_quantity, avg_unit_cost, store_id,
                            is_active AND variant_id = ANY(string_to_array(?, ',')::uuid[]) AS is_active
                     FROM app.stock
                 ) stock
                 WHERE store_id = ? AND variant_id = ANY(string_to_array(?, ',')::uuid[])
+                """ : """
+                FROM app.stock
+                WHERE store_id = ? AND variant_id = ANY(string_to_array(?, ',')::uuid[]) AND is_active
                 """;
-        if (!includeInactive) {
-            where += " AND is_active";
+        List<Object> args = new ArrayList<>();
+        if (includeInactive) {
+            args.add(String.join(",", activeVariantIds.stream().map(UUID::toString).toList()));
         }
+        args.add(storeId);
+        args.add(ids);
         if (belowMin != null) {
             where += belowMin ? " AND (is_active AND quantity < min_quantity)"
                              : " AND NOT (is_active AND quantity < min_quantity)";
         }
-        UUID storeId = context.storeId();
-        String ids = String.join(",", variantIds.stream().map(UUID::toString).toList());
-        String activeIds = String.join(",", activeVariantIds.stream().map(UUID::toString).toList());
-        Long total = jdbc.queryForObject("SELECT count(*) " + where, Long.class, activeIds, storeId, ids);
+        Long total = jdbc.queryForObject("SELECT count(*) " + where, Long.class, args.toArray());
+        args.add(size);
+        args.add((long) page * size);
         List<StockView> items = jdbc.query(
                 "SELECT variant_id, quantity, min_quantity, avg_unit_cost, is_active " + where
                         + " ORDER BY variant_id LIMIT ? OFFSET ?",
-                STOCK_ROW_MAPPER, activeIds, storeId, ids, size, (long) page * size);
+                STOCK_ROW_MAPPER, args.toArray());
         return new PageResponse<>(items, total, page, size);
     }
 

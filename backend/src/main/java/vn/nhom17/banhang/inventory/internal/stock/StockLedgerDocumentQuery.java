@@ -113,8 +113,7 @@ public class StockLedgerDocumentQuery {
 
     private List<Line> enrich(List<LineRow> rows) {
         var variantIds = rows.stream().map(LineRow::variantId).collect(Collectors.toSet());
-        Map<UUID, SellableVariant> byId = variants.findForInventory(null, null, true).stream()
-                .filter(variant -> variantIds.contains(variant.variantId()))
+        Map<UUID, SellableVariant> byId = variants.getForInventory(variantIds).stream()
                 .collect(Collectors.toMap(SellableVariant::variantId, Function.identity()));
         return rows.stream().map(row -> {
             SellableVariant variant = byId.get(row.variantId());

@@ -1,6 +1,11 @@
 package vn.nhom17.banhang.inventory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -11,9 +16,11 @@ import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +29,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -30,6 +38,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import vn.nhom17.banhang.TestcontainersConfiguration;
+import vn.nhom17.banhang.catalog.SellableVariant;
+import vn.nhom17.banhang.catalog.VariantLookup;
 import vn.nhom17.banhang.platform.TenantScope;
 
 /**
@@ -50,6 +60,7 @@ class StockLedgerContractTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager txManager;
     @Autowired JsonMapper json;
+    @MockitoSpyBean VariantLookup variants;
 
     record Owner(Cookie cookie, UUID storeId, UUID userId) {
     }
@@ -100,6 +111,78 @@ class StockLedgerContractTest {
         // Biến thể của Cửa hàng khác: không ra dòng nào
         Owner other = newStore();
         assertThat(ledger(other, "variantId", milk.toString()).get("total").asLong()).isZero();
+    }
+
+    @Test
+    void metadataLookupIsRestrictedToTheRequestedPage() throws Exception {
+        Owner owner = newStore();
+        UUID milk = createWithOpening(owner, "Sữa tươi", 24, 11000);
+        UUID water = createWithOpening(owner, "Nước suối", 10, 3000);
+        UUID tea = createWithOpening(owner, "Trà", 15, 4000);
+        moveEntry(owner, milk, OffsetDateTime.parse("2026-11-15T09:00:00+07:00"));
+        moveEntry(owner, water, OffsetDateTime.parse("2026-11-15T10:00:00+07:00"));
+        moveEntry(owner, tea, OffsetDateTime.parse("2026-11-15T11:00:00+07:00"));
+        clearInvocations(variants);
+
+        JsonNode first = ledger(owner, "size", "2");
+        assertThat(first.get("total").asLong()).isEqualTo(3);
+        assertThat(variantIds(first)).containsExactly(tea.toString(), water.toString());
+        assertThat(first.get("items").get(0).get("productName").asString()).isEqualTo("Trà");
+        verify(variants).getForInventory(Set.of(tea, water));
+        verify(variants, never()).findForInventory(null, null, true);
+
+        clearInvocations(variants);
+        JsonNode pastEnd = ledger(owner, "size", "2", "page", "2");
+        assertThat(pastEnd.get("total").asLong()).isEqualTo(3);
+        assertThat(variantIds(pastEnd)).isEmpty();
+        verifyNoInteractions(variants);
+    }
+
+    @Test
+    void inventoryMetadataIncludesInactiveButSkipsDeletedAndForeignVariants() throws Exception {
+        Owner owner = newStore();
+        UUID active = createWithOpening(owner, "Hàng đang bán", 1, 100);
+        UUID inactiveProduct = createWithOpening(owner, "Sản phẩm đã ngừng", 1, 100);
+        UUID inactiveVariant = createWithOpening(owner, "Biến thể đã ngừng", 1, 100);
+        UUID deletedProduct = createWithOpening(owner, "Sản phẩm đã xóa", 1, 100);
+        UUID deletedVariant = createWithOpening(owner, "Biến thể đã xóa", 1, 100);
+        Owner other = newStore();
+        UUID foreign = createWithOpening(other, "Hàng cửa hàng khác", 1, 100);
+        TenantScope.runAs(owner.storeId(), () -> new TransactionTemplate(txManager).executeWithoutResult(tx -> {
+            jdbc.update("""
+                    update app.product set status = 'INACTIVE'
+                    where id = (select product_id from app.product_variant where id = ?)
+                    """, inactiveProduct);
+            jdbc.update("update app.product_variant set status = 'INACTIVE' where id = ?", inactiveVariant);
+            jdbc.update("""
+                    update app.product set deleted_at = changed_at
+                    where id = (select product_id from app.product_variant where id = ?)
+                    """, deletedProduct);
+            jdbc.update("update app.product_variant set deleted_at = updated_at where id = ?", deletedVariant);
+        }));
+
+        List<SellableVariant> found = TenantScope.runAs(owner.storeId(), () -> variants.getForInventory(Arrays.asList(
+                null, inactiveVariant, foreign, deletedProduct, UUID.randomUUID(), active, inactiveProduct,
+                deletedVariant, inactiveVariant)));
+        assertThat(found).extracting(SellableVariant::variantId)
+                .containsExactly(inactiveVariant, active, inactiveProduct);
+        assertThat(TenantScope.runAs(owner.storeId(), () -> variants.getForInventory(List.of()))).isEmpty();
+        assertThat(TenantScope.runAs(owner.storeId(), () -> variants.getForInventory(null))).isEmpty();
+        assertThat(TenantScope.runAs(owner.storeId(), () -> variants.getForInventory(Arrays.asList((UUID) null))))
+                .isEmpty();
+        assertThatThrownBy(() -> variants.getForInventory(List.of())).isInstanceOf(IllegalStateException.class);
+
+        for (var expected : Map.of(inactiveProduct, "Sản phẩm đã ngừng", inactiveVariant, "Biến thể đã ngừng")
+                .entrySet()) {
+            JsonNode entry = ledger(owner, "variantId", expected.getKey().toString()).get("items").get(0);
+            assertThat(entry.get("productName").asString()).isEqualTo(expected.getValue());
+        }
+        for (UUID deleted : List.of(deletedProduct, deletedVariant)) {
+            JsonNode entry = ledger(owner, "variantId", deleted.toString()).get("items").get(0);
+            assertThat(entry.get("productName").isNull()).isTrue();
+            assertThat(entry.get("variantName").isNull()).isTrue();
+        }
+        assertThat(ledger(owner, "variantId", foreign.toString()).get("total").asLong()).isZero();
     }
 
     @Test

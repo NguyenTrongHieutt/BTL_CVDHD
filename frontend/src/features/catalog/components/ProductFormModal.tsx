@@ -31,7 +31,7 @@
  * của backend (sai kiểu, quá cỡ, lố giới hạn máy chủ) hiện dưới ô Ảnh.
  */
 import { DeleteOutlined, UploadOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Checkbox, Col, Flex, Form, Input, Modal, Row, Select, Typography, Upload } from 'antd';
+import { Alert, App, Button, Checkbox, Col, Flex, Form, Input, Modal, Row, Upload } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { isApiError } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components';
@@ -43,7 +43,6 @@ import type {
   UpdateProductRequest,
 } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
-import { useCategoryOptions } from '../api/categories';
 import {
   DEFAULT_UNIT,
   IDEMPOTENCY_KEY_REUSE,
@@ -72,7 +71,8 @@ import {
   textRules,
   wholeNumber,
 } from './productFormRules';
-import { foldText, groupThousands, normalizeText, parseWholeNumber } from './textUtils';
+import { groupThousands, normalizeText, parseWholeNumber } from './textUtils';
+import { ProductCategorySelect } from './ProductCategorySelect';
 import { useCatalogDialog } from './useCatalogDialog';
 import { emptyAttributeNames, emptyVariantRow, variantInputsOf, variantRowsProblems } from './variantRows';
 import type { VariantRowValues } from './variantRows';
@@ -325,7 +325,6 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
   const mutation = editing.mode === 'create' ? create : update;
   const uploadImage = useUploadProductImage();
   const removeImage = useRemoveProductImage();
-  const categories = useCategoryOptions();
   // Đã gửi PUT trong hộp thoại này: máy chủ có thể đã khác dữ liệu lúc mở (mất phản hồi sau khi đã lưu), nên từ đó
   // luôn gửi, không so với dữ liệu lúc mở để bỏ qua.
   const attempted = useRef(false);
@@ -527,19 +526,6 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
     );
   };
 
-  const categoryOptions = (categories.data?.items ?? []).map((c) => ({ value: c.id, label: c.name }));
-  // Danh mục hiện tại của Sản phẩm đang sửa luôn có tên để hiện, kể cả khi danh sách chưa tải xong hay tải lỗi
-  if (
-    editing.mode === 'edit' &&
-    editing.product.categoryId !== null &&
-    !categoryOptions.some((option) => option.value === editing.product.categoryId)
-  ) {
-    categoryOptions.push({
-      value: editing.product.categoryId,
-      label: editing.product.categoryName ?? 'Danh mục hiện tại',
-    });
-  }
-
   const numberInputProps = { inputMode: 'numeric' as const, autoComplete: 'off' };
 
   return (
@@ -594,28 +580,11 @@ export function ProductFormModal({ editing, onClose, onCreated }: ProductFormMod
         </Form.Item>
         <Row gutter={16}>
           <Col xs={24} sm={16}>
-            <Form.Item
-              name="categoryId"
-              label="Danh mục"
-              extra={categories.isError ? (
-                <Flex wrap align="center" gap={8}>
-                  <Typography.Text role="alert" type="danger">Không tải được danh sách Danh mục.</Typography.Text>
-                  <Button size="small" loading={categories.isFetching} onClick={() => void categories.refetch()}>
-                    Tải lại Danh mục
-                  </Button>
-                </Flex>
-              ) : undefined}
-              validateStatus={categories.isError ? 'warning' : undefined}
-            >
-              <Select
-                allowClear
+            <Form.Item name="categoryId" label="Danh mục">
+              <ProductCategorySelect
+                ariaLabel="Danh mục"
                 placeholder="Không chọn"
-                loading={categories.isLoading}
-                options={categoryOptions}
-                showSearch={{
-                  filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
-                }}
-                notFoundContent={categories.isError ? 'Danh mục chưa tải được' : 'Chưa có Danh mục nào'}
+                currentName={editing.mode === 'edit' ? editing.product.categoryName : undefined}
                 // Ô không có luật kiểm, nên lỗi của backend (Danh mục không tồn tại) phải tự xóa khi chọn lại
                 onChange={() => form.setFields([{ name: 'categoryId', errors: [] }])}
               />

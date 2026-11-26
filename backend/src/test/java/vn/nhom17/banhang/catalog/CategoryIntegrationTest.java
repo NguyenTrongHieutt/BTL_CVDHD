@@ -322,6 +322,46 @@ class CategoryIntegrationTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(129));
     }
 
+    @Test
+    void categoryOptionReturnsOnlyTheLabelBeyondTheFirstPageForBothRoles() throws Exception {
+        Owner owner = newStore();
+        asStore(owner.storeId(), () -> jdbc.update("""
+                insert into app.category (store_id, name)
+                select ?, 'Aaa ' || n from generate_series(1, 125) n
+                """, owner.storeId()));
+        UUID selected = createOk(owner, "Đồ uống đã chọn");
+        insertProduct(owner.storeId(), selected, "ACTIVE", false);
+        list(owner, "?size=100")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items.length()").value(100))
+                .andExpect(jsonPath("$.items[?(@.id == '" + selected + "')]").isEmpty());
+
+        for (Cookie caller : List.of(owner.cookie(), newStaff(owner))) {
+            String body = mvc.perform(get(CATEGORIES + "/" + selected + "/option").cookie(caller))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.id").value(selected.toString()))
+                    .andExpect(jsonPath("$.name").value("Đồ uống đã chọn"))
+                    .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+            assertThat(json.readTree(body).size()).isEqualTo(2);
+        }
+    }
+
+    @Test
+    void categoryOptionHidesOtherStoresAndMissingOrDeletedCategories() throws Exception {
+        Owner owner = newStore();
+        UUID otherStore = createOk(newStore(), "Danh mục cửa hàng khác");
+        UUID deleted = createOk(owner, "Danh mục đã xóa");
+        send(owner, delete(CATEGORIES + "/" + deleted), null).andExpect(status().isNoContent());
+
+        for (Cookie caller : List.of(owner.cookie(), newStaff(owner))) {
+            for (UUID hidden : List.of(otherStore, deleted, UUID.randomUUID())) {
+                mvc.perform(get(CATEGORIES + "/" + hidden + "/option").cookie(caller))
+                        .andExpect(status().isNotFound())
+                        .andExpect(jsonPath("$.type").value("/errors/common/not-found"));
+            }
+        }
+    }
+
     // --- Tách dữ liệu giữa Cửa hàng và phân quyền --------------------------------------------------------------
 
     @Test
@@ -382,6 +422,14 @@ class CategoryIntegrationTest {
                         .content("{\"loginKey\":\"" + loginKey + "\",\"password\":\"demo1234\"}"))
                 .andExpect(status().isOk())
                 .andReturn().getResponse().getCookie("access_token");
+    }
+
+    Cookie newStaff(Owner owner) throws Exception {
+        String loginKey = "nv.danhmuc." + UUID.randomUUID().toString().replace("-", "");
+        send(owner, post("/api/v1/platform/users"), json.writeValueAsString(Map.of(
+                "loginKey", loginKey, "displayName", "Nhân viên thử Danh mục", "password", "demo1234")))
+                .andExpect(status().isCreated());
+        return login(loginKey);
     }
 
     String nameBody(String name) {

@@ -248,11 +248,22 @@ function backend() {
   fetchMock.mockImplementation(async (input, init) => {
     const url = new URL(String(input), 'http://localhost');
     const method = init?.method ?? 'GET';
-    if (url.pathname === CATEGORIES_PATH && method === 'GET') {
+    const categoryOption = url.pathname.startsWith(CATEGORIES_PATH + '/') && url.pathname.endsWith('/option')
+      ? url.pathname.split('/').at(-2) : undefined;
+    if (method === 'GET' && (url.pathname === CATEGORIES_PATH || categoryOption)) {
       if (failCategories) {
         return json({ type: '/errors/common/internal', title: 'Lỗi hệ thống', status: 500, requestId: 'r' }, 500);
       }
-      return json({ items: categories, total: categories.length, page: 0, size: 100 });
+      if (categoryOption) {
+        const found = categories.find(({ id }) => id === categoryOption);
+        return found ? json({ id: found.id, name: found.name })
+          : json({ type: '/errors/common/not-found', status: 404, title: 'Không tìm thấy danh mục' }, 404);
+      }
+      const keyword = fold(url.searchParams.get('q') ?? '');
+      const matching = categories.filter(({ name }) => fold(name).includes(keyword));
+      const page = Number(url.searchParams.get('page') ?? 0);
+      const size = Number(url.searchParams.get('size') ?? 20);
+      return json({ items: matching.slice(page * size, (page + 1) * size), total: matching.length, page, size });
     }
     if (url.pathname === PRODUCTS_PATH && method === 'GET') {
       return listProducts(url.searchParams);
@@ -1232,6 +1243,23 @@ describe('ProductsPage — tìm kiếm, lọc (FR-5, SP-05)', () => {
     await waitFor(() => expect(rowNames()).toHaveLength(4));
     expect(lastProductQuery().categoryId).toBe(DRINKS);
     expect(await within(filterBar()).findByText('Đồ uống')).toBeTruthy();
+  });
+
+  it('chọn danh mục ở trang hai của bộ lọc và gửi đúng mã danh mục', async () => {
+    categories = Array.from({ length: 8 }, (_, index) => ({
+      id: 'fba05a2e-72ad-458e-8cdf-00000000000' + index,
+      name: 'Nhóm mẫu ' + (index + 1),
+      productCount: 0,
+    }));
+    renderPage();
+    fireEvent.mouseDown(within(filterBar()).getByLabelText('Lọc theo Danh mục'));
+    expect(await screen.findByText('Trang 1/2')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Trang sau' }));
+    const last = await screen.findByRole('option', { name: 'Nhóm mẫu 8' });
+    fireEvent.click(last);
+    await waitFor(() => expect(lastProductQuery().categoryId).toBe(categories[7].id));
+    const select = within(filterBar()).getByRole('combobox', { name: 'Lọc theo Danh mục' });
+    expect(select.closest('.ant-select-content')?.getAttribute('title')).toBe('Nhóm mẫu 8');
   });
 
   it('Danh mục trên URL không còn (đã xóa): hiện "Danh mục không còn", không hiện id thô', async () => {

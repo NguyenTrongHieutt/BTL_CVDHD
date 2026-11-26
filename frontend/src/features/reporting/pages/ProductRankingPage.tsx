@@ -120,6 +120,7 @@ export function ProductRankingPage() {
         <>
           <Card title="Bán chạy nhất" extra={`Top ${limit}`}>
             <RecordTable<RankedProduct>
+              scrollRows
               key={resultsKey}
               rowKey="productId"
               dataSource={query.data.best.rows}
@@ -132,6 +133,7 @@ export function ProductRankingPage() {
           </Card>
           <Card title="Bán chậm nhất" extra={`Top ${limit}`}>
             <RecordTable<RankedProduct>
+              scrollRows
               key={resultsKey}
               rowKey="productId"
               dataSource={query.data.slow.rows}

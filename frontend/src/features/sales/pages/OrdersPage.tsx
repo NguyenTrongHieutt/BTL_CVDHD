@@ -168,6 +168,7 @@ export function OrdersPage() {
           retrying={orders.isFetching} retryLabel="Tải lại đơn hàng" />
       ) : (
         <RecordTable<OrderSummary>
+          scrollRows
           compactColumns={{ title: 'orderCode', status: 'status', actions: 'actions' }}
           rowKey="orderId"
           loading={orders.isFetching}

@@ -152,7 +152,7 @@ export function AuditLogPage() {
       retryLabel="Tải lại loại thao tác" onRetry={() => void actions.refetch()} />}
     {!rangeError && log.isError && <ErrorAlert error={log.error} retrying={log.isFetching}
       retryLabel="Tải lại nhật ký" onRetry={() => void log.refetch()} />}
-    {!rangeError && (!log.isError || log.data) && <RecordTable<AuditEntry> scroll={{ x: 720 }} rowKey="id"
+    {!rangeError && (!log.isError || log.data) && <RecordTable<AuditEntry> scrollRows scroll={{ x: 720 }} rowKey="id"
       compactColumns={{ title: 'action', actions: 'details' }}
       loading={log.isFetching} dataSource={log.data?.items} tableLayout="fixed" style={{ overflowWrap: 'anywhere' }}
       locale={{ emptyText: log.isPending ? 'Đang tải nhật ký…' : filterCount

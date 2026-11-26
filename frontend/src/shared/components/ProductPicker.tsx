@@ -76,6 +76,7 @@ export function ProductPicker({
       )}
       {q && !products.isError && (
         <RecordTable<SellableResponse>
+          scrollRows
           compactColumns={{ title: 'productName', actions: 'actions' }}
           rowKey="variantId"
           size="small"

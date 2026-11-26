@@ -141,6 +141,7 @@ export function PurchaseReceiptsPage() {
       }>
         <ProductPicker onPick={addProduct} allowOutOfStock disabled={locked} />
         <RecordTable<DraftLine>
+          scrollRows
           compactColumns={{ title: 'label', actions: 'actions' }}
           rowKey="variantId"
           dataSource={lines}

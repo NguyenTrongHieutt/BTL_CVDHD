@@ -273,6 +273,7 @@ export function StockLedgerPage() {
       {/* Tải lại lỗi mà đã có bảng (dữ liệu cũ của cùng bộ lọc): giữ bảng, khung lỗi ở trên */}
       {loadFailed && !data ? null : (
         <RecordTable<LedgerRow>
+          scrollRows
           compactColumns={{ title: 'product', status: 'documentType' }}
           rowKey="key"
           columns={columns}

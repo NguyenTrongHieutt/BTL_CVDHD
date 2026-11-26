@@ -85,6 +85,7 @@ export function DataTable<T extends object>({
         </label>
       )}
       <RecordTable<T>
+        scrollRows
         {...tableProps}
         columns={columns}
         className={['data-table-shell', tableProps.className].filter(Boolean).join(' ')}

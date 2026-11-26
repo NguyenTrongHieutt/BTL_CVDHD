@@ -215,6 +215,16 @@ textarea {
   border-bottom: 1px solid var(--line);
 }
 
+@media screen {
+  html { scroll-padding-block-start: var(--app-header-height, 0px); }
+
+  .app-header {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 20;
+  }
+}
+
 .app-sider-mask {
   position: fixed;
   inset: 0;
@@ -401,6 +411,28 @@ textarea {
 
 .data-table-shell .ant-pagination {
   margin: 16px 0;
+}
+
+@media screen {
+  .record-table-viewport {
+    max-block-size: clamp(12rem, min(62dvh, 100dvh - var(--app-header-height, 72px) - 18rem), 42rem);
+    overflow-y: auto !important;
+    scroll-padding-block-start: var(--record-table-header-height, 0px);
+  }
+
+  .record-table-viewport[tabindex="0"] {
+    overscroll-behavior-y: contain;
+  }
+
+  .record-table-viewport:focus-visible {
+    outline-offset: -3px;
+  }
+
+  .record-table-viewport > table > .ant-table-thead > tr > th {
+    position: sticky;
+    inset-block-start: 0;
+    z-index: 3;
+  }
 }
 
 .record-table .ant-table {
@@ -857,7 +889,7 @@ textarea {
 
 @media (min-width: 1100px) {
   .pos-grid { grid-template-columns: minmax(0, 1.65fr) minmax(330px, 0.85fr); }
-  .pos-side { position: sticky; top: 20px; }
+  .pos-side { position: sticky; top: calc(var(--app-header-height, 72px) + 20px); }
   .orders-filters { grid-template-columns: repeat(2, minmax(0, 1fr)) minmax(214px, 1.5fr) repeat(2, minmax(115px, 0.9fr)); }
   .order-filter-date { grid-column: auto; }
 }

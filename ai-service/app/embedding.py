@@ -1,7 +1,7 @@
 """Nơi DUY NHẤT gọi model nhúng (AD-12).
 
-- Model: `EMBEDDING_MODEL`, mặc định `intfloat/multilingual-e5-small` (384 chiều).
-- `embed_passage` thêm tiền tố "passage: ", `embed_query` thêm "query: " (yêu cầu của E5).
+- Model: `EMBEDDING_MODEL`, mặc định multilingual MiniLM-L12-v2 (384 chiều).
+- Query và passage được mã hóa nguyên văn; không thêm tiền tố đặc thù của E5.
 - Vector luôn được chuẩn hóa L2, nên cosine distance (`<=>`) = 1 - tích vô hướng.
 - Model nạp lười ở lần gọi đầu tiên, có khóa để chỉ nạp một lần. `/ai/health` chỉ hỏi
   `is_loaded()`, không ép nạp.
@@ -18,8 +18,6 @@ import numpy as np
 from app.settings import DEFAULT_EMBEDDING_MODEL
 
 EMBEDDING_DIM = 384
-PASSAGE_PREFIX = "passage: "
-QUERY_PREFIX = "query: "
 
 
 class _Encoder(Protocol):
@@ -90,9 +88,9 @@ def embed_passage(texts: Sequence[str]) -> np.ndarray:
         raise TypeError("embed_passage nhận danh sách chuỗi")
     if not texts:
         return np.empty((0, EMBEDDING_DIM), dtype=np.float32)
-    return _encode([PASSAGE_PREFIX + t for t in texts])
+    return _encode(list(texts))
 
 
 def embed_query(text: str) -> np.ndarray:
     """Nhúng câu tìm kiếm. Trả mảng float32 (384,), độ dài 1."""
-    return _encode([QUERY_PREFIX + text])[0]
+    return _encode([text])[0]

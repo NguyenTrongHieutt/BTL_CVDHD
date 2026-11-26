@@ -1,17 +1,18 @@
-"""Spike GĐ0: model nhúng intfloat/multilingual-e5-small với tên Sản phẩm tiếng Việt.
+"""Đánh giá model embedding hiện cấu hình trên tên Sản phẩm tiếng Việt.
 
 Chạy:  uv run python spikes/embedding_spike.py
-Lần đầu sẽ tải model (~470 MB) vào cache Hugging Face trên máy.
+Lần đầu sẽ tải model vào cache Hugging Face trên máy.
 
 Kiểm:
 - số chiều = 384 (khớp cột vector(384), AD-12);
 - vector đã chuẩn hóa;
-- top-3 cho từng câu tìm kiếm, đi qua đúng `app.embedding` (tiền tố query:/passage:).
-So hai cách dựng văn bản passage:
+- top-3 cho từng câu tìm kiếm, đi qua đúng `app.embedding` (MiniLM nhận câu nguyên bản).
+So hai cách dựng nội dung passage:
   A. searchText như catalog dựng (tên · Danh mục);
   B. searchText + bản bỏ dấu của chính nó (để thử câu gõ không dấu, FR-35).
 """
 
+import os
 import sys
 import time
 import unicodedata
@@ -23,6 +24,7 @@ sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
 import numpy as np  # noqa: E402
 
 from app import embedding  # noqa: E402
+from app.settings import DEFAULT_EMBEDDING_MODEL  # noqa: E402
 
 PRODUCTS = [
     "Nước ngọt Coca-Cola lon 330ml · Đồ uống",
@@ -71,6 +73,7 @@ def run_variant(label: str, passages_text: list[str]) -> tuple[int, int]:
 
 
 def main() -> int:
+    embedding.configure(os.environ.get("EMBEDDING_MODEL", DEFAULT_EMBEDDING_MODEL))
     t0 = time.perf_counter()
     passages = embedding.embed_passage(PRODUCTS)
     print(f"Model: {embedding.model_name()}")

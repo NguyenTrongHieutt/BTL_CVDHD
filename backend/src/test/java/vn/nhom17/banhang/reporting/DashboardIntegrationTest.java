@@ -96,6 +96,61 @@ class DashboardIntegrationTest {
         mvc.perform(get(DASHBOARD).cookie(login("dev.nv.a").cookie())).andExpect(status().isForbidden());
     }
 
+    @Test
+    void reportsRevenueOrdersRankingsAndStockForTheSelectedStoreAndDateRange() throws Exception {
+        Session store = login("dev.chu.a");
+        String productName = "Báo cáo thử " + UUID.randomUUID();
+        UUID[] productIds = new UUID[2];
+        TenantScope.runAs(store.storeId(), () -> new TransactionTemplate(transactionManager).executeWithoutResult(tx -> {
+            UUID product = product(store, productName);
+            UUID variant = variant(store, product, "BC-REPORT-" + UUID.randomUUID().toString().substring(0, 8));
+            productIds[0] = product;
+            productIds[1] = variant;
+            UUID order = insertOrder(store, "DH-997107", "COMPLETED", 30_000, "2024-01-02T17:00:00Z");
+            UUID line = insertLine(store, order, variant, 3, 30_000);
+            insertReturn(store, order, line, variant, 20_000, "2024-01-03T17:00:00Z");
+            jdbc.update("""
+                    INSERT INTO app.stock (store_id, variant_id, quantity, avg_unit_cost, min_quantity)
+                    VALUES (?, ?, 5, 4000, 0)
+                    """, store.storeId(), variant);
+        }));
+
+        mvc.perform(get("/api/v1/reporting/q/Q1").cookie(store.cookie())
+                        .param("fromDate", "2024-01-03").param("toDate", "2024-01-04"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.range.fromDate").value("2024-01-03"))
+                .andExpect(jsonPath("$.rows.length()").value(2))
+                .andExpect(jsonPath("$.rows[0].grossSales").value(30_000))
+                .andExpect(jsonPath("$.rows[0].revenue").value(30_000))
+                .andExpect(jsonPath("$.rows[1].refundTotal").value(20_000))
+                .andExpect(jsonPath("$.summary.revenue").value(10_000));
+
+        mvc.perform(get("/api/v1/reporting/q/Q2").cookie(store.cookie())
+                        .param("fromDate", "2024-01-03").param("toDate", "2024-01-04"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.orderCount").value(1))
+                .andExpect(jsonPath("$.summary.returnCount").value(1));
+
+        mvc.perform(get("/api/v1/reporting/q/Q4").cookie(store.cookie())
+                        .param("fromDate", "2024-01-03").param("toDate", "2024-01-04")
+                        .param("direction", "BEST_SELLING").param("rankBy", "QUANTITY").param("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.rows[0].productId").value(productIds[0].toString()))
+                .andExpect(jsonPath("$.rows[0].quantity").value(1))
+                .andExpect(jsonPath("$.rows[0].revenue").value(10_000));
+
+        mvc.perform(get("/api/v1/reporting/q/Q5").cookie(store.cookie()).param("productName", productName))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.summary.stockQuantity").value(5))
+                .andExpect(jsonPath("$.summary.stockValue").value(20_000))
+                .andExpect(jsonPath("$.rows[0].variantId").value(productIds[1].toString()));
+
+        mvc.perform(get("/api/v1/reporting/q/Q1").cookie(store.cookie())
+                        .param("fromDate", "2024-01-01").param("toDate", "2025-01-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.errors[0].field").value("toDate"));
+    }
+
     private UUID product(Session session, String name) {
         UUID id = UUID.randomUUID();
         jdbc.update("INSERT INTO app.product (id, store_id, name) VALUES (?, ?, ?)", id, session.storeId(), name);
@@ -129,11 +184,15 @@ class DashboardIntegrationTest {
     }
 
     private void insertReturn(Session session, UUID order, UUID line, UUID variant) {
+        insertReturn(session, order, line, variant, 20_000, TODAY_START);
+    }
+
+    private void insertReturn(Session session, UUID order, UUID line, UUID variant, long amount, String timestamp) {
         UUID id = UUID.randomUUID();
         jdbc.update("""
                 INSERT INTO app.sales_return (id, store_id, order_id, refund_amount, refund_method, created_by, created_at)
-                VALUES (?, ?, ?, 20000, 'CASH', ?, ?)
-                """, id, session.storeId(), order, session.userId(), OffsetDateTime.parse(TODAY_START));
+                VALUES (?, ?, ?, ?, 'CASH', ?, ?)
+                """, id, session.storeId(), order, amount, session.userId(), OffsetDateTime.parse(timestamp));
         jdbc.update("""
                 INSERT INTO app.sales_return_line (store_id, return_id, line_no, order_line_id, variant_id, quantity, refund_amount)
                 VALUES (?, ?, 1, ?, ?, 2, 20000)

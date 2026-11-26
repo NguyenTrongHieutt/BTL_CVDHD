@@ -14,7 +14,7 @@ def test_health_reports_ok_without_loading_model(client, monkeypatch):
         "status": "ok",
         "version": "0.1.0",
         "modelLoaded": False,
-        "embeddingModel": "intfloat/multilingual-e5-small",
+        "embeddingModel": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
         "syncEnabled": False,
     }
     assert not embedding.is_loaded()

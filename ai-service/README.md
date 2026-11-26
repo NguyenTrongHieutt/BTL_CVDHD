@@ -1,12 +1,12 @@
 # ai-service — Dịch vụ AI
 
-Tìm kiếm ngữ nghĩa Sản phẩm (FR-35, FR-36) và Hỏi đáp dữ liệu bằng tiếng Việt (FR-37 – FR-42).
-FastAPI, Python 3.14, model nhúng `intfloat/multilingual-e5-small`, Gemini qua `google-genai`.
+Tìm kiếm hybrid Sản phẩm (FR-35, FR-36) và Hỏi đáp dữ liệu bằng tiếng Việt (FR-37 – FR-42).
+FastAPI, Python 3.14, model nhúng `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, Gemini qua `google-genai`.
 
 **Chủ:** Lân (C – Phân tích và AI). Luật bắt buộc: `ARCHITECTURE-SPINE.md`, nhất là AD-1, AD-2, AD-5, AD-9 – AD-13, AD-19.
 
-Trạng thái: **GĐ0 (CB-08)**, mới có khung. `/ai/search` và `/ai/ask` trả `501` Problem Details
-cho đến AI-01 và AI-03. Kết quả hai spike kỹ thuật ở [`SPIKES.md`](SPIKES.md).
+Trạng thái: **GĐ1**. `/ai/search` đã triển khai theo AI-01; `/ai/ask` vẫn trả `501` đến AI-03.
+Kết quả hai spike kỹ thuật ở [`SPIKES.md`](SPIKES.md).
 
 ## Nguyên tắc
 
@@ -28,10 +28,11 @@ ai-service/
     problems.py        # Problem Details cho RequestValidationError, HTTPException, Exception; X-Request-Id
     auth.py            # kiểm JWT HS256, current_user, require_owner
     db.py              # psycopg 3 + pgvector, store_transaction / global_transaction
-    embedding.py       # model nhúng: embed_passage ("passage: "), embed_query ("query: "), nạp lười
+    embedding.py       # multilingual MiniLM-L12-v2, chuẩn hóa vector
     health.py          # GET /ai/health
     log.py             # log JSON ra stdout, kèm requestId
-    search/router.py   # GET /ai/search (501 đến AI-01; TODO mô tả truy vấn AD-12)
+    search/router.py   # GET /ai/search (AI-01: semantic + lexical search, RRF)
+    search/hybrid.py   # lexical candidates từ catalog và reciprocal-rank fusion
     qa/
       tools.py         # 9 công cụ Q1–Q9: JSON schema + Pydantic + quy ra tham số reporting (HỢP ĐỒNG)
       periods.py       # quy cụm thời gian ra khoảng ngày (AD-19)
@@ -57,10 +58,11 @@ ai-service/
 | `DATABASE_URL` | `postgresql://ai_service@localhost:5432/banhang` | Role `ai_service`. Mật khẩu (`DB_AI_PASSWORD`) đặt trong URL lúc chạy, không để trong code |
 | `BACKEND_URL` | `http://localhost:8080` | Gốc để gọi `reporting` và change-feed |
 | `INTERNAL_SERVICE_KEY` | — | Header `X-Service-Key` cho change-feed. Bắt buộc khi `SYNC_ENABLED=true` |
+| `PRELOAD_EMBEDDING_MODEL` | `true` | Nạp model trong lifespan để request đầu không bị chậm |
 | `GEMINI_API_KEY` | — | SDK google-genai tự đọc; code không cầm giá trị này |
 | `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Đổi model chỉ bằng biến này (AD-11 mục 5) |
-| `EMBEDDING_MODEL` | `intfloat/multilingual-e5-small` | Ghi vào `model_version`; đổi thì phải đánh chỉ mục lại |
-| `SYNC_ENABLED` | `false` | GĐ0 để tắt |
+| `EMBEDDING_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Model 384 chiều; đổi model thì phải đánh chỉ mục lại |
+| `SYNC_ENABLED` | `false` | Phải bật để change-feed tạo embedding cho nhánh semantic; cần `INTERNAL_SERVICE_KEY` |
 | `SYNC_INTERVAL_SECONDS` | `60` | 5 – 3600 |
 | `LOG_LEVEL` | `INFO` | |
 
@@ -113,10 +115,10 @@ curl http://localhost:8000/ai/health
 
 ### Route
 
-| Route | Ai gọi được | GĐ0 |
+| Route | Ai gọi được | Hợp đồng |
 |---|---|---|
 | `GET /ai/health` | ai cũng được | `{status, version, modelLoaded, embeddingModel, syncEnabled}`; không ép nạp model |
-| `GET /ai/search?q=&limit=` | OWNER, STAFF | `501`. Sau AI-01: `{items: [{productId, score}]}` |
+| `GET /ai/search?q=&limit=` | OWNER, STAFF | `{items: [{productId, score}]}`; kết hợp thứ hạng vector và lexical bằng RRF; mặc định `limit=10`, tối đa 50; không trừ Hạn mức AI |
 | `POST /ai/ask` `{question}` | OWNER | `501`. Sau AI-03: `{answer, interpretation, table, chart, reportLink, disclaimer, quota, refused}` |
 
 ### JWT (AD-9)
@@ -205,7 +207,7 @@ create table ai.sync_cursor (                -- bảng toàn cục, không có s
 
 ## Việc tiếp theo
 
-- **AI-01**: hiện thực `/ai/search` theo TODO trong `app/search/router.py`, bật `SYNC_ENABLED`, chạy với DB thật,
-  thêm test chéo 2 Cửa hàng (AD-5 mục 9). Xem khuyến nghị về văn bản passage trong `SPIKES.md`.
+- **AI-01**: đo chất lượng Hybrid Search trên bộ truy vấn SM-4 và dữ liệu mẫu thật; bổ sung kiểm thử tích hợp
+  RLS chéo Cửa hàng (AD-5 mục 9).
 - **AI-03 trở đi**: đường ống `/ai/ask` theo comment trong `app/qa/router.py`.
 - Chạy `spikes/gemini_tools_spike.py` khi có `GEMINI_API_KEY` và ghi kết quả vào `SPIKES.md`.

@@ -1,7 +1,4 @@
-/**
- * Kiểu dữ liệu của module `reporting`: Truy vấn mẫu Q1–Q9 (AD-10).
- * Người giữ: Lân (C). Khớp với `reporting/QueryId.java`.
- */
+/** Kiểu dữ liệu của module reporting và khung phản hồi Q1–Q9 (AD-10). */
 import type { DateRange } from './common';
 
 /** Truy vấn mẫu, dùng chung cho màn Báo cáo và Trợ lý AI (PRD 4.6.1). */
@@ -21,12 +18,18 @@ export const QUERY_TITLES: Readonly<Record<QueryId, string>> = {
   Q9: 'Sản phẩm nên ưu tiên bán',
 };
 
-/**
- * Phản hồi của `GET /api/v1/reporting/q/<Qn>`. Mỗi phản hồi luôn kèm `range` (AD-10).
- * TODO(Lân, BC-02, GĐ1): chốt cấu trúc `data` của từng Qn ở CB-03.
- */
-export interface QueryResponse<TData = unknown> {
+export interface ReportColumn {
+  key: string;
+  label: string;
+  type: 'text' | 'date' | 'money' | 'int' | 'percent';
+}
+
+/** Khung phản hồi của `GET /api/v1/reporting/q/<Qn>` (AD-10). */
+export interface QueryResponse<TRow = unknown, TSummary = unknown> {
   queryId: QueryId;
   range: DateRange;
-  data: TData;
+  params: Readonly<Record<string, string | number>>;
+  columns: ReportColumn[];
+  rows: TRow[];
+  summary: TSummary;
 }

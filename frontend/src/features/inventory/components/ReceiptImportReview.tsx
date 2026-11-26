@@ -1,7 +1,8 @@
-import { Alert, Button, Collapse, Flex, Pagination, Tabs, Tag, Typography } from 'antd';
+import { Alert, Button, Collapse, Flex, Input, Pagination, Tabs, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { MoneyText, RecordTable } from '../../../shared/components';
+import { foldText } from '../../../shared/foldText';
 import type { ReceiptImportError, ReceiptImportPreview, ReceiptImportRow } from '../receiptImportApi';
 
 const count = new Intl.NumberFormat('vi-VN');
@@ -36,13 +37,25 @@ function renderErrors(errors: ReceiptImportError[]) {
 
 interface Props {
   preview: ReceiptImportPreview;
+  search: string;
+  onSearchChange: (search: string) => void;
   disabled?: boolean;
   onEdit: (row: ReceiptImportRow) => void;
 }
 
-export function ReceiptImportReview({ preview, onEdit, disabled }: Props) {
+export function ReceiptImportReview({ preview, search, onSearchChange, onEdit, disabled }: Props) {
   const [page, setPage] = useState(1);
-  const groups = useMemo(() => groupRows(preview.rows), [preview.rows]);
+  const searchId = useId();
+  const keyword = foldText(search.trim());
+  const matching = useMemo(() => {
+    if (!keyword) return preview.rows;
+    return preview.rows.filter(row => {
+      const fields = [row.sku, row.parentCode, row.productName, row.variantName, row.values.sku, row.values.barcode,
+        row.values.productName, row.values.parentCode, row.values.variantName, `Dòng ${row.row}`];
+      return fields.some(field => field && foldText(field).includes(keyword));
+    });
+  }, [preview.rows, keyword]);
+  const groups = useMemo(() => groupRows(matching), [matching]);
   const visibleGroups = groups.slice((page - 1) * groupsPerPage, page * groupsPerPage);
   const errorsByRow = useMemo(() => {
     const result = new Map<number, ReceiptImportError[]>();
@@ -54,6 +67,7 @@ export function ReceiptImportReview({ preview, onEdit, disabled }: Props) {
     return result;
   }, [preview.errors]);
   const rowsWithErrors = preview.rows.filter(row => errorsByRow.has(row.row));
+  const matchesWithErrors = matching.filter(row => errorsByRow.has(row.row));
   const rowNumbers = new Set(preview.rows.map(row => row.row));
   const generalErrors = preview.errors.filter(error => !rowNumbers.has(error.row));
 
@@ -95,11 +109,22 @@ export function ReceiptImportReview({ preview, onEdit, disabled }: Props) {
         : 'Cần xử lý lỗi trước khi lưu phiếu'}
       description={generalErrors.length ? renderErrors(generalErrors) : undefined} />}
       {preview.rows.length === 0 && !warning && <Alert showIcon type="info" title="File chưa có dòng dữ liệu." />}
+      {preview.rows.length > 0 && (
+        <div className="receipt-import-field" style={{ maxWidth: 410 }}>
+          <label htmlFor={searchId}>Tìm dòng trong file</label>
+          <Input id={searchId} value={search} allowClear placeholder="Tên, biến thể, SKU, mã cha, mã vạch hoặc số dòng"
+            onChange={(event) => {
+              setPage(1);
+              onSearchChange(event.target.value);
+            }} />
+        </div>
+      )}
       {preview.rows.length > 0 && <Tabs defaultActiveKey={rowsWithErrors.length ? 'errors' : 'data'} items={[{
         key: 'data',
-        label: `Tất cả (${count.format(preview.rows.length)})`,
+        label: `Tất cả (${count.format(matching.length)})`,
         children: (
           <Flex vertical gap={12}>
+            {groups.length === 0 && <Typography.Text type="secondary" role="status">Không có dòng khớp từ khóa.</Typography.Text>}
             <Collapse
               key={page}
               size="small"
@@ -133,10 +158,11 @@ export function ReceiptImportReview({ preview, onEdit, disabled }: Props) {
         ),
       }, ...(rowsWithErrors.length ? [{
         key: 'errors',
-        label: `Dòng có lỗi (${count.format(rowsWithErrors.length)})`,
+        label: `Dòng có lỗi (${count.format(matchesWithErrors.length)})`,
         children: (
-          <RecordTable<ReceiptImportRow> size="small" rowKey="row" columns={errorColumns} dataSource={rowsWithErrors}
+          <RecordTable<ReceiptImportRow> size="small" rowKey="row" columns={errorColumns} dataSource={matchesWithErrors}
             compactColumns={{ title: 'row', actions: 'actions' }} scroll={{ x: 460 }}
+            locale={{ emptyText: 'Không có dòng lỗi khớp từ khóa.' }}
             pagination={{ pageSize: 10, hideOnSinglePage: true, showSizeChanger: false }} />
         ),
       }] : [])]} />}

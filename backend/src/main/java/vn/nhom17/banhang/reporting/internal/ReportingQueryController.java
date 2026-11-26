@@ -55,14 +55,15 @@ class ReportingQueryController {
             @RequestParam(required = false) String rankBy,
             @RequestParam(required = false) Integer limit,
             @RequestParam(required = false) String productName,
-            @RequestParam(required = false) String categoryName) {
+            @RequestParam(required = false) String categoryName,
+            @RequestParam(required = false) UUID categoryId) {
         LocalDate today = LocalDate.now(clock.withZone(TimeZones.VIETNAM));
         return switch (queryId) {
             case "Q1" -> revenue(requireRange(fromDate, toDate));
             case "Q2" -> orders(requireRange(fromDate, toDate));
             case "Q3" -> grossProfit(requireRange(fromDate, toDate));
             case "Q4" -> ranking(rankingRange(fromDate, toDate, today), parseDirection(direction),
-                    parseRankBy(rankBy), validateLimit(limit));
+                    parseRankBy(rankBy), validateLimit(limit), categoryId);
             case "Q5" -> inventory(today, validateInventoryFilters(productName, categoryName));
             default -> throw invalid("queryId", "Chỉ hỗ trợ Q1, Q2, Q3, Q4 và Q5 trong giai đoạn này.");
         };
@@ -222,7 +223,7 @@ class ReportingQueryController {
                 rows, Map.of("revenue", revenue, "costOfGoodsSold", costOfGoodsSold, "grossProfit", grossProfit));
     }
 
-    private QueryResponse ranking(DateRange range, Direction direction, RankBy rankBy, int limit) {
+    private QueryResponse ranking(DateRange range, Direction direction, RankBy rankBy, int limit, UUID categoryId) {
         Map<String, Object> parameters = dateParameters(range);
         parameters.put("from", startOfDay(range.fromDate()));
         parameters.put("until", startOfDay(range.toDate().plusDays(1)));
@@ -235,6 +236,10 @@ class ReportingQueryController {
                 : "p.status = 'ACTIVE' AND p.deleted_at IS NULL AND EXISTS ("
                         + "SELECT 1 FROM app.product_variant active_v WHERE active_v.store_id = :storeId "
                         + "AND active_v.product_id = p.id AND active_v.status = 'ACTIVE' AND active_v.deleted_at IS NULL)";
+        if (categoryId != null) {
+            parameters.put("categoryId", categoryId);
+            filter += " AND c.id = :categoryId";
+        }
         String orderBy;
         if (rankBy == RankBy.QUANTITY) {
             orderBy = bestSelling ? "quantity DESC, revenue DESC" : "quantity ASC, revenue ASC";
@@ -290,6 +295,7 @@ class ReportingQueryController {
         parametersOut.put("direction", direction.name());
         parametersOut.put("rankBy", rankBy.name());
         parametersOut.put("limit", limit);
+        if (categoryId != null) parametersOut.put("categoryId", categoryId);
         return new QueryResponse("Q4", range, parametersOut,
                 List.of(column("rank", "Hạng", "int"), column("productName", "Sản phẩm", "text"),
                         column("categoryName", "Danh mục", "text"), column("quantity", "Số lượng bán ròng", "int"),

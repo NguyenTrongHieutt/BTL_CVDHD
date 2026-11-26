@@ -658,8 +658,8 @@ textarea {
   min-width: 0;
 }
 
-.pos-cart-table.record-table .ant-space-compact {
-  width: 100%;
+.pos-cart-table .record-card-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .pos-payment-heading {
@@ -669,9 +669,83 @@ textarea {
   scroll-margin-block: 84px;
 }
 
-.customer-picker > .ant-select {
-  flex: 1 1 0;
+.customer-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.customer-picker .customer-picker-trigger {
+  flex: 1 1 160px;
+  justify-content: flex-start;
   min-width: 0;
+}
+
+.customer-picker-trigger > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.customer-picker-modal,
+.pos-discount-form,
+.pos-customer-section,
+.pos-payment-stack {
+  width: 100%;
+}
+
+.customer-picker-results {
+  block-size: min(45dvh, 360px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.customer-picker-results > ul {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customer-picker-results .ant-btn {
+  justify-content: flex-start;
+  min-height: 44px;
+  height: auto;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.customer-picker-pages,
+.pos-cash-change {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.customer-picker-pages .ant-btn {
+  min-height: 44px;
+}
+
+.pos-customer-section {
+  margin-bottom: 12px;
+}
+
+.pos-customer-status {
+  min-block-size: 24px;
+}
+
+.pos-discount {
+  display: grid;
+  justify-items: start;
+  gap: 4px;
+}
+
+.pos-discount .ant-btn {
+  max-width: 100%;
 }
 
 .pos-payment-fields {
@@ -688,9 +762,34 @@ textarea {
   font-weight: 650;
 }
 
-.pos-payment-fields .ant-input-number,
-.pos-payment-fields .ant-select {
+.pos-payment-fields .ant-select,
+.pos-discount-form .ant-input-number,
+.pos-cash-fields .ant-input-number {
   width: 100%;
+}
+
+.pos-payment-summary .ant-descriptions-row > td {
+  padding-bottom: 6px;
+}
+
+.pos-cash .pos-cash-toggle {
+  padding-inline: 0;
+}
+
+.pos-cash-fields {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.pos-checkout-notice {
+  min-block-size: 22px;
+}
+
+.pos-total .money-text,
+.pos-payment-summary .money-text,
+.pos-cash-change .money-text {
+  font-variant-numeric: tabular-nums;
 }
 
 .pos-loyalty {
@@ -782,10 +881,10 @@ textarea {
   .price-range-fields .ant-input { width: min(40vw, 180px) !important; }
   .data-table-shell { padding-inline: 10px; }
   .pos-page .ant-card-body { padding: 16px; }
+  .pos-sale-success { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 8px; }
+  .pos-sale-success .ant-alert-action { grid-column: 2; margin-inline: 0; }
   .pos-page .ant-descriptions { overflow-x: auto; }
   .pos-checkout-shortcut { display: inline-flex; margin-top: 8px; }
-  .pos-cart-table .record-card-fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .pos-cart-table .record-card-fields > :nth-child(2) { grid-column: 1 / -1; grid-row: 2; }
   .orders-filters { grid-template-columns: minmax(0, 1fr) auto; }
   .order-filter-code { display: contents; }
   .order-filter-code label { align-self: center; }
@@ -818,10 +917,6 @@ textarea {
   from { opacity: 0.75; transform: translateX(-16px); }
 }
 
-@keyframes ui-count-in {
-  from { opacity: 0.6; transform: scale(0.92); }
-}
-
 @media screen and (prefers-reduced-motion: no-preference) {
   .login-page > .ant-card,
   .pos-sale-success {
@@ -841,9 +936,6 @@ textarea {
     transition: transform 150ms ease-out;
   }
 
-  .pos-cart-count {
-    animation: ui-count-in 170ms ease-out;
-  }
 }
 
 @media screen and (max-width: 767px) and (prefers-reduced-motion: no-preference) {

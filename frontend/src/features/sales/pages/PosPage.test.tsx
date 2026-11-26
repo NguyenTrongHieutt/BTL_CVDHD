@@ -44,9 +44,10 @@ it('tính lại tiền sau lỗi mạng với nguyên giỏ hàng và khóa than
 });
 
 it.each([
-  { points: 6, total: 24_000, earned: 2, confirm: 'Xác nhận đã nhận tiền' },
-  { points: 18, total: 0, earned: 0, confirm: 'Hoàn tất đơn' },
-])('dùng $points điểm và gửi đúng số tiền đã xem trước khi bán', async ({ points, total, earned, confirm }) => {
+  { points: 6, total: 24_000, earned: 2, received: undefined, confirm: 'Xác nhận đã nhận tiền' },
+  { points: 6, total: 24_000, earned: 2, received: 30_000, confirm: 'Xác nhận đã nhận tiền' },
+  { points: 18, total: 0, earned: 0, received: undefined, confirm: 'Hoàn tất đơn' },
+])('dùng $points điểm khi trả $total đồng, tiền khách đưa tùy chọn $received', async ({ points, total, earned, received, confirm }) => {
   const user = { storeId: 'store-kh04', storeName: 'Cửa hàng', userId: 'staff-kh04', displayName: 'An', role: 'STAFF' as const };
   const customerId = 'customer-1';
   const cart = { ...emptyCart(), customerId, lines: [{ variantId: 'variant-1', quantity: 2 }] };
@@ -71,6 +72,7 @@ it.each([
       return Response.json({
         lines: [{ variantId: 'variant-1', productName: 'Bánh gạo', netLineAmount: payable }],
         subtotal: 36_000, lineDiscountTotal: 0, orderDiscount: 0, pointsDiscount, total: payable, warnings: [],
+        change: body.cashReceived === undefined ? null : Math.max(0, body.cashReceived - payable),
         loyalty: { ...account, pointsRedeemed, pointsEarned: Math.floor(payable / account.earnAmountPerPoint),
           maxRedeemablePoints: 18 },
       });
@@ -92,21 +94,29 @@ it.each([
     expect(await screen.findByText('22 điểm', { exact: true })).toBeTruthy();
     const input = await screen.findByRole('spinbutton', { name: 'Điểm dùng cho đơn này' });
     fireEvent.change(input, { target: { value: String(points) } });
-    expect(await screen.findByText('Giảm do dùng điểm')).toBeTruthy();
-    expect(Boolean(screen.queryByText('Điểm dự kiến cộng'))).toBe(earned > 0);
-    const cash = screen.queryByRole('spinbutton', { name: 'Tiền khách đưa' });
-    expect(Boolean(cash)).toBe(total > 0);
-    if (cash) {
+    await waitFor(() => expect(quotes.at(-1)?.pointsRedeemed).toBe(points));
+    expect(screen.getByText('Giảm do dùng điểm')).toBeTruthy();
+    expect(screen.getByText('Điểm dự kiến cộng')).toBeTruthy();
+    expect(screen.queryByRole('spinbutton', { name: 'Tiền khách đưa' })).toBeNull();
+    let blockedWhenShort = false;
+    if (received !== undefined) {
+      fireEvent.click(screen.getByRole('button', { name: 'Tính tiền thừa' }));
+      const cash = screen.getByRole('spinbutton', { name: 'Tiền khách đưa' });
       fireEvent.focus(cash);
-      fireEvent.change(cash, { target: { value: String(total) } });
+      fireEvent.change(cash, { target: { value: '1000' } });
+      await screen.findByText('Tiền khách đưa chưa đủ.');
+      blockedWhenShort = screen.getByRole<HTMLButtonElement>('button', { name: confirm }).disabled;
+      fireEvent.change(cash, { target: { value: String(received) } });
       fireEvent.blur(cash);
     }
-    await waitFor(() => expect(quotes.at(-1)?.cashReceived).toBe(total > 0 ? total : undefined));
+    expect(blockedWhenShort).toBe(received !== undefined);
+    await waitFor(() => expect(quotes.at(-1)?.cashReceived).toBe(received));
     await waitFor(() => expect(screen.getByRole<HTMLButtonElement>('button', { name: confirm }).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: confirm }));
     expect(await screen.findByText(/Đã bán hàng · DH-000042/)).toBeTruthy();
     expect(await screen.findByText(new RegExp(`Đã dùng ${points} điểm`))).toBeTruthy();
-    expect(confirmed).toEqual([expect.objectContaining({ customerId, pointsRedeemed: points, cashReceived: total, quotedTotal: total })]);
+    expect(confirmed).toEqual([expect.objectContaining({ customerId, pointsRedeemed: points,
+      cashReceived: received ?? total, quotedTotal: total })]);
     expect(keys).toEqual([cart.idempotencyKey]);
   } finally {
     view.unmount();

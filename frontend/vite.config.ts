@@ -40,15 +40,15 @@ export default defineConfig({
     },
   },
   build: {
-    // Riêng chunk antd đã ~650 kB (gzip ~215 kB); mã của nhóm vẫn bị cảnh báo nếu vượt mức này.
+    // Giữ cảnh báo kích thước theo chunk sau khi tách các màn hình.
     chunkSizeWarningLimit: 800,
     rolldownOptions: {
       output: {
-        // Tách thư viện ra chunk riêng để trình duyệt cache lâu hơn mã của nhóm.
+        // Giữ React và các thư viện dùng chung trong chunk ổn định. Ant Design
+        // được bundler chia theo các màn hình sử dụng thành phần tương ứng.
         codeSplitting: {
           groups: [
             { name: 'vendor-react', test: /node_modules[\\/](react|react-dom|react-router|scheduler|@tanstack)[\\/]/ },
-            { name: 'vendor-antd', test: /node_modules[\\/](antd|@ant-design|@rc-component|dayjs)[\\/]/ },
           ],
         },
       },

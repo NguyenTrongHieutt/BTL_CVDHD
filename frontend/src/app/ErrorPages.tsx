@@ -1,7 +1,7 @@
 /** Trang 404 và trang lỗi khi render route hỏng. Người giữ: Anh. */
 import { Button, Result, Typography } from 'antd';
 import { Link, isRouteErrorResponse, useRouteError } from 'react-router';
-import { useDocumentTitle } from '../shared/components';
+import { useDocumentTitle } from '../shared/components/useDocumentTitle';
 
 export function NotFoundPage() {
   useDocumentTitle('Không tìm thấy trang');

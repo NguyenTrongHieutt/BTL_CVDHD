@@ -77,6 +77,15 @@ textarea {
   box-sizing: border-box;
 }
 
+.route-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 35dvh;
+  color: var(--muted);
+}
+
 .login-page {
   min-height: 100dvh;
   display: flex;

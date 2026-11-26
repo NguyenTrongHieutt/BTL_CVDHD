@@ -5,19 +5,32 @@
  * - Mọi route khác nằm trong `RequireAuth` + `AppLayout`; mỗi route bọc `RequireRole` theo `roles`.
  * - `/` chuyển tới trang chính theo vai trò.
  */
+import { Spin } from 'antd';
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter } from 'react-router';
 import type { DataRouter, RouteObject } from 'react-router';
 import type { FeatureDefinition } from '../shared/routing';
-import { AppLayout } from './AppLayout';
 import { NotFoundPage, RouteErrorPage } from './ErrorPages';
 import { HomeRedirect } from './HomeRedirect';
 import { RequireAuth, RequireRole } from './RequireAuth';
 import { appFeatures } from './features';
 
+const loadingPage = (
+  <div className="route-loading" role="status">
+    <Spin />
+    <span>Đang tải màn hình…</span>
+  </div>
+);
+
 export function buildAppRoutes(features: readonly FeatureDefinition[]): RouteObject[] {
+  const AuthenticatedLayout = lazy(() => import('./AppLayout').then(({ AppLayout }) => ({ default: AppLayout })));
   const publicRoutes: RouteObject[] = features
     .flatMap((feature) => feature.publicRoutes ?? [])
-    .map(({ path, Component }) => ({ path, Component, errorElement: <RouteErrorPage /> }));
+    .map(({ path, Component: Page }) => ({
+      path,
+      element: <Suspense fallback={loadingPage}><Page /></Suspense>,
+      errorElement: <RouteErrorPage />,
+    }));
 
   const protectedRoutes: RouteObject[] = features
     .flatMap((feature) => feature.routes)
@@ -27,7 +40,7 @@ export function buildAppRoutes(features: readonly FeatureDefinition[]): RouteObj
         path: route.path,
         element: (
           <RequireRole roles={route.roles} title={route.title}>
-            <Page />
+            <Suspense fallback={loadingPage}><Page /></Suspense>
           </RequireRole>
         ),
       };
@@ -38,7 +51,7 @@ export function buildAppRoutes(features: readonly FeatureDefinition[]): RouteObj
     {
       element: (
         <RequireAuth>
-          <AppLayout features={features} />
+          <Suspense fallback={loadingPage}><AuthenticatedLayout features={features} /></Suspense>
         </RequireAuth>
       ),
       errorElement: <RouteErrorPage />,

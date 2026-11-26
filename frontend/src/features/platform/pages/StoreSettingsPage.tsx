@@ -17,7 +17,8 @@
  * Ô tiền, số là ô chữ (không dùng `InputNumber`, vốn lặng lẽ bỏ hoặc kẹp giá trị sai): chỉ nhận chữ số liền hoặc
  * nhóm nghìn đúng bằng dấu chấm (tự nhóm khi gõ); ô số ngày không nhận dấu chấm.
  */
-import { App, Button, Card, Col, Form, Input, Row, Select, Skeleton, Typography } from 'antd';
+import { App, Button, Card, Col, Form, Input, Row, Skeleton, Typography } from 'antd';
+import { LocalFilterSelect } from '../../../shared/components/LocalFilterSelect';
 import type { FormInstance } from 'antd';
 import { useEffect } from 'react';
 import { isApiError } from '../../../shared/api/client';
@@ -95,11 +96,6 @@ interface StoreFormValues {
 }
 
 type FormField = keyof StoreFormValues;
-
-/** Chữ thường, bỏ dấu, để tìm ngân hàng không cần gõ dấu, hoa thường. */
-function foldText(text: string): string {
-  return text.normalize('NFD').replace(/\p{M}/gu, '').replace(/[đĐ]/g, 'd').toLowerCase();
-}
 
 const PLAIN_DIGITS = /^\d+$/;
 const GROUPED_DIGITS = /^\d{1,3}(\.\d{3})+$/;
@@ -434,13 +430,10 @@ function StoreForm({ store }: { store: StoreInfo }) {
                 dependencies={['bankAccountNo', 'bankAccountName']}
                 rules={[requiredWithOtherBankFields('bank', 'Chọn ngân hàng')]}
               >
-                <Select
+                <LocalFilterSelect
                   allowClear
                   placeholder="Chưa chọn"
                   options={BANK_OPTIONS}
-                  showSearch={{
-                    filterOption: (input, option) => foldText(String(option?.label ?? '')).includes(foldText(input)),
-                  }}
                   notFoundContent={`Không thấy ngân hàng này. Chọn "${OTHER_BANK_LABEL}".`}
                 />
               </Form.Item>

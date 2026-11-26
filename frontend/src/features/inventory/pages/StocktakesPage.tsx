@@ -7,6 +7,7 @@ import { ErrorAlert, RecordTable, useDocumentTitle } from '../../../shared/compo
 import type { Uuid } from '../../../shared/types/common';
 
 const MAX_QUANTITY = 2_147_483_647;
+const DRAFT_PAGE_SIZE = 20;
 
 interface StockCandidate {
   variantId: Uuid;
@@ -40,6 +41,7 @@ export function StocktakesPage() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState({ q: '', page: 0, size: 20 });
   const [lines, setLines] = useState<DraftLine[]>([]);
+  const [draftPage, setDraftPage] = useState(1);
   const [note, setNote] = useState('');
   const [pending, setPending] = useState<Submission | null>(null);
 
@@ -58,6 +60,7 @@ export function StocktakesPage() {
     onSuccess: () => {
       setPending(null);
       setLines([]);
+      setDraftPage(1);
       setNote('');
     },
     onError: error => {
@@ -84,6 +87,8 @@ export function StocktakesPage() {
   });
 
   const locked = pending !== null;
+  const visibleDraftPage = Math.min(draftPage, Math.max(1, Math.ceil(lines.length / DRAFT_PAGE_SIZE)));
+  const draftOffset = (visibleDraftPage - 1) * DRAFT_PAGE_SIZE;
   const countsReady = lines.every(line =>
     line.countedQuantity !== null && Number.isInteger(line.countedQuantity) &&
     line.countedQuantity >= 0 && line.countedQuantity <= MAX_QUANTITY);
@@ -97,6 +102,8 @@ export function StocktakesPage() {
   }
 
   function add(stock: StockCandidate) {
+    const index = lines.findIndex(line => line.variantId === stock.variantId);
+    setDraftPage(1 + Math.floor((index < 0 ? lines.length : index) / DRAFT_PAGE_SIZE));
     setLines(current => current.some(line => line.variantId === stock.variantId) ? current : [
       ...current,
       {
@@ -199,7 +206,13 @@ export function StocktakesPage() {
             compactColumns={{ title: 'label', actions: 'actions' }}
             rowKey="variantId"
             dataSource={lines}
-            pagination={false}
+            pagination={{
+              current: visibleDraftPage,
+              pageSize: DRAFT_PAGE_SIZE,
+              hideOnSinglePage: true,
+              showSizeChanger: false,
+              onChange: setDraftPage,
+            }}
             scroll={{ x: 'max-content' }}
             locale={{ emptyText: 'Chưa có hàng trong phiếu.' }}
             columns={[
@@ -207,7 +220,7 @@ export function StocktakesPage() {
               { title: 'Tồn hệ thống', dataIndex: 'systemQuantity', align: 'right' },
               { title: 'Số đếm thực tế', key: 'countedQuantity', render: (_, line, index) => (
                 <InputNumber
-                  aria-label={'Số đếm thực tế dòng ' + (index + 1)}
+                  aria-label={'Số đếm thực tế dòng ' + (draftOffset + index + 1)}
                   aria-required="true"
                   inputMode="numeric"
                   min={0}
@@ -225,7 +238,7 @@ export function StocktakesPage() {
               } },
               { title: 'Lý do chênh lệch', key: 'reason', render: (_, line, index) => (
                 <Input
-                  aria-label={'Lý do chênh lệch dòng ' + (index + 1)}
+                  aria-label={'Lý do chênh lệch dòng ' + (draftOffset + index + 1)}
                   aria-required={line.countedQuantity !== null && line.countedQuantity !== line.systemQuantity}
                   placeholder="Bắt buộc nếu lệch"
                   maxLength={200}
@@ -235,7 +248,7 @@ export function StocktakesPage() {
                 />
               ) },
               { title: 'Thao tác', key: 'actions', render: (_, line, index) => (
-                <Button danger aria-label={`Bỏ dòng ${index + 1}`} disabled={locked} onClick={() =>
+                <Button danger aria-label={`Bỏ dòng ${draftOffset + index + 1}`} disabled={locked} onClick={() =>
                   setLines(current => current.filter(row => row.variantId !== line.variantId))}>Bỏ dòng</Button>
               ) },
             ]}

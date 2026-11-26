@@ -16,14 +16,16 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it('shows net revenue, order totals, and daily breakdown from Q1 and Q2', async () => {
+it('shows net revenue and order totals across pages of the daily report', async () => {
   setupPage(<RevenueReportPage />, (url) => {
     if (url.startsWith('/api/v1/reporting/q/Q1?')) {
       return Response.json({
-        queryId: 'Q1', range: { fromDate: '2026-11-01', toDate: '2026-11-01' },
+        queryId: 'Q1', range: { fromDate: '2026-11-01', toDate: '2026-11-15' },
         params: {}, columns: [], rows: [{
           date: '2026-11-01', grossSales: 50_000, refundTotal: 10_000, revenue: 40_000, discountTotal: 5_000,
-        }],
+        }, ...Array.from({ length: 14 }, (_, index) => ({
+          date: `2026-11-${String(index + 2).padStart(2, '0')}`, grossSales: 0, refundTotal: 0, revenue: 0, discountTotal: 0,
+        }))],
         summary: { grossSales: 50_000, refundTotal: 10_000, revenue: 40_000, discountTotal: 5_000 },
       });
     }
@@ -42,6 +44,10 @@ it('shows net revenue, order totals, and daily breakdown from Q1 and Q2', async 
   expect(screen.getAllByText('40.000', { exact: false })).toHaveLength(2);
   expect(screen.getAllByText('10.000', { exact: false })).toHaveLength(2);
   expect(screen.getByText('01/11/2026')).toBeTruthy();
+  expect(screen.queryByText('15/11/2026')).toBeNull();
+  fireEvent.click(within(screen.getByTitle('2')).getByRole('button'));
+  expect(await screen.findByText('15/11/2026')).toBeTruthy();
+  expect(screen.getByText('40.000', { exact: false })).toBeTruthy();
 });
 
 it('renders best and slow product rankings returned by Q4', async () => {

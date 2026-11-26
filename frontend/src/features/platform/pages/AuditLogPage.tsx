@@ -1,6 +1,6 @@
 import { DownOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
-import { Button, Flex, Input, Modal, Select, Typography } from 'antd';
+import { Button, Flex, Input, Modal, Typography } from 'antd';
 import type { TableProps } from 'antd';
 import { useId, useState } from 'react';
 import { useSearchParams } from 'react-router';
@@ -10,6 +10,7 @@ import { MAX_RANGE_DAYS, VIETNAM_TIME_ZONE } from '../../../shared/components/da
 import { fetchAuditActions, fetchAuditLog } from '../api/auditLog';
 import type { AuditEntry, AuditFilters, Snapshot } from '../api/auditLog';
 import { ActorFilterSelect } from '../../../shared/components/ActorFilterSelect';
+import { LocalFilterSelect } from '../../../shared/components/LocalFilterSelect';
 
 const TITLE = 'Nhật ký thao tác';
 const DATE_ERROR_ID = 'audit-log-date-error';
@@ -123,9 +124,9 @@ export function AuditLogPage() {
     <Flex id={filterId} className="audit-filters" hidden={compact && !showFilters}
       gap="small" wrap align="end" role="group" aria-label="Bộ lọc nhật ký">
       <label className="filter-field" style={{ width: 220, maxWidth: '100%' }}>Loại thao tác
-        <Select aria-label="Loại thao tác" allowClear placeholder="Tất cả" style={{ width: '100%' }}
+        <LocalFilterSelect aria-label="Loại thao tác" allowClear placeholder="Tất cả" style={{ width: '100%' }}
           loading={actions.isFetching} value={filters.action} disabled={actions.isError && !actions.data && !filters.action}
-          options={actions.data?.map(({ action, label }) => ({ value: action, label }))}
+          options={(actions.data ?? []).map(({ action, label }) => ({ value: action, label }))}
           onChange={(action) => update({ action, page: undefined })} />
       </label>
       <label className="filter-field" style={{ width: 180, maxWidth: '100%' }}>Người thực hiện

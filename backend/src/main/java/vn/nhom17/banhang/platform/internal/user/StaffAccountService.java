@@ -117,25 +117,43 @@ class StaffAccountService {
 
     /**
      * Mọi người dùng của Cửa hàng (cả Chủ cửa hàng), Chủ cửa hàng đứng đầu, rồi Nhân viên mới tạo trước. {@code page}
-     * từ 0, {@code size} mặc định 20, tối đa 100 (AD-19).
+     * từ 0, {@code size} mặc định 20, tối đa 100 (AD-19). {@code q} tìm trong tên hiển thị hoặc tên đăng nhập,
+     * không cần dấu, không phân biệt hoa thường; giữ cả tài khoản bị khóa để lọc lịch sử.
      */
     @Transactional(readOnly = true)
-    PageResponse<StoreUser> list(Integer page, Integer size) {
+    PageResponse<StoreUser> list(String q, Integer page, Integer size) {
         int pageNo = page == null || page < 0 ? 0 : page;
         int pageSize = PageResponse.clampSize(size);
-        UUID storeId = context.storeId();
-        Long total = jdbc.queryForObject("select count(*) from app.app_user where store_id = ?", Long.class, storeId);
+        StringBuilder where = new StringBuilder("from app.app_user u where u.store_id = ?\n");
+        List<Object> args = new ArrayList<>(List.of(context.storeId()));
+        String query = StaffAccountSearch.query(q);
+        if (query != null) {
+            where.append(" and (").append(StaffAccountSearch.containsFolded("u.display_name"))
+                    .append(" or ").append(StaffAccountSearch.containsFolded("u.login_key")).append(")\n");
+            args.add(query);
+            args.add(query);
+        }
+        Long total = jdbc.queryForObject("select count(*) " + where, Long.class, args.toArray());
         if (total == null || total == 0) {
             return new PageResponse<>(List.of(), 0, pageNo, pageSize);
         }
+        args.add(pageSize);
+        args.add((long) pageNo * pageSize);
         List<StoreUser> items = jdbc.query("""
-                select id, login_key, display_name, role, status, phone, created_at
-                from app.app_user
-                where store_id = ?
-                order by case when role = 'OWNER' then 0 else 1 end, created_at desc, id desc
+                select u.id, u.login_key, u.display_name, u.role, u.status, u.phone, u.created_at
+                """ + where + """
+                order by case when u.role = 'OWNER' then 0 else 1 end, u.created_at desc, u.id desc
                 limit ? offset ?
-                """, ROW, storeId, pageSize, (long) pageNo * pageSize);
+                """, ROW, args.toArray());
         return new PageResponse<>(items, total, pageNo, pageSize);
+    }
+
+    /** Chỉ đọc nhãn trong Cửa hàng hiện tại, không phụ thuộc trang danh sách hay trạng thái tài khoản. */
+    @Transactional(readOnly = true)
+    UserOption option(UUID id) {
+        return jdbc.query("select id, display_name from app.app_user where store_id = ? and id = ?",
+                (rs, i) -> new UserOption(rs.getObject("id", UUID.class), rs.getString("display_name")),
+                context.storeId(), id).stream().findFirst().orElseThrow(StaffAccountService::notFound);
     }
 
     /** Gọi ngoài transaction: kiểm và băm mật khẩu trước, transaction chỉ bọc INSERT và Nhật ký. */

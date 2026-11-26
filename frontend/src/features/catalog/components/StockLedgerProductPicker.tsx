@@ -11,29 +11,29 @@
  * nút thử lại. Link chỉ có `variantId` (hoặc `productId` không khớp Biến thể) thì hiện `fallbackLabel` (tên lấy từ
  * dòng sổ kho của Biến thể đó).
  */
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { Button, Flex, Select, Tag, Typography } from 'antd';
 import type { SelectProps } from 'antd';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { SEARCH_DEBOUNCE_MS } from '../../../shared/components/SearchInput';
 import type { Product, ProductVariant } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { describeError } from '../../../shared/messages.vi';
 import { defaultVariant, fetchProduct, fetchProducts, productsQueryKey } from '../api/products';
 
-/** Số Sản phẩm hiện trong danh sách gợi ý; gõ thêm để thu hẹp. */
-const SEARCH_REQUEST = { page: 0, size: 20 };
+const PAGE_SIZE = 20;
+const LOAD_MORE = '__load_more_products__';
 /** Giá trị của ô chọn Sản phẩm khi chỉ biết Biến thể (link chỉ có `variantId`). */
 const VARIANT_ONLY = 'variant-only';
 const VARIANT_ONLY_LABEL = 'Biến thể đã chọn';
 
-type ProductOption = { value: Uuid; label: string; product: Product };
+type ProductOption = { value: Uuid; label: string; product?: Product };
 
 /** Một dòng gợi ý: tên, kèm thẻ "Ngừng kinh doanh" cho hàng đã ngừng (vẫn chọn được để xem lịch sử). */
 const renderProductOption: NonNullable<SelectProps<Uuid, ProductOption>['optionRender']> = (option) => (
   <Flex justify="space-between" gap={8}>
     <span>{option.label}</span>
-    {option.data.product.status === 'INACTIVE' ? <Tag>Ngừng kinh doanh</Tag> : null}
+    {option.data.product?.status === 'INACTIVE' ? <Tag>Ngừng kinh doanh</Tag> : null}
   </Flex>
 );
 
@@ -58,6 +58,7 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [q, setQ] = useState('');
+  const keepOpen = useRef(false);
   // Sản phẩm vừa chọn từ kết quả tìm: đã có đủ Biến thể, không cần tải chi tiết
   const [picked, setPicked] = useState<Product | null>(null);
 
@@ -68,10 +69,13 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
     return () => clearTimeout(timer);
   }, [search, q]);
 
-  const results = useQuery({
-    queryKey: [...productsQueryKey, { q: q || undefined, ...SEARCH_REQUEST }],
-    queryFn: ({ signal }) => fetchProducts(SEARCH_REQUEST, { q: q || undefined }, signal),
-    enabled: open,
+  const results = useInfiniteQuery({
+    queryKey: [...productsQueryKey, 'ledger-options', q],
+    queryFn: ({ pageParam, signal }) => fetchProducts({ page: pageParam, size: PAGE_SIZE }, { q: q || undefined }, signal),
+    initialPageParam: 0,
+    getNextPageParam: ({ items, page, size, total }) =>
+      items.length > 0 && (page + 1) * size < total ? page + 1 : undefined,
+    enabled: open && search.trim() === q,
   });
 
   const { productId, variantId } = value;
@@ -95,6 +99,14 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
   const detailFailed = Boolean(productId) && !product && detail.isError;
   // Chữ đang gõ chưa được tìm (đang chờ hết thời gian gõ): không hiện kết quả của từ khóa cũ
   const searching = search.trim() !== q;
+  const matches = searching ? [] : results.data?.pages.flatMap(({ items }) => items) ?? [];
+  const options: ProductOption[] = matches.map((item) => ({ value: item.id, label: item.name, product: item }));
+  if (!searching && results.hasNextPage) {
+    options.push({
+      value: LOAD_MORE,
+      label: results.isFetchingNextPage ? 'Đang tải thêm…' : results.isFetchNextPageError ? 'Thử tải thêm' : 'Tải thêm kết quả',
+    });
+  }
 
   const resetSearch = () => {
     setSearch('');
@@ -109,7 +121,12 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
   };
 
   const onProductChange = (id: Uuid | undefined) => {
-    const chosen = results.data?.items.find((p) => p.id === id);
+    if (id === LOAD_MORE) {
+      keepOpen.current = true;
+      if (!results.isFetching) void results.fetchNextPage();
+      return;
+    }
+    const chosen = matches.find((item) => item.id === id);
     resetSearch();
     if (!id || !chosen) {
       setPicked(null);
@@ -134,7 +151,12 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
           allowClear
           placeholder="Mọi Sản phẩm (gõ để tìm)"
           value={selectValue}
+          open={open}
           onOpenChange={(next) => {
+            if (!next && keepOpen.current) {
+              keepOpen.current = false;
+              return;
+            }
             setOpen(next);
             if (!next) resetSearch();
           }}
@@ -148,11 +170,7 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
             event.stopPropagation();
             setQ(search.trim());
           }}
-          options={
-            searching
-              ? []
-              : (results.data?.items ?? []).map((p): ProductOption => ({ value: p.id, label: p.name, product: p }))
-          }
+          options={options}
           optionRender={renderProductOption}
           // Sản phẩm đang chọn không có trong kết quả tìm hiện tại (mở từ link, tìm từ khác): không hiện id thô
           labelRender={({ label }) => label ?? selectedLabel()}

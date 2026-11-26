@@ -120,6 +120,7 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/platform/store", U, F, A),
                 row("PUT", "/api/v1/platform/store", U, F, A),
                 row("GET", "/api/v1/platform/users", U, F, A),
+                row("GET", "/api/v1/platform/users/{id}/option", U, F, A),
                 row("POST", "/api/v1/platform/users", U, F, A),
                 row("POST", "/api/v1/platform/users/{id}/lock", U, F, A),
                 row("POST", "/api/v1/platform/users/{id}/unlock", U, F, A),

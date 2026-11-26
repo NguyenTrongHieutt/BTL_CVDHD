@@ -44,21 +44,26 @@ it('nêu rõ kết quả lọc hàng ngừng và ảnh hưởng của bộ lọc
   }
 });
 
-it('tìm và chọn đúng SKU trong một ô rồi lưu ngưỡng từ dữ liệu tồn kho', async () => {
+it('tải thêm kết quả tìm SKU, tự điền ngưỡng hiện tại và lưu đúng biến thể', async () => {
   const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
     const { pathname, searchParams } = new URL(String(input), 'http://localhost');
     if (init?.method === 'PUT') return new Response(null, { status: 204 });
     if (pathname.endsWith('/low-stock')) return Response.json([]);
-    const items = pathname.endsWith('/stock') && searchParams.get('q') === 'TRA-350' ? [active] : [];
-    return Response.json({ items, total: items.length, page: 0, size: 20 });
+    const page = Number(searchParams.get('page'));
+    if (pathname.endsWith('/stock') && searchParams.get('q') === 'TRA') {
+      const items = page === 0 ? [{ ...active, variantId: 'other', sku: 'TRA-330' }] : [active];
+      return Response.json({ items, total: 21, page, size: 20 });
+    }
+    return Response.json({ items: [], total: 0, page, size: 20 });
   });
   vi.stubGlobal('fetch', fetchMock);
   const view = setup(<CurrentUserContext value={user}><StockPage /></CurrentUserContext>);
   try {
     const choose = screen.getByRole('combobox', { name: 'Sản phẩm hoặc biến thể' });
     fireEvent.mouseDown(choose);
-    fireEvent.change(choose, { target: { value: 'TRA-350' } });
-    fireEvent.click(await screen.findByRole('option', { name: 'Trà nhài · 350 ml · TRA-350' }));
+    fireEvent.change(choose, { target: { value: 'TRA' } });
+    fireEvent.click(await screen.findByTitle('Tải thêm kết quả'));
+    fireEvent.click(await screen.findByTitle('Trà nhài · 350 ml · TRA-350'));
     const threshold = screen.getByRole<HTMLInputElement>('spinbutton', { name: 'Ngưỡng tồn tối thiểu' });
     expect(threshold.value).toBe('2');
     fireEvent.change(threshold, { target: { value: '5' } });

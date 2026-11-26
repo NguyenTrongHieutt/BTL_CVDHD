@@ -178,7 +178,7 @@ final class ProductImportPlanner {
         return attributes;
     }
 
-    private static void addFieldErrors(FieldErrors fields, ImportRow row, List<RowError> errors, boolean variant) {
+    static void addFieldErrors(FieldErrors fields, ImportRow row, List<RowError> errors, boolean variant) {
         for (Map<String, String> field : fields.entries()) {
             String name = field.get("field");
             ImportColumn column = variant && "name".equals(name) ? ImportColumn.VARIANT_NAME

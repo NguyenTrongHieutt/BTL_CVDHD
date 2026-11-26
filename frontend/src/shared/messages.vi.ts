@@ -147,6 +147,10 @@ export const PROBLEM_MESSAGES: Readonly<Record<string, UserMessage>> = {
   },
 
   // inventory
+  '/errors/inventory/receipt-import-preview-stale': {
+    message: 'Dữ liệu phiếu nhập đã thay đổi.',
+    hint: 'Bấm Kiểm tra lại để xem dữ liệu mới nhất rồi xác nhận.',
+  },
   '/errors/inventory/stocktake-stale': {
     message: 'Tồn hệ thống đã thay đổi trong lúc kiểm kho.',
     hint: 'Kiểm tra lại số đếm và lý do trên các dòng đã cập nhật trước khi lưu.',

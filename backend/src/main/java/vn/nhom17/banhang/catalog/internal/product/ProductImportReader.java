@@ -86,8 +86,23 @@ final class ProductImportReader {
     private ProductImportReader() {
     }
 
+    enum Profile {
+        CATALOG, RECEIPT;
+
+        boolean includes(ImportColumn column) {
+            return (this == CATALOG ? ImportColumn.catalogColumns() : ImportColumn.receiptColumns()).contains(column);
+        }
+
+        boolean required(ImportColumn column) {
+            return this == CATALOG ? column.required
+                    : column == ImportColumn.SKU || column == ImportColumn.RECEIPT_QUANTITY
+                    || column == ImportColumn.RECEIPT_UNIT_COST;
+        }
+    }
+
     /**
-     * Một dòng dữ liệu. {@code texts}: giá trị ô của cột chữ (chưa chuẩn hóa); {@code numbers}: giá trị ô của cột số;
+     * Một dòng dữ liệu. {@code texts}: ô chữ (chưa chuẩn hóa), và chữ gốc của ô số không đọc được để sửa khi xem
+     * trước; {@code numbers}: giá trị ô của cột số;
      * ô trống không có trong hai bảng. {@code cellErrors}: lỗi đọc ô (chữ không phải số, ô lỗi công thức) theo cột.
      */
     record ImportRow(int row, Map<ImportColumn, String> texts, Map<ImportColumn, BigDecimal> numbers,
@@ -96,8 +111,12 @@ final class ProductImportReader {
 
     /** CSV phải được chọn với đuôi .csv; XLSX vẫn kiểm nội dung như phiên bản trước. */
     static List<ImportRow> read(byte[] content, String filename) {
+        return read(content, filename, Profile.CATALOG);
+    }
+
+    static List<ImportRow> read(byte[] content, String filename, Profile profile) {
         return filename != null && filename.toLowerCase(Locale.ROOT).endsWith(".csv")
-                ? readCsv(content) : read(content);
+                ? readCsv(content, profile) : read(content, profile);
     }
 
     private record CsvRecord(int row, List<String> cells) {
@@ -105,6 +124,10 @@ final class ProductImportReader {
 
     /** UTF-8, có thể có BOM; số dòng là dòng vật lý bắt đầu bản ghi, kể cả ô chứa xuống dòng. */
     static List<ImportRow> readCsv(byte[] content) {
+        return readCsv(content, Profile.CATALOG);
+    }
+
+    private static List<ImportRow> readCsv(byte[] content, Profile profile) {
         String text;
         try {
             text = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
@@ -115,22 +138,27 @@ final class ProductImportReader {
         if (text.startsWith("\ufeff")) {
             text = text.substring(1);
         }
-        CsvRows records = new CsvRows();
+        CsvRows records = new CsvRows(profile);
         csvRecords(text, csvDelimiter(text), records::accept);
         if (records.columns == null) {
-            headerColumns(List.of());
+            headerColumns(List.of(), profile);
         }
         return List.copyOf(records.rows);
     }
 
     /** Xử lý từng bản ghi ngay; hàng triệu dòng trống trong 2 MB không tạo hàng triệu object chờ đọc. */
     private static final class CsvRows {
+        private final Profile profile;
         private Map<ImportColumn, Integer> columns;
         private final List<ImportRow> rows = new ArrayList<>();
 
+        private CsvRows(Profile profile) {
+            this.profile = profile;
+        }
+
         private void accept(CsvRecord record) {
             if (columns == null) {
-                columns = headerColumns(record.cells());
+                columns = headerColumns(record.cells(), profile);
                 return;
             }
             ImportRow row = readCsvRow(record, columns);
@@ -161,6 +189,7 @@ final class ProductImportReader {
             } else {
                 BigDecimal number = parseNumber(value);
                 if (number == null) {
+                    texts.put(column, value);
                     errors.put(column, numberProblem(column, value));
                 } else {
                     numbers.put(column, number);
@@ -264,12 +293,16 @@ final class ProductImportReader {
 
     /** Đọc {@code content} (đã kiểm cỡ). Tệp không đọc được, sai mẫu, quá nhiều dòng: {@code 400 import-invalid-file}. */
     static List<ImportRow> read(byte[] content) {
+        return read(content, Profile.CATALOG);
+    }
+
+    private static List<ImportRow> read(byte[] content, Profile profile) {
         checkContainer(content);
         try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(content))) {
             if (workbook.getNumberOfSheets() == 0) {
                 throw invalid("File không có trang tính nào.");
             }
-            return readSheet(workbook.getSheetAt(0));
+            return readSheet(workbook.getSheetAt(0), profile);
         } catch (ProblemException problem) {
             throw problem;
         } catch (IOException | RuntimeException unreadable) {
@@ -316,8 +349,8 @@ final class ProductImportReader {
         }
     }
 
-    private static List<ImportRow> readSheet(Sheet sheet) {
-        Map<ImportColumn, Integer> columns = headerColumns(sheet.getRow(0));
+    private static List<ImportRow> readSheet(Sheet sheet, Profile profile) {
+        Map<ImportColumn, Integer> columns = headerColumns(sheet.getRow(0), profile);
         List<ImportRow> rows = new ArrayList<>();
         for (Row row : sheet) {
             if (row.getRowNum() == 0) {
@@ -337,24 +370,24 @@ final class ProductImportReader {
     }
 
     /** Vị trí cột của từng tiêu đề nhận ra ở dòng 1; thiếu cột bắt buộc, cột lặp: {@code 400}. */
-    private static Map<ImportColumn, Integer> headerColumns(Row header) {
+    private static Map<ImportColumn, Integer> headerColumns(Row header, Profile profile) {
         List<String> cells = new ArrayList<>();
         if (header != null) {
             for (int i = 0; i < header.getLastCellNum(); i++) {
                 cells.add(cellText(header.getCell(i)));
             }
         }
-        return headerColumns(cells);
+        return headerColumns(cells, profile);
     }
 
-    private static Map<ImportColumn, Integer> headerColumns(List<String> header) {
+    private static Map<ImportColumn, Integer> headerColumns(List<String> header, Profile profile) {
         Map<ImportColumn, Integer> columns = new EnumMap<>(ImportColumn.class);
         Set<String> repeated = new LinkedHashSet<>();
         if (header != null) {
             for (int i = 0; i < header.size(); i++) {
                 String text = header.get(i);
                 ImportColumn column = text == null ? null : ImportColumn.ofHeader(text);
-                if (column != null && columns.putIfAbsent(column, i) != null) {
+                if (column != null && profile.includes(column) && columns.putIfAbsent(column, i) != null) {
                     repeated.add(column.header);
                 }
             }
@@ -365,7 +398,7 @@ final class ProductImportReader {
         }
         List<String> missing = new ArrayList<>();
         for (ImportColumn column : ImportColumn.values()) {
-            if (column.required && !columns.containsKey(column)) {
+            if (profile.required(column) && !columns.containsKey(column)) {
                 missing.add(column.header);
             }
         }
@@ -406,6 +439,7 @@ final class ProductImportReader {
             }
             BigDecimal number = parseNumber(text);
             if (number == null) {
+                texts.put(column, text);
                 errors.put(column, numberProblem(column, text));
             } else {
                 numbers.put(column, number);

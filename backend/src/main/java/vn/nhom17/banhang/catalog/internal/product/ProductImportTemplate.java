@@ -5,7 +5,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -101,7 +100,7 @@ final class ProductImportTemplate {
         if (!row.cellErrors().isEmpty()) {
             return false;
         }
-        for (ImportColumn column : ImportColumn.values()) {
+        for (ImportColumn column : ImportColumn.catalogColumns()) {
             if (!EXAMPLE.containsKey(column)) {
                 if (row.texts().containsKey(column) || row.numbers().containsKey(column)) {
                     return false;
@@ -143,9 +142,9 @@ final class ProductImportTemplate {
     }
 
     static byte[] buildCsv() {
-        String headers = String.join(",", Arrays.stream(ImportColumn.values())
+        String headers = String.join(",", ImportColumn.catalogColumns().stream()
                 .map(column -> csvCell(column.templateHeader())).toList());
-        String example = String.join(",", Arrays.stream(ImportColumn.values())
+        String example = String.join(",", ImportColumn.catalogColumns().stream()
                 .map(column -> csvCell(String.valueOf(EXAMPLE.getOrDefault(column, "")))).toList());
         return ("\ufeff" + headers + "\r\n" + example + "\r\n").getBytes(StandardCharsets.UTF_8);
     }
@@ -170,7 +169,7 @@ final class ProductImportTemplate {
         Drawing<?> drawing = sheet.createDrawingPatriarch();
         Row headerRow = sheet.createRow(0);
         Row exampleRow = sheet.createRow(1);
-        for (ImportColumn column : ImportColumn.values()) {
+        for (ImportColumn column : ImportColumn.catalogColumns()) {
             int index = column.ordinal();
             CellStyle columnStyle = switch (column) {
                 case SALE_PRICE, OPENING_QUANTITY, OPENING_UNIT_COST -> number;

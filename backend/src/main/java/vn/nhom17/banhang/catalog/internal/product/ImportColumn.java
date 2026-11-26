@@ -43,10 +43,22 @@ enum ImportColumn {
     ATTRIBUTE_NAME_2("Tên thuộc tính 2", false, Kind.TEXT, "attributeName2", "Tối đa 50 ký tự, không trùng tên khác."),
     ATTRIBUTE_VALUE_2("Giá trị thuộc tính 2", false, Kind.TEXT, "attributeValue2", "Tối đa 50 ký tự."),
     ATTRIBUTE_NAME_3("Tên thuộc tính 3", false, Kind.TEXT, "attributeName3", "Tối đa 50 ký tự, không trùng tên khác."),
-    ATTRIBUTE_VALUE_3("Giá trị thuộc tính 3", false, Kind.TEXT, "attributeValue3", "Tối đa 50 ký tự.");
+    ATTRIBUTE_VALUE_3("Giá trị thuộc tính 3", false, Kind.TEXT, "attributeValue3", "Tối đa 50 ký tự."),
+    RECEIPT_QUANTITY("Số lượng", false, Kind.NUMBER, "quantity", "Số nguyên lớn hơn 0 của phiếu nhập."),
+    RECEIPT_UNIT_COST("Giá nhập", false, Kind.NUMBER, "unitCost", "Số nguyên đồng lớn hơn 0 của phiếu nhập.");
 
     /** Ô chữ hay ô số (tiền, số lượng). */
     enum Kind { TEXT, NUMBER }
+
+    static List<ImportColumn> catalogColumns() {
+        return java.util.Arrays.stream(values()).filter(c -> c != RECEIPT_QUANTITY && c != RECEIPT_UNIT_COST).toList();
+    }
+
+    static List<ImportColumn> receiptColumns() {
+        return List.of(PARENT_CODE, NAME, VARIANT_NAME, SKU, BARCODE, CATEGORY, UNIT, DESCRIPTION, SALE_PRICE,
+                RECEIPT_QUANTITY, RECEIPT_UNIT_COST, ATTRIBUTE_NAME_1, ATTRIBUTE_VALUE_1, ATTRIBUTE_NAME_2,
+                ATTRIBUTE_VALUE_2, ATTRIBUTE_NAME_3, ATTRIBUTE_VALUE_3);
+    }
 
     /** Trường giả của cột Danh mục khi kiểm tên Danh mục bằng {@link TextFields}. */
     static final String CATEGORY_FIELD = "category";

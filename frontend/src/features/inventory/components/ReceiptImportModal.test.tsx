@@ -109,7 +109,7 @@ describe('ReceiptImportModal', () => {
     const supplier = modal().getByRole('combobox', { name: 'Nhà cung cấp' });
     fireEvent.mouseDown(supplier);
     fireEvent.change(supplier, { target: { value: 'tra sen' } });
-    fireEvent.click(await screen.findByRole('option', { name: 'Trà sen · SEN-01' }));
+    fireEvent.click(await screen.findByTitle('Trà sen · SEN-01'));
     await review();
     const form = requests('/preview')[0][1]?.body;
     expect(form instanceof FormData ? form.get('supplierId') : undefined).toBe(supplierId);
@@ -120,11 +120,19 @@ describe('ReceiptImportModal', () => {
     const { onImported } = renderModal();
     expect((await review()).disabled).toBe(true);
     expect(requests('')).toHaveLength(0);
+    const search = modal().getByRole('textbox', { name: 'Tìm dòng trong file' });
+    fireEvent.change(search, { target: { value: 'khong ton tai' } });
+    expect(modal().getByText('Không có dòng lỗi khớp từ khóa.')).toBeTruthy();
+    expect(modal().getByRole<HTMLButtonElement>('button', { name: 'Xác nhận nhập kho' }).disabled).toBe(true);
+    fireEvent.change(search, { target: { value: 'dong 3' } });
     fireEvent.click(modal().getByRole('button', { name: 'Sửa dòng 3' }));
     const cost = modal().getByRole('textbox', { name: 'Giá nhập' });
     expect(cost.getAttribute('aria-invalid')).toBe('true');
     fireEvent.change(cost, { target: { value: '16333' } });
     fireEvent.click(modal().getByRole('button', { name: 'Áp dụng và kiểm tra' }));
+    const restored = await modal().findByRole<HTMLInputElement>('textbox', { name: 'Tìm dòng trong file' });
+    expect(restored.value).toBe('dong 3');
+    fireEvent.change(restored, { target: { value: '' } });
     await modal().findByText('Mã cha TRA · 2 SKU');
     expect(modal().getByText('Thêm biến thể')).toBeTruthy();
     const save = await modal().findByRole<HTMLButtonElement>('button', { name: 'Xác nhận nhập kho' });

@@ -13,6 +13,7 @@ import { invalidateReceiptQueries, RECEIPTS_PATH } from '../receiptImportApi';
 import type { Receipt } from '../receiptImportApi';
 
 const MAX_QUANTITY = 2_147_483_647;
+const DRAFT_PAGE_SIZE = 20;
 
 interface DraftLine {
   variantId: Uuid;
@@ -37,6 +38,7 @@ export function PurchaseReceiptsPage() {
   const [supplier, setSupplier] = useState<ReceiptSupplier>();
   const [note, setNote] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
+  const [draftPage, setDraftPage] = useState(1);
   const [pending, setPending] = useState<Submission | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [savedReceipt, setSavedReceipt] = useState<Receipt>();
@@ -48,6 +50,7 @@ export function PurchaseReceiptsPage() {
       setPending(null);
       setSupplier(undefined);
       setLines([]);
+      setDraftPage(1);
       setNote('');
       setSavedReceipt(receipt);
       void invalidateReceiptQueries(queryClient);
@@ -71,6 +74,8 @@ export function PurchaseReceiptsPage() {
   }
 
   function addProduct(product: SellableItem) {
+    const index = lines.findIndex(line => line.variantId === product.variantId);
+    setDraftPage(1 + Math.floor((index < 0 ? lines.length : index) / DRAFT_PAGE_SIZE));
     setLines((current) => {
       const label = [product.name, product.variantName].filter(Boolean).join(' · ');
       if (!current.some((line) => line.variantId === product.variantId)) {
@@ -139,7 +144,13 @@ export function PurchaseReceiptsPage() {
           compactColumns={{ title: 'label', actions: 'actions' }}
           rowKey="variantId"
           dataSource={lines}
-          pagination={false}
+          pagination={{
+            current: Math.min(draftPage, Math.max(1, Math.ceil(lines.length / DRAFT_PAGE_SIZE))),
+            pageSize: DRAFT_PAGE_SIZE,
+            hideOnSinglePage: true,
+            showSizeChanger: false,
+            onChange: setDraftPage,
+          }}
           scroll={{ x: 'max-content' }}
           style={{ marginTop: 16 }}
           locale={{ emptyText: 'Chưa có sản phẩm trong phiếu.' }}

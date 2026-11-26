@@ -44,6 +44,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string>();
   const [preview, setPreview] = useState<ReceiptImportPreview>();
+  const [reviewSearch, setReviewSearch] = useState('');
   const [edits, setEdits] = useState<ReceiptImportEdit[]>([]);
   const [editing, setEditing] = useState<ReceiptImportRow>();
   const [pendingCommit, setPendingCommit] = useState<ReceiptImportCommit>();
@@ -118,6 +119,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
     setFile(problem ? null : picked);
     setEdits([]);
     setPreview(undefined);
+    setReviewSearch('');
     setRequiresReview(false);
     inspect.reset();
     commit.reset();
@@ -127,6 +129,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
   function back() {
     if (preview) {
       setPreview(undefined);
+      setReviewSearch('');
       inspect.reset();
       commit.reset();
     } else {
@@ -192,6 +195,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
                   busy={busy} onCancel={() => setEditing(undefined)} onApply={changes => apply(editing, changes)} />
               ) : (
                 <ReceiptImportReview key={preview.previewToken} preview={preview} onEdit={setEditing}
+                  search={reviewSearch} onSearchChange={setReviewSearch}
                   disabled={busy || pendingCommit !== undefined} />
               )}
             </Flex>

@@ -201,7 +201,7 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 
 `GET /api/v1/reporting/dashboard` (BC-01), chỉ Chủ cửa hàng, trả `{date, today: {revenue, orderCount}, top5Last7Days: [{productId, name, quantity, revenue}]}`. `date` là hôm nay theo giờ Việt Nam. Doanh thu tính đơn sau giảm giá, bỏ đơn hủy và trừ tiền hoàn theo ngày trả. Xếp hạng gộp biến thể theo sản phẩm, tính số bán ròng trong 7 ngày gồm hôm nay và lấy tối đa 5 sản phẩm. Màn tổng quan lấy cảnh báo tồn thấp qua `/api/v1/inventory/low-stock`.
 
-`GET /api/v1/reporting/q/{Qn}`, chỉ Chủ cửa hàng. Giai đoạn 1 hiện triển khai `Q1`, `Q2`, `Q4`, `Q5`; `Q3`, `Q6`–`Q9` chưa có API. Phản hồi dùng chung một khung:
+`GET /api/v1/reporting/q/{Qn}`, chỉ Chủ cửa hàng. Hỗ trợ `Q1` đến `Q5`. Phản hồi dùng chung một khung:
 
 ```json
 {
@@ -216,7 +216,8 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 
 `type` của cột: `text`, `date`, `money`, `int`, `percent`. Mỗi phản hồi luôn có `range` (AD-10).
 
-- `Q1` và `Q2` bắt buộc có `fromDate`, `toDate` (bao gồm cả hai đầu, tối đa 366 ngày). Ngày được cắt theo giờ Việt Nam; đơn bị hủy bị loại, tiền hoàn được trừ theo ngày lập phiếu trả.
+- `Q1` đến `Q3` bắt buộc có `fromDate`, `toDate` (bao gồm cả hai đầu, tối đa 366 ngày). Ngày được cắt theo giờ Việt Nam; đơn bị hủy không tính vào doanh thu, tiền hoàn được trừ theo ngày lập phiếu trả.
+- `Q3` trả `rows` theo ngày (kể cả ngày không phát sinh giao dịch) và `summary` theo kỳ, gồm `revenue`, `costOfGoodsSold`, `grossProfit` bằng đồng. Doanh thu thuần lấy cùng số liệu với `Q1`. Giá vốn dùng đơn giá chụp ở dòng bán gốc. Số lượng trả làm giảm giá vốn theo ngày lập phiếu trả. Lợi nhuận gộp bằng doanh thu thuần trừ giá vốn hàng bán.
 - `Q4` nhận cùng khoảng ngày; nếu bỏ trống cả hai ngày thì mặc định 30 ngày gần nhất. `direction=BEST_SELLING|SLOW_SELLING`, `rankBy=QUANTITY|REVENUE` (mặc định `QUANTITY`), `limit` từ 1 đến 50 (mặc định 10). Sản phẩm bán chậm gồm sản phẩm đang kinh doanh không phát sinh bán trong kỳ.
 - `Q5` trả tồn kho hiện tại của biến thể đang kinh doanh, giá trị tồn theo `quantity × avg_unit_cost`; nhận một bộ lọc `productName` hoặc `categoryName`. `range` là ngày hiện tại theo giờ Việt Nam. `summary` có tổng số lượng/giá trị, danh sách theo danh mục (`byCategory`) và theo sản phẩm (`byProduct`); `rows` là chi tiết từng biến thể.
 

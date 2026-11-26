@@ -60,10 +60,11 @@ class ReportingQueryController {
         return switch (queryId) {
             case "Q1" -> revenue(requireRange(fromDate, toDate));
             case "Q2" -> orders(requireRange(fromDate, toDate));
+            case "Q3" -> grossProfit(requireRange(fromDate, toDate));
             case "Q4" -> ranking(rankingRange(fromDate, toDate, today), parseDirection(direction),
                     parseRankBy(rankBy), validateLimit(limit));
             case "Q5" -> inventory(today, validateInventoryFilters(productName, categoryName));
-            default -> throw invalid("queryId", "Chỉ hỗ trợ Q1, Q2, Q4 và Q5 trong giai đoạn này.");
+            default -> throw invalid("queryId", "Chỉ hỗ trợ Q1, Q2, Q3, Q4 và Q5 trong giai đoạn này.");
         };
     }
 
@@ -160,6 +161,65 @@ class ReportingQueryController {
                         column("returnCount", "Số phiếu trả", "int")),
                 rows, Map.of("orderCount", orderCount, "cancelledCount", cancelledCount,
                         "fullyReturnedCount", fullyReturnedCount, "returnCount", returnCount));
+    }
+
+    private QueryResponse grossProfit(DateRange range) {
+        Map<String, Object> parameters = dateParameters(range);
+        parameters.put("from", startOfDay(range.fromDate()));
+        parameters.put("until", startOfDay(range.toDate().plusDays(1)));
+        parameters.put("storeId", context.storeId());
+        List<GrossProfitDay> rows = jdbc.query("""
+                WITH calendar AS (
+                    SELECT generate_series(CAST(:fromDate AS date), CAST(:toDate AS date), interval '1 day')::date AS date
+                ), sales AS (
+                    SELECT o.id, o.store_id, o.created_at, o.total_amount
+                    FROM app.sales_order o
+                    WHERE o.store_id = :storeId AND o.status <> 'CANCELLED'
+                      AND o.created_at >= :from AND o.created_at < :until
+                ), returns AS (
+                    SELECT r.id, r.store_id, r.order_id, r.created_at, r.refund_amount
+                    FROM app.sales_return r
+                    JOIN app.sales_order o ON o.id = r.order_id AND o.store_id = r.store_id
+                    WHERE r.store_id = :storeId AND o.status <> 'CANCELLED'
+                      AND r.created_at >= :from AND r.created_at < :until
+                ), events AS (
+                    SELECT (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS date,
+                           o.total_amount AS revenue, 0::bigint AS cost_of_goods_sold
+                    FROM sales o
+                    UNION ALL
+                    SELECT (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+                           -r.refund_amount, 0::bigint
+                    FROM returns r
+                    UNION ALL
+                    SELECT (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+                           0::bigint, l.quantity::bigint * l.unit_cost
+                    FROM sales o
+                    JOIN app.sales_order_line l ON l.order_id = o.id AND l.store_id = o.store_id
+                    UNION ALL
+                    SELECT (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
+                           0::bigint, -(rl.quantity::bigint * ol.unit_cost)
+                    FROM returns r
+                    JOIN app.sales_return_line rl ON rl.return_id = r.id AND rl.store_id = r.store_id
+                    JOIN app.sales_order_line ol ON ol.id = rl.order_line_id AND ol.store_id = rl.store_id
+                                               AND ol.order_id = r.order_id AND ol.variant_id = rl.variant_id
+                )
+                SELECT c.date,
+                       coalesce(sum(e.revenue), 0)::bigint AS revenue,
+                       coalesce(sum(e.cost_of_goods_sold), 0)::bigint AS cost_of_goods_sold,
+                       (coalesce(sum(e.revenue), 0) - coalesce(sum(e.cost_of_goods_sold), 0))::bigint AS gross_profit
+                FROM calendar c LEFT JOIN events e ON e.date = c.date
+                GROUP BY c.date ORDER BY c.date
+                """, parameters, (rs, row) -> new GrossProfitDay(rs.getObject("date", LocalDate.class),
+                rs.getLong("revenue"), rs.getLong("cost_of_goods_sold"), rs.getLong("gross_profit")));
+
+        long revenue = rows.stream().mapToLong(GrossProfitDay::revenue).sum();
+        long costOfGoodsSold = rows.stream().mapToLong(GrossProfitDay::costOfGoodsSold).sum();
+        long grossProfit = rows.stream().mapToLong(GrossProfitDay::grossProfit).sum();
+        return new QueryResponse("Q3", range, dateParameters(range),
+                List.of(column("date", "Ngày", "date"), column("revenue", "Doanh thu thuần", "money"),
+                        column("costOfGoodsSold", "Giá vốn hàng bán", "money"),
+                        column("grossProfit", "Lợi nhuận gộp", "money")),
+                rows, Map.of("revenue", revenue, "costOfGoodsSold", costOfGoodsSold, "grossProfit", grossProfit));
     }
 
     private QueryResponse ranking(DateRange range, Direction direction, RankBy rankBy, int limit) {
@@ -392,6 +452,7 @@ class ReportingQueryController {
     record Column(String key, String label, String type) {}
     record RevenueDay(LocalDate date, long grossSales, long refundTotal, long revenue, long discountTotal) {}
     record OrderDay(LocalDate date, long orderCount, long cancelledCount, long fullyReturnedCount, long returnCount) {}
+    record GrossProfitDay(LocalDate date, long revenue, long costOfGoodsSold, long grossProfit) {}
     record RankedProduct(int rank, UUID productId, String productName, String categoryName, long quantity,
                          long revenue, long soldQuantity, long returnedQuantity) {
         RankedProduct(UUID productId, String productName, String categoryName, long quantity, long revenue,

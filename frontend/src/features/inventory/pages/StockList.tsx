@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, Checkbox, Input, Select, Space, Tag } from 'antd';
+import { Card, Checkbox, Input, Select, Space, Tag, Typography } from 'antd';
 import { api } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
@@ -9,7 +9,7 @@ import { RecordTable } from '../../../shared/components/RecordTable';
 import type { Category } from '../../../shared/types/catalog';
 import type { StockLevel } from '../../../shared/types/inventory';
 
-interface StockItem extends StockLevel {
+export interface StockItem extends StockLevel {
   productName: string;
   variantName: string | null;
   sku: string;
@@ -54,6 +54,12 @@ export function StockList({ owner }: { owner: boolean }) {
     setFilters((previous) => ({ ...previous, ...change, page: 0 }));
   }
 
+  const items = stocks.data?.items ?? [];
+  const inactiveOnPage = items.filter((item) => !item.isActive).length;
+  const inactiveSummary = inactiveOnPage > 0 ? `Trang này có ${inactiveOnPage} mặt hàng ngừng kinh doanh.`
+    : (stocks.data?.total ?? 0) > filters.size ? 'Trang này không có hàng ngừng kinh doanh.'
+      : 'Không có hàng ngừng kinh doanh khớp bộ lọc hiện tại.';
+
   return (
     <Card title="Danh sách tồn kho">
       <Space wrap align="end" style={{ marginBottom: 16 }}>
@@ -85,6 +91,12 @@ export function StockList({ owner }: { owner: boolean }) {
           Gồm hàng ngừng kinh doanh
         </Checkbox>
       </Space>
+      {filters.includeInactive && (
+        <div style={{ marginBottom: 12 }} role="status">
+          {filters.belowMin ? <Typography.Text type="secondary">Bỏ chọn “Chỉ hàng tồn thấp” để xem hàng ngừng kinh doanh.</Typography.Text>
+            : stocks.isSuccess && !stocks.isFetching && <Typography.Text type="secondary">{inactiveSummary}</Typography.Text>}
+        </div>
+      )}
       {categories.isError && <ErrorAlert error={categories.error} retryLabel="Tải lại danh mục"
         onRetry={() => void categories.refetch()} retrying={categories.isFetching} />}
       {stocks.isError ? (
@@ -95,7 +107,7 @@ export function StockList({ owner }: { owner: boolean }) {
           compactColumns={{ title: 'name', status: 'status' }}
           rowKey="variantId"
           loading={stocks.isFetching}
-          dataSource={stocks.data?.items ?? []}
+          dataSource={items}
           scroll={{ x: true }}
           locale={{ emptyText: stocks.isPending ? 'Đang tải…' : 'Không tìm thấy hàng tồn kho.' }}
           pagination={{

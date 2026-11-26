@@ -115,6 +115,18 @@ describe('ReceiptImportModal', () => {
     expect(form instanceof FormData ? form.get('supplierId') : undefined).toBe(supplierId);
   });
 
+  it('mở nhóm khớp khi tìm SKU sang một nhóm khác trong bản xem trước', async () => {
+    mockBackend({ previews: [{
+      ...preview,
+      rows: [preview.rows[0], { ...preview.rows[1], parentCode: null }],
+    }] });
+    renderModal();
+    await review();
+    expect(modal().getByRole('button', { name: 'Sửa dòng 2' })).toBeTruthy();
+    fireEvent.change(modal().getByRole('textbox', { name: 'Tìm dòng trong file' }), { target: { value: 'TRA-500' } });
+    expect(await modal().findByRole('button', { name: 'Sửa dòng 3' })).toBeTruthy();
+  });
+
   it('sửa lỗi qua bước kiểm tra lại, gom SKU cũ và mới rồi lưu đúng một phiếu', async () => {
     mockBackend({ previews: [invalid, preview] });
     const { onImported } = renderModal();

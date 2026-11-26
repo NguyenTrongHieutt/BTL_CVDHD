@@ -126,7 +126,7 @@ export function ReceiptImportReview({ preview, search, onSearchChange, onEdit, d
           <Flex vertical gap={12}>
             {groups.length === 0 && <Typography.Text type="secondary" role="status">Không có dòng khớp từ khóa.</Typography.Text>}
             <Collapse
-              key={page}
+              key={`${keyword}:${page}`}
               size="small"
               defaultActiveKey={visibleGroups[0] ? [visibleGroups[0][0]] : []}
               items={visibleGroups.map(([key, rows]) => ({

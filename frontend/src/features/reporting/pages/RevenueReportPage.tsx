@@ -127,9 +127,11 @@ export function RevenueReportPage() {
 
           <Card title="Doanh thu theo ngày">
             <RecordTable<RevenueDay>
+              key={range.fromDate + ':' + range.toDate}
               rowKey="date"
               dataSource={revenue.rows}
-              pagination={false}
+              compactColumns={{ title: 'date' }}
+              pagination={{ defaultPageSize: 14, pageSizeOptions: [14, 30, 100], showSizeChanger: true, hideOnSinglePage: true }}
               scroll={{ x: true }}
               columns={[
                 { title: 'Ngày', dataIndex: 'date', render: (date: IsoDate) => formatDate(date) },

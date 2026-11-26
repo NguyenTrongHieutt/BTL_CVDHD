@@ -60,9 +60,16 @@ class StaffAccountController {
 
     /** Mọi người dùng của Cửa hàng: Chủ cửa hàng trước, rồi Nhân viên mới tạo trước. */
     @GetMapping
-    PageResponse<StoreUser> list(@RequestParam(required = false) Integer page,
+    PageResponse<StoreUser> list(@RequestParam(required = false) String q,
+                                @RequestParam(required = false) Integer page,
                                 @RequestParam(required = false) Integer size) {
-        return accounts.list(page, size);
+        return accounts.list(q, page, size);
+    }
+
+    /** Nhãn của người thực hiện đã chọn trong bộ lọc, kể cả tài khoản đang khóa. */
+    @GetMapping("/{id}/option")
+    UserOption option(@PathVariable UUID id) {
+        return accounts.option(id);
     }
 
     @PostMapping

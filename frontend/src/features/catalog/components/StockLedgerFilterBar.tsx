@@ -7,9 +7,7 @@
  * `aria-describedby`, đọc ngay nhờ `role="alert"`.
  * Bộ lọc người thực hiện bật mặc định và có thể tắt khi build cho backend cũ.
  */
-import { useQuery } from '@tanstack/react-query';
-import { actorOptionsKey, fetchActorOptions } from '../../../shared/api/storeUsers';
-import { ErrorAlert } from '../../../shared/components';
+import { ActorFilterSelect } from '../../../shared/components/ActorFilterSelect';
 import { Button, Flex, Select, Typography } from 'antd';
 import { useId } from 'react';
 import { DateRangePicker } from '../../../shared/components';
@@ -32,11 +30,6 @@ export interface StockLedgerFilterBarProps {
 export function StockLedgerFilterBar({ value, onChange, dateError, variantLabel }: StockLedgerFilterBarProps) {
   const dateErrorId = useId();
   const showActors = ledgerActorFilterEnabled();
-  const actors = useQuery({
-    queryKey: actorOptionsKey,
-    queryFn: ({ signal }) => fetchActorOptions(signal),
-    enabled: showActors,
-  });
   const range = value.from && value.to ? { fromDate: value.from, toDate: value.to } : null;
 
   return (
@@ -54,19 +47,13 @@ export function StockLedgerFilterBar({ value, onChange, dateError, variantLabel 
         onChange={({ productId, variantId }) => onChange({ ...value, productId, variantId })}
       />
       {showActors && (
-        <Flex vertical gap={4}>
-          <Select<string>
-            aria-label="Lọc theo người thực hiện"
-            allowClear
-            placeholder="Mọi người thực hiện"
-            style={{ width: 220 }}
-            loading={actors.isFetching}
-            value={value.actorId}
-            options={actors.data?.map((user) => ({ value: user.userId, label: user.displayName }))}
-            onChange={(actorId) => onChange({ ...value, actorId: actorId || undefined })}
-          />
-          {actors.isError && <><ErrorAlert error={actors.error} /><Button onClick={() => void actors.refetch()}>Tải lại danh sách người thực hiện</Button></>}
-        </Flex>
+        <ActorFilterSelect
+          ariaLabel="Lọc theo người thực hiện"
+          placeholder="Mọi người thực hiện"
+          style={{ width: 220, maxWidth: '100%' }}
+          value={value.actorId}
+          onChange={(actorId) => onChange({ ...value, actorId })}
+        />
       )}
       <Select<StockDocumentType>
         aria-label="Lọc theo loại giao dịch"

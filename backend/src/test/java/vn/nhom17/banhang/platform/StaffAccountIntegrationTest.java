@@ -182,6 +182,81 @@ class StaffAccountIntegrationTest {
     }
 
     @Test
+    void searchFindsNamesAndLoginKeysBeyondTheFirstPageIncludingLockedActors() throws Exception {
+        Owner owner = newStore();
+        String loginKey = uniqueKey();
+        UUID first = createStaff(owner, loginKey, "Nguyễn Thị Ánh", "matkhau1");
+        UUID second = createStaff(owner, uniqueKey(), "Nguyễn Thị Anh mới", "matkhau1");
+        mvc.perform(post(USERS + "/" + first + "/lock").cookie(owner.cookie())).andExpect(status().isOk());
+        asStore(owner.storeId(), () -> jdbc.update("""
+                insert into app.app_user (store_id, login_key, display_name, password_hash, role)
+                select ?, 'bulk.' || ? || '.' || n, 'Nhân viên khác ' || n, 'unused', 'STAFF'
+                from generate_series(1, 125) n
+                """, owner.storeId(), owner.storeId().toString()));
+        createStaff(newStore(), uniqueKey(), "Nguyễn Thị Ánh cửa hàng khác", "matkhau1");
+
+        mvc.perform(get(USERS).cookie(owner.cookie()).param("q", "  NGUYEN\tthi ANH\u200b ")
+                        .param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.page").value(0))
+                .andExpect(jsonPath("$.size").value(1))
+                .andExpect(jsonPath("$.items", hasSize(1)))
+                .andExpect(jsonPath("$.items[0].userId").value(second.toString()));
+        mvc.perform(get(USERS).cookie(owner.cookie()).param("q", "nguyễn thị ánh")
+                        .param("page", "1").param("size", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items[0].userId").value(first.toString()))
+                .andExpect(jsonPath("$.items[0].status").value("LOCKED"));
+        mvc.perform(get(USERS).cookie(owner.cookie()).param("q", loginKey.toUpperCase()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].userId").value(first.toString()));
+        mvc.perform(get(USERS).cookie(owner.cookie()).param("q", "\u00a0 \t\u200b"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(128));
+    }
+
+    @Test
+    void userSearchEscapesLikeWildcards() throws Exception {
+        Owner owner = newStore();
+        UUID literal = createStaff(owner, uniqueKey(), "Hạnh 50%_\\A", "matkhau1");
+        createStaff(owner, uniqueKey(), "Hạnh 50XYA", "matkhau1");
+
+        mvc.perform(get(USERS).cookie(owner.cookie()).param("q", "%_\\"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].userId").value(literal.toString()));
+    }
+
+    @Test
+    void selectedUserOptionReturnsOnlyTheCurrentStoresActorLabel() throws Exception {
+        Owner owner = newStore();
+        UUID locked = createStaff(owner, uniqueKey(), "Nhân viên đã khóa", "matkhau1");
+        mvc.perform(post(USERS + "/" + locked + "/lock").cookie(owner.cookie())).andExpect(status().isOk());
+
+        String response = mvc.perform(get(USERS + "/" + locked + "/option").cookie(owner.cookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value(locked.toString()))
+                .andExpect(jsonPath("$.displayName").value("Nhân viên đã khóa"))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(fieldNames(json.readTree(response))).containsExactlyInAnyOrder("userId", "displayName");
+        mvc.perform(get(USERS + "/" + owner.userId() + "/option").cookie(owner.cookie()))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.displayName").value("Chủ thử"));
+
+        Owner another = newStore();
+        for (UUID hidden : List.of(locked, owner.userId(), UUID.randomUUID())) {
+            mvc.perform(get(USERS + "/" + hidden + "/option").cookie(another.cookie()))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.type").value("/errors/common/not-found"));
+        }
+        mvc.perform(get(USERS + "/" + locked + "/option"))
+                .andExpect(status().isUnauthorized());
+        mvc.perform(get(USERS + "/" + locked + "/option").cookie(login("dev.nv.a", "demo1234")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void displayNameLoginKeyAndPhoneAreNormalized() throws Exception {
         Owner owner = newStore();
         String key = uniqueKey();

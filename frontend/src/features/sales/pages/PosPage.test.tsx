@@ -1,10 +1,48 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router';
 import { expect, it, vi } from 'vitest';
 import { CurrentUserContext } from '../../../shared/api/session';
 import type { CreateOrderRequest } from '../../../shared/types/sales';
 import { cartStorageKey, emptyCart, saveCart } from '../cart/cartStorage';
 import { PosPage } from './PosPage';
+
+it.each([
+  { role: 'OWNER' as const, configured: false },
+  { role: 'STAFF' as const, configured: false },
+  { role: 'OWNER' as const, configured: true },
+])('hiển thị trạng thái VietQR cho $role khi cấu hình là $configured', async ({ role, configured }) => {
+  const user = { storeId: 'store-vietqr', storeName: 'Cửa hàng', userId: role, displayName: 'An', role };
+  saveCart(user.storeId, user.userId, { ...emptyCart(), lines: [{ variantId: 'variant-1', quantity: 1 }] });
+  vi.stubGlobal('fetch', vi.fn<typeof fetch>(async (url) => {
+    if (String(url).endsWith('/inventory/low-stock')) return Response.json([]);
+    return Response.json({
+      lines: [{ variantId: 'variant-1', productName: 'Bánh gạo', netLineAmount: 18_000 }],
+      subtotal: 18_000, lineDiscountTotal: 0, orderDiscount: 0, total: 18_000,
+      warnings: [], bankTransferAvailable: configured,
+    });
+  }));
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const view = render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter><CurrentUserContext value={user}><PosPage /></CurrentUserContext></MemoryRouter>
+    </QueryClientProvider>,
+  );
+  try {
+    await screen.findAllByText(/18\.000/);
+    const method = screen.getByRole('combobox', { name: 'Phương thức thanh toán' });
+    fireEvent.mouseDown(method);
+    const option = await screen.findByRole('option', { name: 'Chuyển khoản' });
+    expect(option.getAttribute('aria-disabled') === 'true').toBe(!configured);
+    expect(Boolean(screen.queryByText(/^Chưa thiết lập tài khoản nhận chuyển khoản\./))).toBe(!configured);
+    expect(screen.queryByRole('link', { name: 'Cài đặt VietQR' })?.getAttribute('href'))
+      .toBe(!configured && role === 'OWNER' ? '/platform/store' : undefined);
+  } finally {
+    view.unmount();
+    localStorage.removeItem(cartStorageKey(user.storeId, user.userId));
+    vi.unstubAllGlobals();
+  }
+});
 
 it('tính lại tiền sau lỗi mạng với nguyên giỏ hàng và khóa thanh toán', async () => {
   const user = { storeId: 'store-pos', storeName: 'Cửa hàng', userId: 'staff-pos', displayName: 'An', role: 'STAFF' as const };

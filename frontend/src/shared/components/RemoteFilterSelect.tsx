@@ -62,7 +62,7 @@ export function RemoteFilterSelect<Option extends FilterOption>({
   const total = changingKeyword ? 0 : (result.data?.total ?? firstPage?.total ?? 0);
   const lastPage = Math.max(0, Math.ceil(total / SELECT_PAGE_SIZE) - 1);
   if (result.data && !changingKeyword && page > lastPage) setPage(lastPage);
-  const pageCount = Math.max(page, lastPage) + 1;
+  const pageCount = total > 0 || page > 0 ? Math.max(page, lastPage) + 1 : 0;
   const paging = { page, pageCount, onPageChange: setPage };
   const renderMenu = (menu: ReactNode) => <SelectPageMenu {...paging}>{menu}</SelectPageMenu>;
 

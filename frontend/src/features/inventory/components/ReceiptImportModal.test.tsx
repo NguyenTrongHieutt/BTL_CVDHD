@@ -58,13 +58,13 @@ function requests(path: string) {
     init?.method === 'POST' && new URL(String(input), 'http://localhost').pathname === `${RECEIPTS_PATH}/import${path}`);
 }
 
-function renderModal() {
+function renderModal(hasSupplier = true) {
   const onImported = vi.fn<(result: Receipt) => void>();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
       <ConfigProvider theme={{ token: { motion: false } }}>
-        <ReceiptImportModal initialSupplier={{ value: supplierId, label: 'Nhà cung cấp demo' }}
+        <ReceiptImportModal initialSupplier={hasSupplier ? { value: supplierId, label: 'Nhà cung cấp demo' } : undefined}
           initialNote="Giao buổi sáng" hasManualLines={false} onImported={onImported} onClose={vi.fn<() => void>()} />
       </ConfigProvider>
     </QueryClientProvider>,
@@ -93,6 +93,28 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('ReceiptImportModal', () => {
+  it('tìm và chọn nhà cung cấp trong cùng một ô rồi xem trước', async () => {
+    fetchMock.mockImplementation(async (input, init) => {
+      const { pathname, searchParams } = new URL(String(input), 'http://localhost');
+      if (pathname === '/api/v1/catalog/suppliers') {
+        const items = searchParams.get('q') === 'tra sen'
+          ? [{ supplierId, name: 'Trà sen', code: 'SEN-01' }] : [];
+        return json({ items, page: 0, size: 30, total: items.length });
+      }
+      if (pathname.endsWith('/import/preview') && init?.method === 'POST') return json(preview);
+      return json({ status: 404 }, 404);
+    });
+    renderModal(false);
+    expect(modal().queryByRole('textbox', { name: 'Tìm nhà cung cấp' })).toBeNull();
+    const supplier = modal().getByRole('combobox', { name: 'Nhà cung cấp' });
+    fireEvent.mouseDown(supplier);
+    fireEvent.change(supplier, { target: { value: 'tra sen' } });
+    fireEvent.click(await screen.findByRole('option', { name: 'Trà sen · SEN-01' }));
+    await review();
+    const form = requests('/preview')[0][1]?.body;
+    expect(form instanceof FormData ? form.get('supplierId') : undefined).toBe(supplierId);
+  });
+
   it('sửa lỗi qua bước kiểm tra lại, gom SKU cũ và mới rồi lưu đúng một phiếu', async () => {
     mockBackend({ previews: [invalid, preview] });
     const { onImported } = renderModal();

@@ -150,7 +150,7 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
           aria-label="Lọc theo Sản phẩm"
           allowClear
           placeholder="Mọi Sản phẩm (gõ để tìm)"
-          value={selectValue}
+          value={selectValue ?? null}
           open={open}
           onOpenChange={(next) => {
             if (!next && keepOpen.current) {

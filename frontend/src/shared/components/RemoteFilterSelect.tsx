@@ -62,7 +62,7 @@ export function RemoteFilterSelect({
       id={id}
       aria-label={ariaLabel}
       placeholder={placeholder}
-      value={value}
+      value={value ?? null}
       labelInValue
       allowClear
       open={open}

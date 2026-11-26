@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, expect, it, vi } from 'vitest';
 import { ProductRankingPage } from './ProductRankingPage';
 import { ProfitReportPage } from './ProfitReportPage';
@@ -84,23 +84,36 @@ it('shows the gross profit totals and a negative day after a return', async () =
   expect(screen.getAllByText(/20\.000/)).toHaveLength(2);
 });
 
-it('shows inventory valuation and variant rows returned by Q5', async () => {
+it('keeps stock report totals across server pages and resets the page when searching by SKU', async () => {
+  const requests: URLSearchParams[] = [];
   setupPage(<StockReportPage />, (url) => {
-    expect(url).toContain('/api/v1/reporting/q/Q5');
+    const request = new URL(url, 'http://example.test');
+    expect(request.pathname).toBe('/api/v1/reporting/stock');
+    requests.push(request.searchParams);
+    const page = Number(request.searchParams.get('page'));
+    const filtered = request.searchParams.has('q');
     return Response.json({
-      queryId: 'Q5', range: { fromDate: '2026-11-20', toDate: '2026-11-20' },
-      params: {}, columns: [], rows: [{
-        productId: 'p1', productName: 'Sữa tươi', categoryName: 'Đồ uống',
-        variantId: 'v1', variantName: null, sku: 'MILK-01',
-        stockQuantity: 5, avgUnitCost: 4_000, stockValue: 20_000,
+      page, size: 20, total: filtered ? 1 : 21, asOf: '2026-11-20T05:00:00Z',
+      items: [{
+        productId: 'p1', productName: 'Sữa tươi', categoryName: 'Đồ uống', isActive: true,
+        variantId: 'v1', variantName: null, sku: page === 1 ? 'MILK-21' : 'MILK-01',
+        stockQuantity: 5, minQuantity: 3, avgUnitCost: 4_000, stockValue: 20_000,
       }],
-      summary: { stockQuantity: 5, stockValue: 20_000, variantCount: 1, byCategory: [], byProduct: [] },
+      summary: { stockQuantity: 5, stockValue: filtered ? 20_000 : 42_000, variantCount: filtered ? 1 : 21 },
     });
   });
 
-  const card = await screen.findByText('Tồn kho theo sản phẩm và biến thể');
-  expect(card).toBeTruthy();
-  expect(screen.getAllByText('20.000', { exact: false })).toHaveLength(2);
-  expect(screen.getByText('MILK-01')).toBeTruthy();
+  expect(await screen.findByText('MILK-01')).toBeTruthy();
+  expect(screen.getByText(/42\.000/)).toBeTruthy();
+  fireEvent.click(within(screen.getByTitle('2')).getByRole('button'));
+  expect(await screen.findByText('MILK-21')).toBeTruthy();
+  expect(requests.at(-1)?.get('page')).toBe('1');
+  expect(screen.getByText(/42\.000/)).toBeTruthy();
+
+  const search = screen.getByRole('searchbox', { name: 'Tìm hàng' });
+  fireEvent.change(search, { target: { value: 'MILK-01' } });
+  fireEvent.keyDown(search, { key: 'Enter', code: 'Enter' });
+  await waitFor(() => expect(requests.at(-1)?.get('q')).toBe('MILK-01'));
+  expect(requests.at(-1)?.get('page')).toBe('0');
   expect(within(screen.getByRole('table')).getByText('Sữa tươi')).toBeTruthy();
 });

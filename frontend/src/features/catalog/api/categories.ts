@@ -8,19 +8,13 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../shared/api/client';
-import { pageRequestToQuery } from '../../../shared/api/pagination';
-import type { PageRequest, PageResponse } from '../../../shared/api/pagination';
+import { CATEGORIES_PATH, categoriesQueryKey, fetchCategories } from '../../../shared/api/categories';
+import type { PageRequest } from '../../../shared/api/pagination';
 import type { Category, CategoryRequest } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 
-export const CATEGORIES_PATH = '/api/v1/catalog/categories';
-
-export const categoriesQueryKey = ['catalog', 'categories'] as const;
+export { CATEGORIES_PATH, categoriesQueryKey, fetchCategories };
 const productsQueryKey = ['catalog', 'products'] as const;
-
-export function fetchCategories(request: PageRequest, signal?: AbortSignal): Promise<PageResponse<Category>> {
-  return api.get<PageResponse<Category>>(CATEGORIES_PATH, { query: pageRequestToQuery(request), signal });
-}
 
 /** Ô chọn Danh mục (form thêm Sản phẩm, bộ lọc Sản phẩm) lấy tối đa 100 Danh mục, đủ cho một Cửa hàng nhỏ. */
 export const CATEGORY_OPTIONS_REQUEST: PageRequest = { page: 0, size: 100 };

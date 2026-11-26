@@ -12,8 +12,10 @@ it('thay danh sách khi chuyển trang và tìm từ đầu khi đổi từ khó
   const fetchOptions = vi.fn<FilterProps['fetchOptions']>(async ({ page, size }, keyword) => ({
     page,
     size,
-    total: keyword === 'riêng' ? 1 : size * 2 + 1,
-    items: [{ value: String(page + 1), label: keyword === 'riêng' ? 'Kết quả riêng' : 'Danh mục ' + (page + 1) }],
+    total: keyword === 'trống' ? 0 : keyword === 'riêng' ? 1 : size * 2 + 1,
+    items: keyword === 'trống' ? [] : [
+      { value: String(page + 1), label: keyword === 'riêng' ? 'Kết quả riêng' : 'Danh mục ' + (page + 1) },
+    ],
   }));
   render(<QueryClientProvider client={queryClient}>
     <RemoteFilterSelect ariaLabel="Danh mục" placeholder="Tất cả danh mục" queryKey={['test-filter']}
@@ -41,5 +43,12 @@ it('thay danh sách khi chuyển trang và tìm từ đầu khi đổi từ khó
   fireEvent.keyDown(search, { key: 'Enter' });
   expect(await screen.findByTitle('Kết quả riêng')).toBeTruthy();
   expect(fetchOptions.mock.calls.at(-1)?.[0].page).toBe(0);
-  expect(screen.queryByRole('button', { name: 'Trang sau' })).toBeNull();
+  expect(screen.getByText('Trang 1/1')).toBeTruthy();
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Trang trước' }).disabled).toBe(true);
+  expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Trang sau' }).disabled).toBe(true);
+
+  fireEvent.change(search, { target: { value: 'trống' } });
+  fireEvent.keyDown(search, { key: 'Enter' });
+  expect(await screen.findByText('Không có kết quả khớp.')).toBeTruthy();
+  expect(screen.queryByRole('group', { name: 'Phân trang trong danh sách' })).toBeNull();
 });

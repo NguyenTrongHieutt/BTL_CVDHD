@@ -7,11 +7,11 @@ export const SELECT_PAGE_SIZE = 6;
 
 export function SelectPageMenu({ children, page, pageCount, onPageChange }: SelectPaging & { children: ReactNode }) {
   const { token } = theme.useToken();
-  if (pageCount <= 1) return children;
+  if (pageCount === 0) return children;
 
   return (
     <>
-      <div style={{ minHeight: SELECT_PAGE_SIZE * token.controlHeight }}>{children}</div>
+      <div style={{ minHeight: pageCount > 1 ? SELECT_PAGE_SIZE * token.controlHeight : undefined }}>{children}</div>
       <Flex role="group" aria-label="Phân trang trong danh sách" align="center" justify="space-between" gap={4}
         style={{ borderTop: `1px solid ${token.colorBorderSecondary}`, padding: '4px 2px 0' }}
         // Giữ focus trong ô tìm khi bấm vào nút. PageUp/PageDown cho phép điều khiển bằng bàn phím.

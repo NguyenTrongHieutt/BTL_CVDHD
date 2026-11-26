@@ -106,9 +106,10 @@ export function ProductPicker({
           ]}
         />
       )}
-      {q && products.data && products.data.total > pageSize && (
+      {q && products.data && products.data.total > 0 && (
         <Pagination current={page + 1} pageSize={pageSize} total={products.data.total}
-          showSizeChanger={false} onChange={(value) => setPage(value - 1)} />
+          showSizeChanger={false} showTotal={(total) => `Trang ${page + 1}/${Math.ceil(total / pageSize)}`}
+          onChange={(value) => setPage(value - 1)} />
       )}
     </Space>
   );

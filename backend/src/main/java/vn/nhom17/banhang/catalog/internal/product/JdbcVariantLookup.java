@@ -53,6 +53,15 @@ class JdbcVariantLookup implements VariantLookup {
         return jdbc.query(COLUMNS + matching.text(), ROW, matching.args().toArray());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<UUID> findForSaleIds() {
+        ProductSearch.Sql matching = ProductSearch.from(ProductSearch.Scope.SELLABLE, context.storeId(),
+                ProductSearch.Criteria.NONE);
+        return jdbc.query("select v.id\n" + matching.text(),
+                (rs, row) -> rs.getObject("id", UUID.class), matching.args().toArray());
+    }
+
     private final JdbcTemplate jdbc;
     private final CurrentContext context;
 

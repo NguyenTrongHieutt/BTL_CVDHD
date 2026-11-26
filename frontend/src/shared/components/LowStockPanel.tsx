@@ -1,7 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Card, Table, Typography } from 'antd';
 import { api } from '../api/client';
+import type { PageResponse } from '../api/pagination';
 import { ErrorAlert } from './ErrorAlert';
+import { fromAntdChange, toAntdPagination } from './dataTablePaging';
 import { lowStockQueryKey } from './lowStockQueryKey';
 
 interface LowStockItem {
@@ -13,9 +16,11 @@ interface LowStockItem {
 }
 
 export function LowStockPanel() {
+  const [paging, setPaging] = useState({ page: 0, size: 5 });
   const stock = useQuery({
-    queryKey: lowStockQueryKey,
-    queryFn: ({ signal }) => api.get<LowStockItem[]>('/api/v1/inventory/low-stock', { signal }),
+    queryKey: [...lowStockQueryKey, paging],
+    queryFn: ({ signal }) => api.get<PageResponse<LowStockItem>>('/api/v1/inventory/low-stock/page', { query: paging, signal }),
+    placeholderData: keepPreviousData,
   });
 
   return (
@@ -25,11 +30,12 @@ export function LowStockPanel() {
       ) : (
         <Table<LowStockItem>
           rowKey="variantId"
-          dataSource={stock.data ?? []}
-          loading={stock.isPending}
+          dataSource={stock.data?.items}
+          loading={stock.isFetching}
           size="small"
           showHeader={false}
-          pagination={stock.data && stock.data.length > 5 ? { pageSize: 5, showSizeChanger: false } : false}
+          pagination={{ ...toAntdPagination(stock.data, paging), showSizeChanger: false, hideOnSinglePage: true }}
+          onChange={(pagination) => setPaging(fromAntdChange(pagination, undefined, paging))}
           locale={{ emptyText: stock.isPending ? 'Đang tải…' : 'Không có hàng dưới ngưỡng.' }}
           columns={[{ key: 'stock', render: (_, item) => (
             <div className="low-stock-item">

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { Link } from 'react-router';
 import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShoppingCartOutlined } from '@ant-design/icons';
 import { Alert, Button, Card, Descriptions, InputNumber, QRCode, Select, Space, Typography } from 'antd';
@@ -79,7 +80,9 @@ function CartQuantityInput({ label, quantity, available, disabled, onCommit }: {
   );
 }
 
-function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
+function PosCart({ storeId, userId, canConfigureVietQr }: {
+  storeId: string; userId: string; canConfigureVietQr: boolean;
+}) {
   const search = useRef<InputRef>(null);
   const paymentHeading = useRef<HTMLHeadingElement>(null);
   const [cart, setCart] = useState(() => loadCart(storeId, userId));
@@ -173,7 +176,7 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
   const pricing = debouncedQuote === quoteBody && !quote.isPlaceholderData ? displayPricing : undefined;
   const account = pricing?.loyalty ?? loyalty.data;
   const cashTendered = pricing ? cashMode && pricing.total > 0 ? cashReceived : pricing.total : null;
-  const bankAvailable = displayPricing?.bankTransferAvailable || method === 'BANK_TRANSFER';
+  const bankAvailable = displayPricing?.bankTransferAvailable;
   const calculating = hasLines && pending === null && (debouncedQuote !== quoteBody || quote.isFetching || quote.isPlaceholderData);
   const quoteFailed = pending === null && debouncedQuote === quoteBody && quote.isError;
   const quoteError = quoteFailed && isApiError(quote.error) ? quote.error : undefined;
@@ -407,11 +410,12 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
               />
               <div>
                 <label htmlFor="pos-payment-method">Phương thức thanh toán</label>
-                <Select<PaymentMethod> id="pos-payment-method" value={method}
+                <Select<PaymentMethod> id="pos-payment-method" value={method} virtual={false}
+                  aria-describedby={bankAvailable === false ? 'pos-vietqr-help' : undefined}
                   disabled={pending !== null}
                   options={[
                     { value: 'CASH', label: 'Tiền mặt' },
-                    ...(bankAvailable ? [{ value: 'BANK_TRANSFER' as const, label: 'Chuyển khoản' }] : []),
+                    { value: 'BANK_TRANSFER', label: 'Chuyển khoản', disabled: bankAvailable !== true },
                   ]}
                   onChange={(value) => {
                     setMethod(value);
@@ -419,6 +423,13 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
                     setCashReceived(null);
                   }}
                 />
+                {bankAvailable === false && (
+                  <Typography.Text id="pos-vietqr-help" type="secondary">
+                    Chưa thiết lập tài khoản nhận chuyển khoản.{' '}
+                    {canConfigureVietQr ? <Link to="/platform/store">Cài đặt VietQR</Link>
+                      : 'Nhờ chủ cửa hàng cài đặt VietQR.'}
+                  </Typography.Text>
+                )}
               </div>
             </div>
             {selectedCustomerId && (
@@ -486,6 +497,6 @@ function PosCart({ storeId, userId }: { storeId: string; userId: string }) {
 
 export function PosPage() {
   useDocumentTitle('Bán hàng');
-  const { storeId, userId } = useCurrentUser();
-  return <PosCart key={storeId + ':' + userId} storeId={storeId} userId={userId} />;
+  const { storeId, userId, role } = useCurrentUser();
+  return <PosCart key={storeId + ':' + userId} storeId={storeId} userId={userId} canConfigureVietQr={role === 'OWNER'} />;
 }

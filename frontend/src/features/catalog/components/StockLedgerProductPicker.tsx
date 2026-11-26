@@ -12,19 +12,16 @@
  * dòng sổ kho của Biến thể đó).
  */
 import { useQuery } from '@tanstack/react-query';
-import { Button, Flex, Select, Tag, Typography } from 'antd';
+import { Button, Flex, Tag, Typography } from 'antd';
 import type { SelectProps } from 'antd';
 import { useState } from 'react';
-import type { ReactNode } from 'react';
+import { LocalFilterSelect } from '../../../shared/components/LocalFilterSelect';
 import { RemoteFilterSelect } from '../../../shared/components/RemoteFilterSelect';
 import type { FilterOption } from '../../../shared/components/RemoteFilterSelect';
-import { SelectPageMenu, SELECT_PAGE_SIZE } from '../../../shared/components/SelectPageMenu';
-import { handleSelectPageKey } from '../../../shared/components/selectPageKey';
 import type { Product, ProductVariant } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
 import { describeError } from '../../../shared/messages.vi';
 import { defaultVariant, fetchProduct, fetchProducts, productsQueryKey } from '../api/products';
-import { foldText } from './textUtils';
 
 /** Giá trị của ô chọn Sản phẩm khi chỉ biết Biến thể (link chỉ có `variantId`). */
 const VARIANT_ONLY = 'variant-only';
@@ -55,56 +52,6 @@ export interface StockLedgerProductPickerProps {
 function variantLabel(variant: ProductVariant): string {
   const label = `${variant.name ?? 'Mặc định'} · ${variant.sku}`;
   return variant.status === 'INACTIVE' ? `${label} (ngừng kinh doanh)` : label;
-}
-
-function LedgerVariantSelect({ variants, value, onChange }: {
-  variants: ProductVariant[];
-  value?: Uuid;
-  onChange: (id?: Uuid) => void;
-}) {
-  const [search, setSearch] = useState('');
-  const [page, setPage] = useState(0);
-  const [open, setOpen] = useState(false);
-  const keyword = foldText(search.trim());
-  const matching = keyword ? variants.filter((variant) =>
-    foldText([variant.name, variant.sku, variant.barcode].filter(Boolean).join(' ')).includes(keyword)) : variants;
-  const pageCount = Math.ceil(matching.length / SELECT_PAGE_SIZE);
-  const currentPage = Math.max(0, Math.min(page, pageCount - 1));
-  const paging = { page: currentPage, pageCount, onPageChange: setPage };
-  const renderMenu = (menu: ReactNode) => <SelectPageMenu {...paging}>{menu}</SelectPageMenu>;
-  const selected = variants.find((variant) => variant.id === value);
-  const offset = currentPage * SELECT_PAGE_SIZE;
-
-  return (
-    <Select<FilterOption>
-      aria-label="Chọn Biến thể"
-      aria-keyshortcuts={pageCount > 1 ? 'PageUp PageDown' : undefined}
-      allowClear
-      labelInValue
-      virtual={false}
-      placeholder="Tìm biến thể, SKU hoặc mã vạch"
-      status={value ? undefined : 'warning'}
-      value={selected ? { value: selected.id, label: variantLabel(selected) } : null}
-      options={matching.slice(offset, offset + SELECT_PAGE_SIZE)
-        .map((variant) => ({ value: variant.id, label: variantLabel(variant) }))}
-      showSearch={{ searchValue: search, filterOption: false, onSearch: (next) => {
-        setSearch(next);
-        setPage(0);
-      } }}
-      onOpenChange={(visible) => {
-        setOpen(visible);
-        if (!visible) {
-          setPage(0);
-          setSearch('');
-        }
-      }}
-      onInputKeyDown={(event) => { if (open) handleSelectPageKey(event, paging); }}
-      popupRender={renderMenu}
-      notFoundContent="Không có biến thể khớp từ khóa."
-      onChange={(option) => onChange(option?.value)}
-      style={{ width: 255, maxWidth: '100%' }}
-    />
-  );
 }
 
 export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: StockLedgerProductPickerProps) {
@@ -163,11 +110,21 @@ export function StockLedgerProductPicker({ value, fallbackLabel, onChange }: Sto
           style={{ width: 280, maxWidth: '100%' }}
         />
         {chooseVariant ? (
-          <LedgerVariantSelect
+          <LocalFilterSelect
             key={product.id}
-            variants={product.variants}
+            aria-label="Chọn Biến thể"
+            allowClear
+            placeholder="Tìm biến thể, SKU hoặc mã vạch"
+            status={variantId ? undefined : 'warning'}
             value={variantId}
+            options={product.variants.map((variant) => ({
+              value: variant.id,
+              label: variantLabel(variant),
+              searchText: [variant.name, variant.sku, variant.barcode].filter(Boolean).join(' '),
+            }))}
+            notFoundContent="Không có biến thể khớp từ khóa."
             onChange={(id) => onChange({ productId: product.id, variantId: id })}
+            style={{ width: 255, maxWidth: '100%' }}
           />
         ) : null}
       </Flex>

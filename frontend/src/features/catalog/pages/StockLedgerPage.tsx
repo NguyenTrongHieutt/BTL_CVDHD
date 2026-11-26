@@ -17,7 +17,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Button, Flex, Tag, Typography } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { isApiError } from '../../../shared/api/client';
 import { DEFAULT_PAGE_SIZE } from '../../../shared/api/pagination';
 import type { PageRequest } from '../../../shared/api/pagination';
@@ -29,6 +29,7 @@ import {
   documentTypeInfo,
   fetchStockLedger,
   hasStockLedgerFilters,
+  isStockDocumentType,
   ledgerRangeError,
   stockLedgerFiltersFromSearchParams,
   stockLedgerQueryKey,
@@ -36,6 +37,8 @@ import {
   withStockLedgerFilters,
 } from '../api/stockLedger';
 import type { StockLedgerFilters } from '../api/stockLedger';
+import { ledgerDocumentTitles, readLedgerDocument, withLedgerDocument } from '../api/stockLedgerDocuments';
+import { StockLedgerDocumentModal } from '../components/StockLedgerDocumentModal';
 import { StockLedgerFilterBar } from '../components/StockLedgerFilterBar';
 
 const TITLE = 'Lịch sử xuất nhập kho';
@@ -150,26 +153,40 @@ const COLUMNS: TableColumnsType<LedgerRow> = [
     width: 142,
     render: (actorName: string | null) => actorName ?? EMPTY,
   },
-  {
-    title: 'Mã chứng từ',
-    dataIndex: 'documentId',
-    key: 'documentId',
-    width: 122,
-    render: (documentId: string) => (
-      <Typography.Text
-        code
-        style={{ whiteSpace: 'nowrap' }}
-        copyable={{ text: documentId, tooltips: ['Sao chép mã đầy đủ', 'Đã sao chép'] }}
-      >
-        {shortDocumentId(documentId)}
-      </Typography.Text>
-    ),
-  },
 ];
+
+function documentColumn(params: URLSearchParams): TableColumnsType<LedgerRow>[number] {
+  return {
+    title: 'Mã chứng từ',
+    key: 'documentId',
+    width: 135,
+    render: (_, { documentId, documentType }) => {
+      const code = shortDocumentId(documentId);
+      return (
+        <Typography.Text code style={{ whiteSpace: 'nowrap' }}
+          copyable={{ text: documentId, tooltips: ['Sao chép mã đầy đủ', 'Đã sao chép'] }}>
+          {isStockDocumentType(documentType) ? (
+            <Link
+              preventScrollReset
+              to={{ search: withLedgerDocument(params, { type: documentType, id: documentId }).toString() }}
+              aria-label={`Mở ${ledgerDocumentTitles[documentType].toLocaleLowerCase('vi-VN')} ${code}`}
+              aria-haspopup="dialog"
+              style={{ textDecoration: 'underline', textUnderlineOffset: 3 }}
+            >
+              {code}
+            </Link>
+          ) : code}
+        </Typography.Text>
+      );
+    },
+  };
+}
 
 export function StockLedgerPage() {
   useDocumentTitle(TITLE);
   const [searchParams, setSearchParams] = useSearchParams();
+  const reference = readLedgerDocument(searchParams);
+  const columns = useMemo(() => [...COLUMNS, documentColumn(searchParams)], [searchParams]);
   const filters = useMemo(() => stockLedgerFiltersFromSearchParams(searchParams), [searchParams]);
   const filtered = hasStockLedgerFilters(filters);
   const rangeError = filters.from && filters.to ? ledgerRangeError(filters.from, filters.to) : undefined;
@@ -258,7 +275,7 @@ export function StockLedgerPage() {
         <RecordTable<LedgerRow>
           compactColumns={{ title: 'product', status: 'documentType' }}
           rowKey="key"
-          columns={COLUMNS}
+          columns={columns}
           dataSource={rows}
           loading={!dateError && ledger.isFetching}
           tableLayout="fixed"
@@ -274,6 +291,8 @@ export function StockLedgerPage() {
           onChange={(pagination) => setPaging({ searchKey, request: fromAntdChange(pagination, undefined, request) })}
         />
       )}
+      <StockLedgerDocumentModal reference={reference} searchParams={searchParams}
+        onClose={() => setSearchParams((current) => withLedgerDocument(current), { replace: true, preventScrollReset: true })} />
     </div>
   );
 }

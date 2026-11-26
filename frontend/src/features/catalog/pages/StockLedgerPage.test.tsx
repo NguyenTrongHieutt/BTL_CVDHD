@@ -8,6 +8,7 @@ import type { Product } from '../../../shared/types/catalog';
 import type { StockLedgerEntry } from '../../../shared/types/inventory';
 import { foldText } from '../components/textUtils';
 import { withStockLedgerFilters } from '../api/stockLedger';
+import type { LedgerDocument } from '../api/stockLedgerDocuments';
 import { StockLedgerPage } from './StockLedgerPage';
 
 // Màn antd nhiều ô: chạy cả bộ trên máy bận có thể vượt 5 giây mặc định
@@ -193,6 +194,16 @@ function backend() {
   });
 }
 
+function mockDocuments(documents: Record<string, LedgerDocument>) {
+  const lookup = fetchMock.getMockImplementation();
+  fetchMock.mockImplementation(async (input, init) => {
+    const pathname = new URL(String(input), 'http://localhost').pathname;
+    if (documents[pathname]) return json(documents[pathname]);
+    if (lookup) return lookup(input, init);
+    throw new Error('Thiếu API giả lập cho sổ kho');
+  });
+}
+
 function renderPage(
   path = PAGE_PATH,
   queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -230,6 +241,59 @@ function lastLedgerQuery(): Record<string, string> {
 function urlParams(router: ReturnType<typeof createMemoryRouter>): Record<string, string> {
   return Object.fromEntries(new URLSearchParams(router.state.location.search));
 }
+
+it('bấm mã phiếu nhập để xem toàn bộ dòng gốc và giữ bộ lọc khi đóng', async () => {
+  const row = entry('2026-11-26T01:00:00Z', 'PURCHASE_RECEIPT', MILK_VARIANT, 3, 10);
+  ledger = [row];
+  const sourcePath = LEDGER_PATH + '/documents/PURCHASE_RECEIPT/' + row.documentId;
+  mockDocuments({
+    [sourcePath]: {
+      documentType: 'PURCHASE_RECEIPT', documentId: row.documentId, code: 'PN00003',
+      recordedAt: row.createdAt, supplierName: 'Nhà cung cấp thử', totalAmount: 59_000,
+      lines: [
+        { lineNo: 1, productName: 'Sữa tươi', variantName: null, quantity: 3, unitAmount: 15_000, amount: 45_000 },
+        { lineNo: 2, productName: 'Nước suối', variantName: null, quantity: 2, unitAmount: 7_000, amount: 14_000 },
+      ],
+    },
+  });
+  const { router } = renderPage(PAGE_PATH + '?type=PURCHASE_RECEIPT&variantId=' + MILK_VARIANT);
+  const link = await screen.findByRole('link', { name: /Mở phiếu nhập D/ });
+  fireEvent.click(link);
+  const dialog = within(await screen.findByRole('dialog'));
+  expect(await dialog.findByText('Phiếu nhập · PN00003')).toBeTruthy();
+  expect(dialog.getByText('Nhà cung cấp thử')).toBeTruthy();
+  expect(dialog.getByText('Nước suối')).toBeTruthy();
+  expect(callsTo(sourcePath)).toHaveLength(1);
+  expect(urlParams(router)).toMatchObject({ type: 'PURCHASE_RECEIPT', variantId: MILK_VARIANT, sourceId: row.documentId });
+  fireEvent.click(dialog.getByRole('button', { name: 'Đóng' }));
+  await waitFor(() => expect(urlParams(router)).toEqual({ type: 'PURCHASE_RECEIPT', variantId: MILK_VARIANT }));
+  expect(screen.getByRole('link', { name: /Mở phiếu nhập D/ })).toBeTruthy();
+});
+
+it('mở phiếu trả từ liên kết trực tiếp và chuyển được sang đúng đơn bán gốc', async () => {
+  const sale = entry('2026-11-25T04:00:00Z', 'SALE', MILK_VARIANT, -3, 8);
+  const returned = entry('2026-11-26T01:00:00Z', 'SALE_RETURN', MILK_VARIANT, 1, 9);
+  ledger = [sale, returned];
+  mockDocuments({
+    ['/api/v1/sales/ledger-documents/SALE_RETURN/' + returned.documentId]: {
+      documentType: 'SALE_RETURN', documentId: returned.documentId, recordedAt: returned.createdAt,
+      orderId: sale.documentId, relatedOrderCode: 'DH-000005', note: 'Trả một hộp', totalAmount: 15_000,
+      lines: [{ lineNo: 1, productName: 'Sữa tươi', variantName: null, quantity: 1, amount: 15_000 }],
+    },
+    ['/api/v1/sales/ledger-documents/SALE/' + sale.documentId]: {
+      documentType: 'SALE', documentId: sale.documentId, code: 'DH-000005',
+      recordedAt: sale.createdAt, status: 'COMPLETED', totalAmount: 45_000,
+      lines: [{ lineNo: 1, productName: 'Sữa tươi', variantName: null, quantity: 3, amount: 45_000 }],
+    },
+  });
+  const { router } = renderPage(PAGE_PATH + '?type=SALE_RETURN&sourceType=SALE_RETURN&sourceId=' + returned.documentId);
+  const original = await within(screen.getByRole('dialog')).findByRole('link', { name: 'DH-000005' });
+  fireEvent.click(original);
+  const order = within(await screen.findByRole('dialog'));
+  expect(await order.findByText('Đơn bán · DH-000005')).toBeTruthy();
+  expect(order.getByText('Đã hoàn thành')).toBeTruthy();
+  expect(urlParams(router)).toMatchObject({ type: 'SALE_RETURN', sourceType: 'SALE', sourceId: sale.documentId });
+});
 
 /** Bảng sổ kho (không tính các bảng lịch của ô chọn ngày khi đang mở). */
 function table(): HTMLElement {

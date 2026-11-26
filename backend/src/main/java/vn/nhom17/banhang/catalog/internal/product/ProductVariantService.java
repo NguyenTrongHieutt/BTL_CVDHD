@@ -159,6 +159,12 @@ class ProductVariantService {
         return code.variantId();
     }
 
+    /** Purchase receipt import joins the receipt transaction and uses the same conversion/insert rules. */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.MANDATORY)
+    UUID insertInCurrentTransaction(NewAddition addition) {
+        return insert(addition);
+    }
+
     /** Chi tiết Sản phẩm của Biến thể đã thêm (phát lại theo {@code Idempotency-Key}). */
     private ProductView viewOfVariant(UUID variantId) {
         List<UUID> productIds = jdbc.queryForList("""

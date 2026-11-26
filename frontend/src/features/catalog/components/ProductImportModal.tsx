@@ -7,6 +7,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Alert, Button, Flex, Modal, Typography, Upload } from 'antd';
 import { useEffect, useRef, useState } from 'react';
 import { isApiError, shouldReuseIdempotencyKey } from '../../../shared/api/client';
+import { downloadBlob } from '../../../shared/api/downloadBlob';
 import { ErrorAlert } from '../../../shared/components';
 import { describeError } from '../../../shared/messages.vi';
 import {
@@ -40,19 +41,6 @@ function fileProblem(file: File): string | null {
   }
   if (file.size > PRODUCT_IMPORT_MAX_BYTES) return 'File tối đa 2 MB. Hãy tách thành nhiều file nhỏ hơn.';
   return null;
-}
-
-/** Lưu `blob` thành file tải về của trình duyệt. */
-function saveFile(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  document.body.append(link);
-  link.click();
-  link.remove();
-  // Trình duyệt đã nhận lệnh tải; thu hồi URL sau khi xử lý xong sự kiện click
-  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
 /** `detail` của backend nêu lý do cụ thể cho lỗi cả file (cột thiếu, quá số dòng, dòng trùng mã khi ghi). */
@@ -120,7 +108,7 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
   const preview = useMutation({ mutationFn: previewProductImport });
   const template = useMutation({
     mutationFn: fetchProductImportTemplate,
-    onSuccess: (blob, format) => saveFile(blob, `mau-nhap-san-pham.${format}`),
+    onSuccess: (blob, format) => downloadBlob(blob, `mau-nhap-san-pham.${format}`),
   });
   const pending = importing.isPending || preview.isPending;
   const stale = importing.isError && isApiError(importing.error) && importing.error.type === IMPORT_PREVIEW_STALE;

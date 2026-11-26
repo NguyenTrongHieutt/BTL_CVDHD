@@ -139,6 +139,7 @@ class RoleMatrixTest {
                 row("POST", "/api/v1/catalog/products/{id}/variants/{id}/deactivate", U, F, A),
                 // Nhập Sản phẩm từ Excel (SP-06): chỉ Chủ cửa hàng, cả tải file mẫu (Nhân viên không nhập được)
                 row("GET", "/api/v1/catalog/products/import-template", U, F, A),
+                row("POST", "/api/v1/catalog/products/import/preview", U, F, A),
                 row("POST", "/api/v1/catalog/products/import", U, F, A),
                 // Ảnh Sản phẩm (SP-01b): xem cả hai vai trò (<img src> gửi cookie), tải lên, gỡ chỉ Chủ cửa hàng
                 row("GET", "/api/v1/catalog/products/{id}/image", U, A, A),
@@ -177,6 +178,9 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/inventory/low-stock", U, A, A),
                 row("GET", "/api/v1/inventory/ledger", U, F, A),
                 row("POST", "/api/v1/inventory/purchase-receipts", U, F, A),
+                row("GET", "/api/v1/inventory/purchase-receipts/import-template", U, F, A),
+                row("POST", "/api/v1/inventory/purchase-receipts/import/preview", U, F, A),
+                row("POST", "/api/v1/inventory/purchase-receipts/import", U, F, A),
                 row("POST", "/api/v1/inventory/stocktakes", U, F, A),
                 row("PUT", "/api/v1/inventory/stock/{id}/min-quantity", U, F, A),
                 // reporting: chỉ Chủ cửa hàng

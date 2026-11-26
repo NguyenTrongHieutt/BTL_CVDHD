@@ -1,12 +1,16 @@
-import { useDeferredValue, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Card, Input, InputNumber, Select, Space, Typography } from 'antd';
+import { ImportOutlined } from '@ant-design/icons';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { Alert, Button, Card, Input, InputNumber, Space, Typography } from 'antd';
+import { useState } from 'react';
 import { api, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
-import type { PageResponse } from '../../../shared/api/client';
 import { ErrorAlert, MoneyText, ProductPicker, RecordTable, useDocumentTitle } from '../../../shared/components';
-import type { SupplierSummary } from '../../../shared/types/catalog';
-import type { IsoDateTime, Uuid } from '../../../shared/types/common';
+import type { Uuid } from '../../../shared/types/common';
 import type { SellableItem } from '../../../shared/types/sales';
+import { ReceiptImportModal } from '../components/ReceiptImportModal';
+import { ReceiptSupplierSelect } from '../components/ReceiptSupplierSelect';
+import type { ReceiptSupplier } from '../components/ReceiptSupplierSelect';
+import { invalidateReceiptQueries, RECEIPTS_PATH } from '../receiptImportApi';
+import type { Receipt } from '../receiptImportApi';
 
 const MAX_QUANTITY = 2_147_483_647;
 
@@ -15,13 +19,6 @@ interface DraftLine {
   label: string;
   quantity: number | null;
   unitCost: number | null;
-}
-
-interface Receipt {
-  receiptId: Uuid;
-  code: string;
-  receivedAt: IsoDateTime;
-  totalAmount: number;
 }
 
 interface Submission {
@@ -37,34 +34,23 @@ function isValidLine({ quantity, unitCost }: DraftLine) {
 export function PurchaseReceiptsPage() {
   useDocumentTitle('Phiếu nhập');
   const queryClient = useQueryClient();
-  const [supplier, setSupplier] = useState<{ value: Uuid; label: string }>();
-  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplier, setSupplier] = useState<ReceiptSupplier>();
   const [note, setNote] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([]);
   const [pending, setPending] = useState<Submission | null>(null);
-  const supplierQuery = useDeferredValue(supplierSearch.trim());
-
-  const suppliers = useQuery({
-    queryKey: ['catalog', 'suppliers', 'purchase-receipt-options', supplierQuery],
-    queryFn: ({ signal }) => api.get<PageResponse<SupplierSummary>>('/api/v1/catalog/suppliers', {
-      signal, query: { q: supplierQuery || undefined, page: 0, size: 30 },
-    }),
-  });
+  const [importOpen, setImportOpen] = useState(false);
+  const [savedReceipt, setSavedReceipt] = useState<Receipt>();
   const save = useMutation({
     mutationFn: ({ key, request }: Submission) => api.post<Receipt>(
-      '/api/v1/inventory/purchase-receipts', request, { idempotencyKey: key },
+      RECEIPTS_PATH, request, { idempotencyKey: key },
     ),
-    onSuccess: () => {
+    onSuccess: (receipt) => {
       setPending(null);
       setSupplier(undefined);
-      setSupplierSearch('');
       setLines([]);
       setNote('');
-      for (const queryKey of [
-        ['inventory', 'stock'], ['inventory', 'low-stock'], ['inventory', 'ledger'], ['sales', 'sellable'],
-      ]) {
-        void queryClient.invalidateQueries({ queryKey });
-      }
+      setSavedReceipt(receipt);
+      void invalidateReceiptQueries(queryClient);
     },
     onError: (error) => {
       if (!shouldReuseIdempotencyKey(error)) setPending(null);
@@ -122,45 +108,20 @@ export function PurchaseReceiptsPage() {
   return (
     <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
       <Typography.Title level={1} style={{ margin: 0 }}>Phiếu nhập</Typography.Title>
-      {save.isSuccess && (
+      {savedReceipt && (
         <Alert
           type="success"
           showIcon
           title="Đã lưu phiếu nhập và cập nhật tồn kho."
           description={<Space wrap>
-            <Typography.Text copyable>{save.data.code}</Typography.Text>
-            <MoneyText value={save.data.totalAmount} />
+            <Typography.Text copyable>{savedReceipt.code}</Typography.Text>
+            <MoneyText value={savedReceipt.totalAmount} />
           </Space>}
         />
       )}
       <Card title="Thông tin phiếu nhập">
         <Space orientation="vertical" size="middle" style={{ width: '100%' }}>
-          <Space orientation="vertical" size={4} style={{ display: 'flex' }}>
-            <label htmlFor="receipt-supplier">Nhà cung cấp</label>
-            <Select<{ value: Uuid; label: string }>
-              id="receipt-supplier"
-              aria-required="true"
-              placeholder="Chọn hoặc tìm nhà cung cấp"
-              style={{ width: '100%' }}
-              disabled={locked}
-              loading={suppliers.isFetching}
-              notFoundContent={suppliers.isFetching ? 'Đang tải nhà cung cấp…'
-                : suppliers.isError ? 'Chưa tải được nhà cung cấp.' : 'Không tìm thấy nhà cung cấp.'}
-              allowClear
-              labelInValue
-              showSearch={{ onSearch: setSupplierSearch, filterOption: false }}
-              value={supplier}
-              options={suppliers.data?.items.map(({ supplierId, name, code }) => ({
-                value: supplierId, label: code ? `${name} · ${code}` : name,
-              }))}
-              onChange={(value) => {
-                setSupplier(value);
-                setSupplierSearch('');
-              }}
-            />
-          </Space>
-          {suppliers.isError && <ErrorAlert error={suppliers.error} retryLabel="Tải lại nhà cung cấp"
-            onRetry={() => void suppliers.refetch()} retrying={suppliers.isFetching} />}
+          <ReceiptSupplierSelect value={supplier} onChange={setSupplier} disabled={locked} />
           <Space orientation="vertical" size={4} style={{ display: 'flex' }}>
             <label htmlFor="receipt-note">Ghi chú (không bắt buộc)</label>
             <Input.TextArea id="receipt-note" value={note} onChange={(event) => setNote(event.target.value)}
@@ -168,7 +129,11 @@ export function PurchaseReceiptsPage() {
           </Space>
         </Space>
       </Card>
-      <Card title="Sản phẩm nhập">
+      <Card title="Sản phẩm nhập" extra={
+        <Button icon={<ImportOutlined aria-hidden />} disabled={locked} onClick={() => setImportOpen(true)}>
+          Nhập từ file
+        </Button>
+      }>
         <ProductPicker onPick={addProduct} allowOutOfStock disabled={locked} />
         <RecordTable<DraftLine>
           compactColumns={{ title: 'label', actions: 'actions' }}
@@ -234,6 +199,17 @@ export function PurchaseReceiptsPage() {
           {save.isError && pending ? 'Gửi lại phiếu' : 'Lưu phiếu nhập'}
         </Button>
       </Space>
+      {importOpen && <ReceiptImportModal
+        initialSupplier={supplier}
+        initialNote={note}
+        hasManualLines={lines.length > 0}
+        onClose={() => setImportOpen(false)}
+        onImported={(receipt) => {
+          setSavedReceipt(receipt);
+          save.reset();
+          void invalidateReceiptQueries(queryClient, true);
+        }}
+      />}
     </Space>
   );
 }

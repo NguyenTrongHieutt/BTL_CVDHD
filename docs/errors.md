@@ -33,6 +33,9 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/inventory/insufficient-stock` | 422 | Không đủ hàng; cả chứng từ rollback (AD-6) | inventory |
 | `/errors/inventory/stocktake-stale` | 409 | Tồn hệ thống đã thay đổi trước khi lưu kiểm kho. `currentQuantities` trả số tồn hiện tại theo ID biến thể có thay đổi | inventory |
 | `/errors/inventory/variant-inactive` | 409 | Nhập hàng cho Biến thể đã ngừng kinh doanh (AD-14) | inventory |
+| `/errors/inventory/receipt-import-invalid` | 400 | Phiếu nhập từ file còn lỗi. `errors` chứa `{row, column, message}` và cả phiếu chưa được ghi. | inventory |
+| `/errors/inventory/receipt-import-preview-stale` | 409 | File, chỉnh sửa, thông tin phiếu, danh mục hoặc tồn kho đã đổi sau khi xem trước. Kiểm tra lại để tiếp tục. | inventory |
+| `/errors/inventory/receipt-import-preview-required` | 422 | Thiếu `X-Import-Preview` khi xác nhận nhập kho từ file. | inventory |
 | `/errors/sales/invalid-state` | 409 | Chuyển trạng thái Đơn hàng không hợp lệ, ví dụ hủy đơn đã hủy hoặc đã có Phiếu trả (AD-17) | sales |
 | `/errors/sales/return-stale` | 409 | Số lượng có thể trả hoặc số tiền hoàn đã thay đổi. Đọc lại đơn và tính lại trước khi lưu Phiếu trả hàng | sales |
 | `/errors/sales/cart-stale` | 409 | Tổng tiền tính lại khác `quotedTotal`, hoặc giá, trạng thái đã đổi (AD-8) | sales |

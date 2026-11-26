@@ -47,6 +47,7 @@ export function ProductRankingPage() {
   const [rankBy, setRankBy] = useState<RankBy>('QUANTITY');
   const [limit, setLimit] = useState(10);
   const filters = { ...range, rankBy, limit, categoryId: category?.value };
+  const resultsKey = [range.fromDate, range.toDate, rankBy, limit, category?.value].join(':');
   const query = useQuery({
     queryKey: ['reporting', 'product-ranking', filters],
     queryFn: async ({ signal }) => {
@@ -119,10 +120,11 @@ export function ProductRankingPage() {
         <>
           <Card title="Bán chạy nhất" extra={`Top ${limit}`}>
             <RecordTable<RankedProduct>
+              key={resultsKey}
               rowKey="productId"
               dataSource={query.data.best.rows}
               columns={columns}
-              pagination={false}
+              pagination={{ defaultPageSize: 10, pageSizeOptions: [10, 20, 50], showSizeChanger: true, hideOnSinglePage: true }}
               scroll={{ x: true }}
               compactColumns={{ title: 'productName' }}
               locale={{ emptyText: 'Không có sản phẩm bán chạy khớp bộ lọc.' }}
@@ -130,10 +132,11 @@ export function ProductRankingPage() {
           </Card>
           <Card title="Bán chậm nhất" extra={`Top ${limit}`}>
             <RecordTable<RankedProduct>
+              key={resultsKey}
               rowKey="productId"
               dataSource={query.data.slow.rows}
               columns={columns}
-              pagination={false}
+              pagination={{ defaultPageSize: 10, pageSizeOptions: [10, 20, 50], showSizeChanger: true, hideOnSinglePage: true }}
               scroll={{ x: true }}
               compactColumns={{ title: 'productName' }}
               locale={{ emptyText: 'Không có sản phẩm bán chậm khớp bộ lọc.' }}

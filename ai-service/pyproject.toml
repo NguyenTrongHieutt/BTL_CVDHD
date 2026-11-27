@@ -9,6 +9,7 @@ dependencies = [
     "google-genai==2.34.0",
     "httpx==0.28.1",
     "pgvector==0.5.1",
+    "prometheus-client==0.26.0",
     "psycopg[binary]==3.3.8",
     "pydantic==2.14.3",
     "pydantic-settings==2.16.2",

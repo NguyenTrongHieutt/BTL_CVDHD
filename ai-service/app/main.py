@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from app import __version__, db, embedding
 from app.health import router as health_router
 from app.log import configure_logging
+from app.metrics import enable_metrics
 from app.problems import install_problem_handlers
 from app.qa.router import router as qa_router
 from app.search.router import router as search_router
@@ -61,6 +62,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router, prefix=API_PREFIX)
     app.include_router(search_router, prefix=API_PREFIX)
     app.include_router(qa_router, prefix=API_PREFIX)
+    if settings.metrics_enabled:
+        enable_metrics(app)
     return app
 
 

@@ -22,6 +22,8 @@ import org.apache.kafka.clients.producer.RoundRobinPartitioner;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.http.HttpStatus;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -112,7 +114,8 @@ class BackofficeWriteQueueTest {
     void environmentCannotLowerTheProducerDurabilitySettings() {
         var props = new KafkaProperties();
         props.getProducer().setAcks("0");
-        var producer = new BackofficeQueueConfiguration.Publisher().backofficeProducerFactory(props, 1000);
+        var producer = new BackofficeQueueConfiguration.Publisher().backofficeProducerFactory(props, 1000,
+                new StaticListableBeanFactory().getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class));
         try {
             assertThat(producer.getConfigurationProperties()).containsEntry(ProducerConfig.ACKS_CONFIG, "all")
                     .containsEntry(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);

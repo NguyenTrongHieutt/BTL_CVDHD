@@ -39,7 +39,8 @@ public class AccountStatusCache {
     /** Tài khoản còn {@code ACTIVE}; không có (đã xóa) cũng là không hoạt động. */
     boolean isActive(UUID userId) {
         Instant now = clock.instant();
-        Entry cached = cache.get(userId);
+        boolean cacheEnabled = !props.accountStatusCache().isZero();
+        Entry cached = cacheEnabled ? cache.get(userId) : null;
         if (cached != null && cached.checkedAt().plus(props.accountStatusCache()).isAfter(now)) {
             return cached.active();
         }
@@ -47,7 +48,7 @@ public class AccountStatusCache {
                 "select status from app.app_user where id = ?",
                 rs -> rs.next() && "ACTIVE".equals(rs.getString(1)), userId));
         boolean result = Boolean.TRUE.equals(active);
-        cache.put(userId, new Entry(result, now));
+        if (cacheEnabled) cache.put(userId, new Entry(result, now));
         return result;
     }
 

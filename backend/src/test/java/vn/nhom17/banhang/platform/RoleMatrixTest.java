@@ -107,9 +107,12 @@ class RoleMatrixTest {
                 row("GET", "/actuator/health", A, A, A),
                 row("GET", "/actuator/health/liveness", A, A, A),
                 row("GET", "/actuator/health/readiness", A, A, A),
+                row("GET", "/livez", A, A, A),
+                row("GET", "/readyz", A, A, A),
                 // Actuator khác đã expose nhưng không mở ra ngoài
                 row("GET", "/actuator/info", U, F, F),
                 row("GET", "/actuator/modulith", U, F, F),
+                row("GET", "/actuator/prometheus", U, F, F),
                 // platform
                 row("GET", "/api/v1/platform/me", U, A, A),
                 row("GET", "/api/v1/platform/write-requests/{id}", U, A, A),

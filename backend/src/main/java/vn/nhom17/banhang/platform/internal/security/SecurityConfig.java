@@ -5,8 +5,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.function.Supplier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
+import org.springframework.boot.security.autoconfigure.actuate.web.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.authorization.AuthorizationManager;
@@ -20,6 +23,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
+import org.springframework.security.web.util.matcher.AndRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 /**
  * Phân quyền MẶC ĐỊNH LÀ CẤM (AD-16). Mọi nhóm route khai báo vai trò được phép tại đây; route chưa khai báo bị
@@ -32,6 +37,29 @@ class SecurityConfig {
 
     private static final String OWNER = "OWNER";
     private static final String STAFF = "STAFF";
+
+    /** Scrape không dùng cookie/JWT; chỉ listener quản trị riêng mới được bỏ qua xác thực. */
+    @Bean
+    @Order(0)
+    SecurityFilterChain managementMetricsSecurity(HttpSecurity http, Environment environment) throws Exception {
+        RequestMatcher managementListener = request -> {
+            Integer configuredPort = environment.getProperty("management.server.port", Integer.class);
+            if (configuredPort == null || configuredPort < 0) return false;
+            int managementPort = environment.getProperty("local.management.port", Integer.class, configuredPort);
+            int applicationPort = environment.getProperty("local.server.port", Integer.class,
+                    environment.getProperty("server.port", Integer.class, 8080));
+            return managementPort > 0 && managementPort != applicationPort && request.getLocalPort() == managementPort;
+        };
+        http.securityMatcher(new AndRequestMatcher(managementListener, EndpointRequest.to("prometheus")))
+                .csrf(csrf -> csrf.disable())
+                .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .requestCache(c -> c.disable())
+                .httpBasic(b -> b.disable())
+                .formLogin(f -> f.disable())
+                .logout(l -> l.disable())
+                .authorizeHttpRequests(a -> a.anyRequest().permitAll());
+        return http.build();
+    }
 
     @Bean
     SecurityFilterChain apiSecurity(HttpSecurity http, JwtService jwt, ProblemSecurityHandlers handlers,
@@ -56,7 +84,8 @@ class SecurityConfig {
                         // Công khai
                         .requestMatchers(HttpMethod.POST, "/api/v1/platform/auth/login", "/api/v1/platform/auth/logout",
                                 "/api/v1/platform/stores").permitAll()
-                        .requestMatchers("/actuator/health", "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**",
+                        .requestMatchers("/actuator/health", "/actuator/health/**", "/livez", "/readyz",
+                                "/v3/api-docs/**", "/swagger-ui/**",
                                 "/swagger-ui.html", "/error").permitAll()
                         // Chỉ dịch vụ AI, bằng X-Service-Key (AD-9, AD-12); nginx không mở /internal ra ngoài
                         .requestMatchers("/internal/**").access(new ServiceKeyAuthorization(props.internalServiceKey()))

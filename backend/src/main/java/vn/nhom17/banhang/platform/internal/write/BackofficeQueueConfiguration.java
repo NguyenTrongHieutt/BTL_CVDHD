@@ -6,12 +6,15 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaConsumerFactoryCustomizer;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
@@ -32,7 +35,8 @@ class BackofficeQueueConfiguration {
     static class Publisher {
         @Bean
         DefaultKafkaProducerFactory<String, String> backofficeProducerFactory(KafkaProperties kafka,
-                @Value("${app.backoffice.queue.publish-timeout-ms:10000}") long timeout) {
+                @Value("${app.backoffice.queue.publish-timeout-ms:10000}") long timeout,
+                ObjectProvider<DefaultKafkaProducerFactoryCustomizer> customizers) {
             if (timeout < 1 || timeout > Integer.MAX_VALUE) throw new IllegalArgumentException("Invalid publish timeout");
             Map<String, Object> props = new HashMap<>(kafka.buildProducerProperties());
             props.put(ProducerConfig.ACKS_CONFIG, "all");
@@ -45,7 +49,9 @@ class BackofficeQueueConfiguration {
             props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, Math.min(timeout, 5000));
             props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, (int) Math.min(timeout, 5000));
             props.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, (int) timeout);
-            return new DefaultKafkaProducerFactory<>(props);
+            var factory = new DefaultKafkaProducerFactory<String, String>(props);
+            customizers.orderedStream().forEach(customizer -> customizer.customize(factory));
+            return factory;
         }
 
         @Bean
@@ -61,7 +67,8 @@ class BackofficeQueueConfiguration {
     @EnableScheduling
     static class Consumer {
         @Bean
-        DefaultKafkaConsumerFactory<String, String> backofficeConsumerFactory(KafkaProperties kafka) {
+        DefaultKafkaConsumerFactory<String, String> backofficeConsumerFactory(KafkaProperties kafka,
+                ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> customizers) {
             Map<String, Object> props = new HashMap<>(kafka.buildConsumerProperties());
             props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
             props.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
@@ -69,7 +76,9 @@ class BackofficeQueueConfiguration {
             props.put(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, false);
             // Một batch nhập tối đa 1000 dòng có thể dài hơn thao tác JSON ngắn.
             props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 900_000);
-            return new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), new StringDeserializer());
+            var factory = new DefaultKafkaConsumerFactory<>(props, new StringDeserializer(), new StringDeserializer());
+            customizers.orderedStream().forEach(customizer -> customizer.customize(factory));
+            return factory;
         }
 
         @Bean

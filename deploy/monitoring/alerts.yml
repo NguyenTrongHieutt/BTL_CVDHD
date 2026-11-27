@@ -1,0 +1,67 @@
+groups:
+  - name: monitoring-and-services
+    rules:
+      - alert: MonitoringScrapeFailed
+        expr: up{job=~"prometheus|blackbox-exporter|nginx-exporter|java-workers|ai-service"} == 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Metrics scrape failed for {{ $labels.job }} ({{ $labels.instance }})"
+          action: "Check the target container, management endpoint, and Prometheus Targets page."
+
+      - alert: BackendMetricsUnavailable
+        expr: (count(up{job="backend"} == 1) or vector(0)) < 1
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: No backend instance is exporting metrics
+          action: "Check backend replicas, Docker DNS, port 9095, and /actuator/prometheus."
+
+      - alert: HttpServiceUnready
+        expr: probe_success{job=~"http-readiness|ai-readiness|storage-readiness"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP readiness failed for {{ $labels.instance }}"
+          action: "Check the service container and its health endpoint; inspect dependent services if it remains down."
+
+      - alert: DataListenerUnavailable
+        expr: probe_success{job="tcp-availability"} == 0
+        for: 2m
+        labels:
+          severity: "{{ $labels.priority }}"
+        annotations:
+          summary: "TCP listener unreachable at {{ $labels.instance }}"
+          action: "Check the container and network, then run the service's native health check. TCP reachability alone does not validate data operations."
+
+      - alert: NginxStatusUnavailable
+        expr: nginx_up == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: Nginx exporter cannot read nginx_status
+          action: "Check the internal web:8081/nginx_status listener and nginx-exporter logs."
+
+      # Aggregate away route, URI and status labels before evaluating. The
+      # traffic floor avoids noisy ratios during an idle demo.
+      - alert: BackendElevated5xxRate
+        expr: (sum(rate(http_server_requests_seconds_count{job="backend",status=~"5.."}[5m])) / sum(rate(http_server_requests_seconds_count{job="backend"}[5m])) > 0.05) and (sum(rate(http_server_requests_seconds_count{job="backend"}[5m])) > 0.1)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Backend 5xx responses exceed 5% of requests
+          action: "Inspect backend logs, recent deployment changes, and DB/Kafka availability."
+
+      - alert: AiElevated5xxRate
+        expr: (sum(rate(banhang_ai_requests_total{job="ai-service",status=~"5.."}[5m])) / sum(rate(banhang_ai_requests_total{job="ai-service"}[5m])) > 0.05) and (sum(rate(banhang_ai_requests_total{job="ai-service"}[5m])) > 0.1)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: AI search/ask 5xx responses exceed 5% of requests
+          action: "Inspect ai-service logs and its backend and embedding dependencies."

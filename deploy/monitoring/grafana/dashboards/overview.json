@@ -2,7 +2,7 @@
   "title": "Tổng quan vận hành",
   "uid": "banhang-overview",
   "schemaVersion": 40,
-  "version": 1,
+  "version": 2,
   "editable": false,
   "timezone": "browser",
   "time": {
@@ -17,7 +17,7 @@
   "panels": [
     {
       "id": 1,
-      "title": "Mục thu thập hoạt động",
+      "title": "Mục đang thu",
       "description": "Số target Prometheus thu được số liệu.",
       "type": "stat",
       "gridPos": {
@@ -66,7 +66,7 @@
     },
     {
       "id": 2,
-      "title": "Bản API đang hoạt động",
+      "title": "Bản API sẵn sàng",
       "description": "Số bản API Prometheus thu được số liệu.",
       "type": "stat",
       "gridPos": {
@@ -115,7 +115,7 @@
     },
     {
       "id": 3,
-      "title": "Kiểm tra kết nối thất bại",
+      "title": "Probe thất bại",
       "description": "Probe HTTP và TCP đang không thành công.",
       "type": "stat",
       "gridPos": {
@@ -131,7 +131,15 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "Chưa có mẫu"
+          "noValue": "Chưa có mẫu",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
         },
         "overrides": []
       },
@@ -164,7 +172,7 @@
     },
     {
       "id": 4,
-      "title": "Kết nối Nginx hoạt động",
+      "title": "Kết nối Nginx",
       "description": "Kết nối mở hiện tại từ bộ xuất chỉ số Nginx.",
       "type": "stat",
       "gridPos": {
@@ -279,7 +287,8 @@
         "defaults": {
           "unit": "percentunit",
           "noValue": "Chưa có mẫu",
-          "min": 0
+          "min": 0,
+          "max": 1
         },
         "overrides": []
       },
@@ -459,7 +468,7 @@
     },
     {
       "id": 10,
-      "title": "Kết nối đang dùng trong Hikari",
+      "title": "Kết nối Hikari đang dùng",
       "description": "Số kết nối thực sự đang được dùng theo tiến trình Java.",
       "type": "timeseries",
       "gridPos": {
@@ -475,7 +484,8 @@
       "fieldConfig": {
         "defaults": {
           "unit": "short",
-          "noValue": "Chưa có mẫu"
+          "noValue": "Chưa có mẫu",
+          "custom": { "axisSoftMin": 0, "axisSoftMax": 5 }
         },
         "overrides": []
       },
@@ -557,7 +567,7 @@
     },
     {
       "id": 12,
-      "title": "Độ lệch offset phía Kafka client",
+      "title": "Lag Kafka phía worker",
       "description": "Giá trị lớn nhất theo topic trong các partition mà worker đang đọc.",
       "type": "timeseries",
       "gridPos": {

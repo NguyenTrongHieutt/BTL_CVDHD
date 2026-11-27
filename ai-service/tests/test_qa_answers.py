@@ -76,5 +76,8 @@ def test_comparison_describes_direction_without_dividing_by_zero(previous, curre
         summary={"metric": "REVENUE", "currentValue": current, "comparisonValue": previous, "difference": current - previous},
     )
     assert outcome in result.answer
+    if previous:
+        expected_rate = {125: "25,0%", 100: "-20,0%" if previous != current else "0,0%"}
+        assert expected_rate[current] in result.answer
     assert "01/10/2026–31/10/2026" in result.interpretation
     assert result.table.rows[0][2] == current and result.table.rows[1][2] == previous

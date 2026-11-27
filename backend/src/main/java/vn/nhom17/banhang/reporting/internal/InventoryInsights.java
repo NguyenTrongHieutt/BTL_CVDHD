@@ -1,6 +1,7 @@
 package vn.nhom17.banhang.reporting.internal;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -15,11 +16,9 @@ import vn.nhom17.banhang.reporting.internal.ReportingQueryController.DateRange;
 import vn.nhom17.banhang.reporting.internal.ReportingQueryController.QueryResponse;
 
 enum InventoryInsights {
-    Q7(30, "stock_quantity > 0 AND (daily_sales = 0 OR stock_quantity > daily_sales * 30)",
-            "stock_value DESC, daily_sales ASC"),
-    Q8(14, "below_minimum OR days_of_stock < 7", "days_of_stock ASC NULLS LAST, suggested_quantity DESC"),
-    Q9(30, "stock_quantity > 0 AND sale_price > avg_unit_cost "
-            + "AND (daily_sales = 0 OR stock_quantity > daily_sales * 30)", "stock_value DESC");
+    Q7(30, "stock_quantity > sold_quantity", "days_of_stock DESC NULLS FIRST, stock_value DESC"),
+    Q8(14, "below_minimum OR runs_out_within_week", "days_of_stock ASC NULLS LAST, minimum_shortfall DESC"),
+    Q9(30, "stock_quantity > sold_quantity AND sale_price > avg_unit_cost", "stock_value DESC");
 
     private static final int MAX_ROWS = 50;
     private static final String SQL = """
@@ -56,14 +55,16 @@ enum InventoryInsights {
                 WHERE p.store_id = :storeId AND p.status = 'ACTIVE' AND p.deleted_at IS NULL
                   AND v.status = 'ACTIVE' AND v.deleted_at IS NULL AND coalesce(s.is_active, true)
             ), recommendations AS (
-                SELECT *, stock_quantity / nullif(daily_sales, 0) AS days_of_stock,
+                SELECT *, stock_quantity::numeric * :days / nullif(sold_quantity, 0) AS days_of_stock,
+                       stock_quantity::bigint * :days < sold_quantity::numeric * 7 AS runs_out_within_week,
+                       coalesce(min_quantity, 0) - stock_quantity AS minimum_shortfall,
                        greatest(0, ceil(sold_quantity::numeric * 7 / :days) - stock_quantity,
                                 coalesce(min_quantity, 0) - stock_quantity)::bigint AS suggested_quantity
                 FROM inputs
             )
             SELECT *, count(*) OVER () AS match_count
             FROM recommendations WHERE %s
-            ORDER BY %s, product_name, sku, variant_id LIMIT :limit
+            ORDER BY %s, sku, variant_id LIMIT :limit
             """;
 
     private final int days;
@@ -84,14 +85,14 @@ enum InventoryInsights {
             long sold = rs.getLong("sold_quantity");
             String reason = switch (this) {
                 case Q7 -> sold == 0 ? "Chưa bán ròng trong 30 ngày" : "Tồn đủ bán hơn 30 ngày";
-                case Q8 -> rs.getBoolean("below_minimum") ? "Tồn dưới ngưỡng tối thiểu" : "Tồn đủ bán dưới 7 ngày";
+                case Q8 -> reorderReason(rs.getBoolean("below_minimum"), rs.getBoolean("runs_out_within_week"));
                 case Q9 -> sold == 0 ? "Chưa bán ròng và giá bán cao hơn giá vốn"
                         : "Bán chậm và giá bán cao hơn giá vốn";
             };
             var row = new InsightRow(rs.getObject("product_id", UUID.class), rs.getString("product_name"),
                     rs.getObject("variant_id", UUID.class), rs.getString("variant_name"), rs.getString("sku"),
                     rs.getInt("stock_quantity"), rs.getLong("avg_unit_cost"), rs.getLong("sale_price"),
-                    rs.getLong("stock_value"), sold, rounded(rs.getBigDecimal("daily_sales")), rounded(cover),
+                    rs.getLong("stock_value"), sold, rounded(rs.getBigDecimal("daily_sales"), 2), rounded(cover, 1),
                     rs.getObject("min_quantity", Integer.class), this == Q8 ? rs.getLong("suggested_quantity") : null,
                     reason);
             return new Match(row, rs.getLong("match_count"));
@@ -119,8 +120,13 @@ enum InventoryInsights {
         return columns;
     }
 
-    private static BigDecimal rounded(BigDecimal value) {
-        return value == null ? null : value.setScale(2, java.math.RoundingMode.HALF_UP);
+    private static String reorderReason(boolean belowMinimum, boolean runsOutWithinWeek) {
+        if (!belowMinimum) return "Tồn đủ bán dưới 7 ngày";
+        return runsOutWithinWeek ? "Tồn dưới ngưỡng tối thiểu và đủ bán dưới 7 ngày" : "Tồn dưới ngưỡng tối thiểu";
+    }
+
+    private static BigDecimal rounded(BigDecimal value, int digits) {
+        return value == null ? null : value.setScale(digits, RoundingMode.HALF_UP);
     }
 
     private record Match(InsightRow row, long count) {}

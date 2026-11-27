@@ -36,7 +36,7 @@ def _blocked(text: str) -> bool:
     patterns = (
         r"\b(?:khach hang|so dien thoai|email|dia chi|mat khau|password|token|jwt|api key|system prompt)\b",
         r"\b(?:bo qua (?:cac |moi )?(?:huong dan|quy tac)|ignore|instructions|sql|select|drop|delete|truncate|insert|update)\b",
-        r"\b(?:store[_ -]?id|tenant|cua hang khac|cua hang cua (?!toi\b)|tat ca (?:cac )?cua hang|toan (?:bo )?(?:he thong|cua hang))\b",
+        r"\b(?:store[_ -]?id|tenant|cua hang khac|cua hang cua (?!toi\b)|tat ca (?:cac )?cua hang|toan bo cua hang|toan (?:bo )?he thong)\b",
         r"\b(?:xoa|cap nhat|thay doi|huy)\b.*\b(?:don|kho|san pham|gia|hoa don)\b",
         r"^(?:(?:hay|vui long|giup toi|cho toi)\s+)*(?:sua|tao|them|ghi|nhap)\b",
         r"\b\d{8,}\b|[\w.+-]+@[\w.-]+\.[a-z]{2,}",
@@ -44,7 +44,7 @@ def _blocked(text: str) -> bool:
     if any(re.search(pattern, text) for pattern in patterns):
         return True
     # A store name/id cannot select another tenant. Do not silently ignore such a selector.
-    return bool(re.search(r"\bcua hang\s+(?!(?:cua toi|hien tai|nay|hom|tuan|thang|nam|ban|co|duoc|doanh thu|loi nhuan)\b)[a-z0-9]", text))
+    return bool(re.search(r"\bcua hang\s+(?!(?:cua toi|hien tai|nay|hom|tuan|thang|nam|ban|co|duoc|doanh thu|loi nhuan|la bao nhieu)\b)[a-z0-9]", text))
 
 
 def _date_range(start: date, end: date) -> Period:
@@ -119,7 +119,7 @@ def _metric(text: str) -> Metric | None:
     found: list[Metric] = []
     if re.search(r"\b(?:doanh thu|doanh so|bao nhieu tien|tong tien ban)\b", text):
         found.append(Metric.REVENUE)
-    if re.search(r"\b(?:don hang|hoa don|so don|bao nhieu don)\b", text):
+    if re.search(r"\b(?:don hang|hoa don|so don|bao nhieu don|don (?:da |bi )?huy|don (?:da )?tra het)\b", text):
         found.append(Metric.ORDER_COUNT)
     if re.search(r"\b(?:loi nhuan|lai|loi)\b", text):
         found.append(Metric.GROSS_PROFIT)
@@ -140,6 +140,8 @@ def interpret(question: str, today: date) -> IntentDecision:
     text = _fold(original)
     if _blocked(text):
         return IntentDecision(None, None, "Tôi chỉ đọc số liệu báo cáo của cửa hàng bạn; không xử lý thông tin cá nhân, yêu cầu sửa dữ liệu hay truy cập cửa hàng khác.")
+    if re.search(r"\b(?:loi nhuan|lai|loi) (?:rong|sau thue|sau chi phi)\b", text):
+        return IntentDecision(None, None, "Báo cáo hiện cung cấp lợi nhuận gộp, tính bằng doanh thu thuần trừ giá vốn hàng bán.")
     try:
         periods, unsupported_time = _periods(text, today)
         if unsupported_time:

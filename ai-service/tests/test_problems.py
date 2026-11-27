@@ -31,12 +31,19 @@ def test_body_validation_error_names_body_field(client, make_token):
     assert [e["field"] for e in response.json()["errors"]] == ["question"]
 
 
-def test_not_implemented_stub_returns_501_problem(client, make_token):
+def test_ask_unavailable_returns_503_problem(client, make_token, monkeypatch):
+    from app import db
+
+    def offline(store_id):
+        raise RuntimeError("private database connection detail")
+
+    monkeypatch.setattr(db, "store_transaction", offline)
     ask = client.post("/ai/ask", json={"question": "Doanh thu hôm nay?"}, headers=_auth(make_token))
-    assert ask.status_code == 501
+    assert ask.status_code == 503
     body = ask.json()
-    assert body["type"] == "/errors/ai/not-implemented"
+    assert body["type"] == "/errors/ai/unavailable"
     assert PROBLEM_FIELDS == set(body)
+    assert "private database" not in ask.text
 
 
 def test_unknown_route_is_404_problem(client):

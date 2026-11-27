@@ -1,43 +1,120 @@
-"""`POST /ai/ask`: Hỏi đáp dữ liệu. GĐ0 mới có khung, trả 501 Problem Details đến khi làm AI-03.
+"""Hỏi đáp báo cáo cục bộ: chỉ đọc Q1–Q9, hạn mức nguyên tử và lưu vết theo tenant."""
 
-TODO(AI-03…AI-08): hiện thực đường ống theo AD-11 (tối đa 2 lần gọi LLM, tổng ≤ 10 giây):
+import logging
+import time
+from collections.abc import Iterator
+from typing import Annotated
 
- 0. `require_owner` đã chạy: Nhân viên nhận 403 TRƯỚC khi đụng Hạn mức (AD-11 mục 1).
- 1. Giữ chỗ Hạn mức: `quota.reserve(conn, store_id, day)` trong `db.store_transaction`.
-    Hết lượt → 429 `/errors/ai/quota-exceeded` (AD-13). Nhớ `day` để hoàn đúng ngày.
- 2. Câu hỏi gợi ý nhanh (FR-41) ánh xạ thẳng sang Qn với tham số cố định trong code,
-    bỏ qua bước 3 (AD-11 mục 8).
- 3. Lần gọi LLM 1: Gemini (`GEMINI_MODEL`) với `prompts.router_instruction(năm)` và
-    `tools.gemini_tool()` (đúng 9 công cụ Q1–Q9, không công cụ ghi). Không có function
-    call → `refused=true` (ngoài phạm vi, FR-37). Dự phòng nếu function calling không đạt
-    ở GĐ0: structured output `{queryId, params}` (AD-11 mục 10; xem SPIKES.md).
- 4. `tools.parse_params` kiểm tham số bằng Pydantic; `tools.to_reporting_query` quy kỳ
-    ra `fromDate`/`toDate` theo giờ Việt Nam (AD-19). Sai tham số → coi như lỗi lần gọi 1.
- 5. `ReportingClient.query(Qn, params, token=user.token)`; phản hồi luôn có `range`.
- 6. Lỗi/quá giờ ở bước 3–5 (chưa có kết quả nào) → `quota.refund` rồi trả lỗi (AD-13).
- 7. Lần gọi LLM 2: viết lời dẫn tiếng Việt (kết luận trước, số sau). Chỉ gửi số liệu tổng
-    hợp; KHÔNG gửi tên, số điện thoại Khách hàng (AD-11 mục 6, PRD 7.3).
- 8. Code dựng `AskResponse`: bảng, biểu đồ, `interpretation` (Qn + khoảng ngày + loại số
-    liệu), `reportLink`, `disclaimer`. Kiểm mọi con số trong lời dẫn (bỏ dấu phân cách và
-    đơn vị, so với kết quả truy vấn hoặc giá trị code tự tính); lệch → bỏ lời dẫn, chỉ trả
-    bảng. Lần gọi 2 lỗi/quá giờ → trả bảng không lời dẫn, VẪN tính lượt (AD-11 mục 9).
- 9. Ghi `ai.ai_query_log`: câu hỏi, Qn và tham số đã dùng, câu trả lời, `refused`, thời
-    gian chạy, lỗi nếu có (AD-11 mục 7).
-"""
+import httpx
+from fastapi import APIRouter, Depends, Request
 
-from fastapi import APIRouter
-
+from app import db, quota
 from app.auth import OwnerDep
-from app.problems import not_implemented
-from app.qa.schemas import AskRequest, AskResponse
+from app.problems import (
+    TYPE_AI_QUOTA_EXCEEDED, TYPE_AI_UNAVAILABLE, TYPE_FORBIDDEN, TYPE_UNAUTHENTICATED,
+    ProblemException, get_request_id,
+)
+from app.qa import audit
+from app.qa.answers import build_answer
+from app.qa.intent import interpret
+from app.qa.periods import today_vn
+from app.qa.reporting import ReportingClient
+from app.qa.schemas import AskRequest, AskResponse, QuotaInfo
+from app.qa.tools import QueryId, to_reporting_query
 
+logger = logging.getLogger("app.qa")
 router = APIRouter(tags=["qa"])
 
 
+def reporting_client(request: Request) -> Iterator[ReportingClient]:
+    client = ReportingClient(request.app.state.settings.backend_url)
+    try:
+        yield client
+    finally:
+        client.close()
+
+
+def _unavailable() -> ProblemException:
+    return ProblemException(503, TYPE_AI_UNAVAILABLE, "Dịch vụ AI chưa sẵn sàng", "Chưa lấy được kết quả báo cáo. Vui lòng thử lại; lỗi kỹ thuật không tính lượt.")
+
+
 @router.post(
-    "/ask",
-    response_model=AskResponse,
-    responses={501: {"description": "Chưa làm (AI-03)", "content": {"application/problem+json": {}}}},
+    "/ask", response_model=AskResponse,
+    responses={429: {"description": "Hết 50 lượt trong ngày"}, 503: {"description": "Báo cáo chưa sẵn sàng"}},
 )
-def ask(body: AskRequest, user: OwnerDep) -> AskResponse:
-    raise not_implemented("Hỏi đáp dữ liệu sẽ có ở AI-03")
+def ask(
+    body: AskRequest, user: OwnerDep, request: Request,
+    reporting: Annotated[ReportingClient, Depends(reporting_client)],
+) -> AskResponse:
+    started = time.monotonic()
+    day = today_vn()
+    request_id = get_request_id(request)
+    query_id: QueryId | None = None
+    params: dict[str, str | int] = {}
+
+    def log_result(answer: AskResponse | None, error: str | None = None) -> None:
+        with db.store_transaction(user.store_id) as conn:
+            audit.record(
+                conn, user=user, question=body.question, query_id=query_id, params=params,
+                answer=answer, refused=bool(answer and answer.refused),
+                duration_ms=int((time.monotonic() - started) * 1000), error=error, request_id=request_id,
+            )
+
+    try:
+        with db.store_transaction(user.store_id) as conn:
+            reservation = quota.reserve(conn, user.store_id, day)
+    except Exception as exc:
+        logger.warning("Không giữ được hạn mức; requestId=%s; error=%s", request_id, type(exc).__name__)
+        raise _unavailable() from None
+    if reservation is None:
+        try:
+            log_result(None, "QUOTA_EXCEEDED")
+        except Exception as exc:
+            logger.warning("Không lưu được từ chối hạn mức; requestId=%s; error=%s", request_id, type(exc).__name__)
+        raise ProblemException(429, TYPE_AI_QUOTA_EXCEEDED, "Đã hết lượt hỏi trong ngày", "Mỗi cửa hàng có 50 lượt mỗi ngày, làm mới lúc 0 giờ theo giờ Việt Nam.")
+
+    try:
+        decision = interpret(body.question, day)
+        quota_info = QuotaInfo(used=reservation.used, limit=reservation.limit)
+        query_id = decision.query_id
+        if query_id is None:
+            result = AskResponse(
+                answer=decision.reason, interpretation="Chưa chọn truy vấn báo cáo; hãy xem phạm vi hỗ trợ trong câu trả lời.",
+                table=None, chart=None, reportLink=None, quota=quota_info, refused=True,
+            )
+        else:
+            assert decision.params is not None
+            params = to_reporting_query(query_id, decision.params, day)
+            raw = reporting.query(query_id, params, token=user.token, request_id=request_id)
+            result = build_answer(decision, raw, params, quota_info, day)
+        # Do not return an unrecorded successful result: failures here are technical failures too.
+        log_result(result)
+        return result
+    except Exception as exc:
+        if isinstance(exc, httpx.TimeoutException):
+            error = "REPORTING_TIMEOUT"
+        elif isinstance(exc, httpx.HTTPStatusError):
+            error = f"REPORTING_HTTP_{exc.response.status_code}"
+        elif isinstance(exc, ValueError):
+            error = "INVALID_REPORTING_RESPONSE"
+        else:
+            error = "QA_UNAVAILABLE"
+        # Refund independently of the audit write: an audit outage must not cancel a refund.
+        try:
+            with db.store_transaction(user.store_id) as conn:
+                quota.refund(conn, reservation)
+        except Exception as refund_error:
+            logger.error("Không hoàn được lượt; requestId=%s; error=%s", request_id, type(refund_error).__name__)
+        try:
+            log_result(None, error)
+        except Exception as audit_error:
+            logger.error("Không lưu được lỗi hỏi đáp; requestId=%s; error=%s", request_id, type(audit_error).__name__)
+        logger.warning("Hỏi đáp thất bại; requestId=%s; error=%s", request_id, error)
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in {401, 403}:
+            status = exc.response.status_code
+            raise ProblemException(
+                status, TYPE_UNAUTHENTICATED if status == 401 else TYPE_FORBIDDEN,
+                "Phiên đăng nhập không hợp lệ" if status == 401 else "Không có quyền xem báo cáo",
+                "Vui lòng đăng nhập lại." if status == 401 else "Không thể xem số liệu báo cáo với tài khoản hiện tại.",
+            ) from None
+        raise _unavailable() from None

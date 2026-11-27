@@ -1,12 +1,11 @@
 # ai-service — Dịch vụ AI
 
 Tìm kiếm hybrid Sản phẩm (FR-35, FR-36) và Hỏi đáp dữ liệu bằng tiếng Việt (FR-37 – FR-42).
-FastAPI, Python 3.14, model nhúng `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`, Gemini qua `google-genai`.
+FastAPI, Python 3.14 và model nhúng `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`.
 
 **Chủ:** Lân (C – Phân tích và AI). Luật bắt buộc: `ARCHITECTURE-SPINE.md`, nhất là AD-1, AD-2, AD-5, AD-9 – AD-13, AD-19.
 
-Trạng thái: **GĐ1**. `/ai/search` đã triển khai theo AI-01; `/ai/ask` vẫn trả `501` đến AI-03.
-Kết quả hai spike kỹ thuật ở [`SPIKES.md`](SPIKES.md).
+Trợ lý xác định truy vấn báo cáo bằng bộ nhận diện tiếng Việt chạy tại chỗ. Câu trả lời được dựng từ số liệu của báo cáo và không gửi câu hỏi hay dữ liệu sang Gemini. Các thử nghiệm tích hợp Gemini nằm trong [`SPIKES.md`](SPIKES.md).
 
 ## Nguyên tắc
 
@@ -15,7 +14,7 @@ Kết quả hai spike kỹ thuật ở [`SPIKES.md`](SPIKES.md).
 - Mọi truy cập DB nằm trong transaction mở bằng `db.store_transaction(store_id)`, câu đầu tiên là
   `select set_config('app.store_id', %s, true)` (AD-5). Role DB: `ai_service`.
 - `app/embedding.py` là nơi duy nhất gọi model (AD-12).
-- LLM không tự tính ngày: nó chọn `period.kind`, code quy ra `fromDate`/`toDate` theo giờ Việt Nam (AD-19).
+- Khoảng ngày cho mỗi câu hỏi lấy theo múi giờ Việt Nam (AD-19).
 - Lỗi luôn ở dạng RFC 9457 Problem Details, có `requestId` (AD-19).
 
 ## Cấu trúc
@@ -39,7 +38,8 @@ ai-service/
       prompts.py       # prompt lần gọi 1 (function calling và dự phòng structured output)
       schemas.py       # AskRequest / AskResponse (AD-11 mục 3)
       reporting.py     # client gọi /api/v1/reporting/q/<Qn>
-      router.py        # POST /ai/ask (501 đến AI-03; đường ống AD-11 ghi trong comment)
+      intent.py        # Nhận diện câu hỏi tiếng Việt và chọn truy vấn
+      router.py        # POST /ai/ask, hạn mức và nhật ký
     quota/repository.py  # SQL giữ chỗ / hoàn lượt Hạn mức AI (AD-13)
     sync/
       feed.py          # client change-feed /internal/catalog/product-changes
@@ -59,8 +59,8 @@ ai-service/
 | `BACKEND_URL` | `http://localhost:8080` | Gốc để gọi `reporting` và change-feed |
 | `INTERNAL_SERVICE_KEY` | — | Header `X-Service-Key` cho change-feed. Bắt buộc khi `SYNC_ENABLED=true` |
 | `PRELOAD_EMBEDDING_MODEL` | `true` | Nạp model trong lifespan để request đầu không bị chậm |
-| `GEMINI_API_KEY` | — | SDK google-genai tự đọc; code không cầm giá trị này |
-| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Đổi model chỉ bằng biến này (AD-11 mục 5) |
+| `GEMINI_API_KEY` | — | Chỉ dùng khi chạy thử nghiệm Gemini |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Model của thử nghiệm Gemini |
 | `EMBEDDING_MODEL` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | Model 384 chiều; đổi model thì phải đánh chỉ mục lại |
 | `SYNC_ENABLED` | `false` | Phải bật để change-feed tạo embedding cho nhánh semantic; cần `INTERNAL_SERVICE_KEY` |
 | `SYNC_INTERVAL_SECONDS` | `60` | 5 – 3600 |
@@ -119,7 +119,7 @@ curl http://localhost:8000/ai/health
 |---|---|---|
 | `GET /ai/health` | ai cũng được | `{status, version, modelLoaded, embeddingModel, syncEnabled}`; không ép nạp model |
 | `GET /ai/search?q=&limit=` | OWNER, STAFF | `{items: [{productId, score}]}`; kết hợp thứ hạng vector và lexical bằng RRF; mặc định `limit=10`, tối đa 50; không trừ Hạn mức AI |
-| `POST /ai/ask` `{question}` | OWNER | `501`. Sau AI-03: `{answer, interpretation, table, chart, reportLink, disclaimer, quota, refused}` |
+| `POST /ai/ask` `{question}` | OWNER | `{answer, interpretation, table, chart, reportLink, disclaimer, quota, refused}`. Tối đa 50 câu thành công hoặc bị từ chối theo phạm vi mỗi ngày cho một cửa hàng. |
 
 ### JWT (AD-9)
 
@@ -205,9 +205,6 @@ create table ai.sync_cursor (                -- bảng toàn cục, không có s
 -- Quyền: role ai_service được DML trên schema ai, không có quyền gì trên schema app.
 ```
 
-## Việc tiếp theo
+## Đo chất lượng
 
-- **AI-01**: đo chất lượng Hybrid Search trên bộ truy vấn SM-4 và dữ liệu mẫu thật; bổ sung kiểm thử tích hợp
-  RLS chéo Cửa hàng (AD-5 mục 9).
-- **AI-03 trở đi**: đường ống `/ai/ask` theo comment trong `app/qa/router.py`.
-- Chạy `spikes/gemini_tools_spike.py` khi có `GEMINI_API_KEY` và ghi kết quả vào `SPIKES.md`.
+Chấm hỏi đáp và tìm kiếm riêng trên bộ câu hỏi giữ lại SM-3 và SM-4. Dùng cùng ngày neo và đúng cửa hàng của từng ca.

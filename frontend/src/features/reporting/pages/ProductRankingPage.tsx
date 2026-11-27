@@ -10,6 +10,7 @@ import type { FilterOption } from '../../../shared/components/RemoteFilterSelect
 import type { DateRange } from '../../../shared/types/common';
 import type { QueryResponse } from '../../../shared/types/reporting';
 import { ReportExportButton } from '../ReportExportButton';
+import { linkedReportRange } from '../reportLink';
 
 interface RankedProduct {
   rank: number;
@@ -42,10 +43,14 @@ const countFormatter = new Intl.NumberFormat('vi-VN');
 
 export function ProductRankingPage() {
   useDocumentTitle('Sản phẩm bán chạy, bán chậm');
-  const [range, setRange] = useState<DateRange>(defaultRange);
+  const [range, setRange] = useState<DateRange>(() => linkedReportRange(defaultRange));
   const [category, setCategory] = useState<FilterOption>();
-  const [rankBy, setRankBy] = useState<RankBy>('QUANTITY');
-  const [limit, setLimit] = useState(10);
+  const [rankBy, setRankBy] = useState<RankBy>(() =>
+    new URLSearchParams(window.location.search).get('rankBy') === 'REVENUE' ? 'REVENUE' : 'QUANTITY');
+  const [limit, setLimit] = useState(() => {
+    const value = Number(new URLSearchParams(window.location.search).get('limit'));
+    return Number.isInteger(value) && value >= 1 && value <= 50 ? value : 10;
+  });
   const filters = { ...range, rankBy, limit, categoryId: category?.value };
   const resultsKey = [range.fromDate, range.toDate, rankBy, limit, category?.value].join(':');
   const query = useQuery({
@@ -99,7 +104,9 @@ export function ProductRankingPage() {
         </label>
         <label className="filter-field" style={{ width: 105, maxWidth: '100%' }}>
           Số kết quả
-          <Select<number> aria-label="Số kết quả" value={limit} options={rankingLimits}
+          <Select<number> aria-label="Số kết quả" value={limit}
+            options={rankingLimits.some(option => option.value === limit) ? rankingLimits
+              : [{ value: limit, label: 'Top ' + limit }, ...rankingLimits]}
             onChange={setLimit} style={{ width: '100%' }} />
         </label>
         <ReportExportButton

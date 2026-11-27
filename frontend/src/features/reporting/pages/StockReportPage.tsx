@@ -58,8 +58,9 @@ function stockStatusTag({ isActive, stockQuantity, minQuantity }: StockRow) {
 
 export function StockReportPage() {
   useDocumentTitle('Báo cáo tồn kho');
-  const [filters, setFilters] = useState<StockFilters>({});
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(() =>
+    new URLSearchParams(window.location.search).get('productName')?.trim().slice(0, 100) ?? '');
+  const [filters, setFilters] = useState<StockFilters>(() => ({ q: search || undefined }));
   const [paging, setPaging] = useState<PageRequest>({ page: 0, size: DEFAULT_PAGE_SIZE });
   const params = {
     q: filters.q,

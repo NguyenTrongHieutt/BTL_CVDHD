@@ -14,6 +14,7 @@ TODAY = date(2026, 11, 28)
     ("question", "query_id", "params"),
     [
         ("Doanh thu hôm nay?", "Q1", {"fromDate": "2026-11-28", "toDate": "2026-11-28"}),
+        ("Tình hình doanh thu hôm nay?", "Q1", {"fromDate": "2026-11-28", "toDate": "2026-11-28"}),
         ("Doanh so hom qua", "Q1", {"fromDate": "2026-11-27", "toDate": "2026-11-27"}),
         ("Tuần này bán được bao nhiêu tiền?", "Q1", {"fromDate": "2026-11-23", "toDate": "2026-11-28"}),
         ("Có bao nhiêu đơn hàng tháng này?", "Q2", {"fromDate": "2026-11-01", "toDate": "2026-11-28"}),
@@ -31,6 +32,10 @@ TODAY = date(2026, 11, 28)
             {"fromDate": "2026-11-16", "toDate": "2026-11-22", "direction": "BEST_SELLING", "rankBy": "REVENUE", "limit": 5},
         ),
         (
+            "Sản phẩm nào bán chạy nhất trong tuần?", "Q4",
+            {"fromDate": "2026-11-23", "toDate": "2026-11-28", "direction": "BEST_SELLING", "rankBy": "QUANTITY", "limit": 10},
+        ),
+        (
             "Mặt hàng bán ít nhất", "Q4",
             {"fromDate": "2026-10-30", "toDate": "2026-11-28", "direction": "SLOW_SELLING", "rankBy": "QUANTITY", "limit": 10},
         ),
@@ -38,7 +43,7 @@ TODAY = date(2026, 11, 28)
         ("Tồn kho sản phẩm Bia Tiger", "Q5", {"productName": "Bia Tiger"}),
         ("Giá trị tồn kho danh mục Nước giải khát", "Q5", {"categoryName": "Nước giải khát"}),
         (
-            "So sánh doanh thu tháng này với tháng trước", "Q6",
+            "Doanh thu tháng này tăng hay giảm so với tháng trước?", "Q6",
             {"metric": "REVENUE", "fromDate": "2026-11-01", "toDate": "2026-11-28", "compareFromDate": "2026-10-01", "compareToDate": "2026-10-31"},
         ),
         (
@@ -46,8 +51,10 @@ TODAY = date(2026, 11, 28)
             {"metric": "ORDER_COUNT", "fromDate": "2026-11-23", "toDate": "2026-11-28", "compareFromDate": "2026-11-16", "compareToDate": "2026-11-22"},
         ),
         ("Hàng tồn nhiều nhưng bán chậm", "Q7", {}),
+        ("Sản phẩm nào tồn kho nhiều nhưng bán chậm?", "Q7", {}),
         ("Sản phẩm nào đang đọng vốn?", "Q7", {}),
         ("Gợi ý nhập hàng", "Q8", {}),
+        ("Tôi nên nhập thêm những sản phẩm nào?", "Q8", {}),
         ("Mặt hàng nào sắp hết?", "Q8", {}),
         ("Nên ưu tiên bán sản phẩm nào?", "Q9", {}),
         ("Cần đẩy bán hàng nào?", "Q9", {}),

@@ -81,7 +81,8 @@ def _periods(text: str, today: date) -> tuple[list[Period], bool]:
 
     relatives = (
         (r"\bhom nay\b", PeriodKind.TODAY), (r"\bhom qua\b", PeriodKind.YESTERDAY),
-        (r"\btuan nay\b", PeriodKind.THIS_WEEK), (r"\btuan (?:truoc|roi|vua roi)\b", PeriodKind.LAST_WEEK),
+        (r"\b(?:tuan nay|trong tuan(?!\s+(?:truoc|roi|vua|nay|\d)))\b", PeriodKind.THIS_WEEK),
+        (r"\btuan (?:truoc|roi|vua roi)\b", PeriodKind.LAST_WEEK),
         (r"\bthang nay\b", PeriodKind.THIS_MONTH), (r"\bthang (?:truoc|roi|vua roi)\b", PeriodKind.LAST_MONTH),
         (r"\bnam nay\b", PeriodKind.THIS_YEAR), (r"\bnam (?:ngoai|truoc|vua roi)\b", PeriodKind.LAST_YEAR),
     )

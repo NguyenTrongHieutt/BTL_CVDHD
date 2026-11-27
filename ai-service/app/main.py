@@ -7,6 +7,7 @@ Mọi route nằm dưới `/ai` (nginx chuyển nguyên đường dẫn, AD-1):
 """
 
 import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -22,6 +23,7 @@ from app.settings import Settings, get_settings
 from app.sync.loop import SyncRunner
 
 API_PREFIX = "/ai"
+logger = logging.getLogger(__name__)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -33,7 +35,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if settings.preload_embedding_model:
-            await asyncio.to_thread(embedding.get_model)
+            try:
+                await asyncio.to_thread(embedding.get_model)
+            except Exception:
+                logger.exception("Không thể nạp model tìm kiếm khi khởi động")
         runner = SyncRunner(settings)
         app.state.sync_runner = runner
         runner.start()

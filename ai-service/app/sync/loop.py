@@ -1,12 +1,11 @@
 """Vòng đồng bộ chỉ mục (AD-12). Tắt mặc định ở GĐ0; bật bằng `SYNC_ENABLED=true`.
 
-- Khi khởi động: xóa `sync_cursor` để đánh chỉ mục lại toàn bộ.
+- Con trỏ lưu theo phiên bản model để tiếp tục sau khi khởi động lại và đánh chỉ mục từ đầu khi đổi model.
 - Cứ `SYNC_INTERVAL_SECONDS` (mặc định 60) đọc feed đến hết, gom theo `store_id`.
 - Mỗi Cửa hàng ghi trong một transaction riêng, có `set_config('app.store_id', …, true)`.
 - `ACTIVE` → nhúng `searchText` (passage) và upsert; `INACTIVE` → xóa embedding.
 - Chỉ lưu con trỏ mới sau khi mọi Cửa hàng trong trang đã ghi xong.
 
-TODO(AI-01): chạy thử với DB thật khi Flyway đã tạo schema `ai`; thêm test chéo 2 Cửa hàng (AD-5 mục 9).
 """
 
 import asyncio
@@ -45,7 +44,10 @@ WRITE_CURSOR_SQL = """\
 insert into ai.sync_cursor (name, cursor, updated_at) values (%s, %s, now())
 on conflict (name) do update set cursor = excluded.cursor, updated_at = now()
 """
-RESET_CURSOR_SQL = "delete from ai.sync_cursor where name = %s"
+
+
+def cursor_name() -> str:
+    return f"{CURSOR_NAME}:{embedding.model_name()}"
 
 
 def apply_store_changes(store_id: uuid.UUID, changes: Sequence[ProductChange]) -> None:
@@ -71,18 +73,13 @@ def apply_store_changes(store_id: uuid.UUID, changes: Sequence[ProductChange]) -
 
 def read_cursor() -> str | None:
     with db.global_transaction() as conn:
-        row = conn.execute(READ_CURSOR_SQL, (CURSOR_NAME,)).fetchone()
+        row = conn.execute(READ_CURSOR_SQL, (cursor_name(),)).fetchone()
     return row[0] if row else None
 
 
 def write_cursor(cursor: str) -> None:
     with db.global_transaction() as conn:
-        conn.execute(WRITE_CURSOR_SQL, (CURSOR_NAME, cursor))
-
-
-def reset_cursor() -> None:
-    with db.global_transaction() as conn:
-        conn.execute(RESET_CURSOR_SQL, (CURSOR_NAME,))
+        conn.execute(WRITE_CURSOR_SQL, (cursor_name(), cursor))
 
 
 def sync_until_caught_up(client: httpx.Client, service_key: str) -> int:
@@ -105,10 +102,6 @@ async def run_sync_loop(settings: Settings, stop: asyncio.Event) -> None:
     assert settings.internal_service_key is not None  # Settings đã kiểm khi SYNC_ENABLED
     service_key = settings.internal_service_key.get_secret_value()
     with httpx.Client(base_url=settings.backend_url, timeout=10.0) as client:
-        try:
-            await asyncio.to_thread(reset_cursor)
-        except Exception:
-            logger.exception("Không đặt lại được sync_cursor")
         while not stop.is_set():
             try:
                 count = await asyncio.to_thread(sync_until_caught_up, client, service_key)

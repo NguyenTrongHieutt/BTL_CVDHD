@@ -32,7 +32,7 @@ def connect() -> psycopg.Connection:
         raise RuntimeError("db.configure() chưa được gọi")
     # autocommit=True để register_vector không mở transaction ngầm; transaction thật
     # mở bằng conn.transaction() (BEGIN … COMMIT/ROLLBACK).
-    conn = psycopg.connect(_database_url, autocommit=True, application_name="ai-service")
+    conn = psycopg.connect(_database_url, autocommit=True, application_name="ai-service", connect_timeout=3)
     try:
         register_vector(conn)
     except Exception:

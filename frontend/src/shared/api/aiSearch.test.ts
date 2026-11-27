@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AI_SEARCH_TIMEOUT_MS, searchProducts } from './aiSearch';
+import { AI_SEARCH_TIMEOUT_MS, searchAlternativeProductIds, searchProducts } from './aiSearch';
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -84,5 +84,19 @@ describe('searchProducts (AD-12)', () => {
   it('chuỗi rỗng không gọi mạng', async () => {
     await expect(searchProducts('   ')).resolves.toEqual({ mode: 'normal', ids: [] });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('searchAlternativeProductIds (AI-02)', () => {
+  it('gọi endpoint theo Sản phẩm và bỏ id trùng mà vẫn giữ thứ tự', async () => {
+    fetchMock.mockResolvedValue(Response.json({ items: [
+      { productId: 'p2', score: 0.9 }, { productId: 'p2', score: 0.8 }, { productId: 'p3', score: 0.7 },
+    ] }));
+
+    await expect(searchAlternativeProductIds(' p1 ')).resolves.toEqual(['p2', 'p3']);
+    const [url] = fetchMock.mock.calls[0];
+    const request = new URL(String(url), 'http://localhost');
+    expect(request.pathname).toBe('/ai/search/alternatives');
+    expect(request.searchParams.get('productId')).toBe('p1');
   });
 });

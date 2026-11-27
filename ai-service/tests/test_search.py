@@ -79,6 +79,28 @@ def test_semantic_search_validates_query_and_limit(client, make_token, monkeypat
     assert excessive_limit.status_code == 400
 
 
+def test_alternatives_use_same_store_and_skip_original_product(client, make_token, monkeypatch):
+    conn = FakeConnection()
+    original = uuid.UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+
+    @contextmanager
+    def store_transaction(store_id):
+        assert store_id == STORE_ID
+        yield conn
+
+    monkeypatch.setattr(db, "store_transaction", store_transaction)
+    monkeypatch.setattr(embedding, "model_name", lambda: "test-model")
+    response = client.get("/ai/search/alternatives", params={"productId": str(original)},
+                          headers={"Authorization": f"Bearer {make_token(role='STAFF')}"})
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [{"productId": str(PRODUCT_ID), "score": 0.875}]}
+    sql, params = conn.calls[0]
+    assert "product_id <> %(product_id)s" in sql
+    assert "origin.store_id = %(store_id)s" in sql
+    assert params == {"store_id": STORE_ID, "product_id": original, "model_version": "test-model", "limit": 50}
+
+
 def test_model_is_preloaded_before_serving_when_sync_is_enabled(monkeypatch):
     preloads: list[bool] = []
     monkeypatch.setattr(embedding, "get_model", lambda: preloads.append(True))

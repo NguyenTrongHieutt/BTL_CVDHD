@@ -11,8 +11,10 @@ import type { Uuid } from '../types/common';
 import { api, isAbortError } from './client';
 
 export const AI_SEARCH_PATH = '/ai/search';
+export const AI_ALTERNATIVES_PATH = '/ai/search/alternatives';
 export const AI_SEARCH_TIMEOUT_MS = 1500;
 export const AI_SEARCH_LIMIT = 10;
+export const AI_ALTERNATIVES_LIMIT = 3;
 
 export type ProductSearchMode = 'semantic' | 'normal';
 
@@ -33,17 +35,43 @@ export async function searchProducts(q: string, options: ProductSearchOptions = 
   const query = q.trim();
   if (!query) return { mode: 'normal', ids: [] };
   try {
-    return { mode: 'semantic', ids: await semanticSearch(query, options) };
+    return { mode: 'semantic', ids: await searchSemanticProductIds(query, options) };
   } catch (error) {
     if (options.signal?.aborted) throw error;
     return { mode: 'normal', ids: await normalSearch(query, options.signal) };
   }
 }
 
-async function semanticSearch(query: string, options: ProductSearchOptions): Promise<Uuid[]> {
+export async function searchSemanticProductIds(
+  query: string,
+  options: ProductSearchOptions = {},
+): Promise<Uuid[]> {
+  const normalized = query.trim();
+  if (!normalized) return [];
+  return searchAiProductIds(AI_SEARCH_PATH, { q: normalized, limit: options.limit ?? AI_SEARCH_LIMIT }, options);
+}
+
+/**
+ * Lấy các Sản phẩm gần nhất với một Sản phẩm đã hết hàng. Danh sách ứng viên chưa bị cắt còn 3 ở đây:
+ * API bán hàng sẽ loại hàng hết/ngừng kinh doanh trước rồi mới lấy tối đa 3 kết quả còn hàng.
+ */
+export async function searchAlternativeProductIds(
+  productId: Uuid,
+  options: ProductSearchOptions = {},
+): Promise<Uuid[]> {
+  const normalized = productId.trim();
+  if (!normalized) return [];
+  return searchAiProductIds(AI_ALTERNATIVES_PATH, { productId: normalized }, options);
+}
+
+async function searchAiProductIds(
+  path: string,
+  query: Readonly<Record<string, string | number>>,
+  options: ProductSearchOptions,
+): Promise<Uuid[]> {
   const controller = new AbortController();
   const timer = setTimeout(
-    () => controller.abort(new DOMException('Tìm kiếm ngữ nghĩa quá 1,5 giây', 'TimeoutError')),
+    () => controller.abort(new DOMException('Dịch vụ AI quá 1,5 giây chưa phản hồi', 'TimeoutError')),
     AI_SEARCH_TIMEOUT_MS,
   );
   const outer = options.signal;
@@ -51,11 +79,8 @@ async function semanticSearch(query: string, options: ProductSearchOptions): Pro
   if (outer?.aborted) forwardAbort();
   outer?.addEventListener('abort', forwardAbort, { once: true });
   try {
-    const response = await api.get<SemanticSearchResponse>(AI_SEARCH_PATH, {
-      query: { q: query, limit: options.limit ?? AI_SEARCH_LIMIT },
-      signal: controller.signal,
-    });
-    return response.items.map((hit) => hit.productId);
+    const response = await api.get<SemanticSearchResponse>(path, { query, signal: controller.signal });
+    return [...new Set(response.items.map((hit) => hit.productId))];
   } finally {
     clearTimeout(timer);
     outer?.removeEventListener('abort', forwardAbort);

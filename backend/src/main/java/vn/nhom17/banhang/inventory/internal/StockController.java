@@ -1,6 +1,7 @@
 package vn.nhom17.banhang.inventory.internal;
 
 import java.math.BigDecimal;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -52,7 +53,7 @@ public class StockController {
     }
 
     @GetMapping("/stock")
-    @Transactional(readOnly = true)
+    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<StockItem> stock(
         @RequestParam(required = false) String q,
         @RequestParam(required = false) UUID categoryId,
@@ -61,13 +62,21 @@ public class StockController {
         @RequestParam(defaultValue = "0") int page,
         @RequestParam(required = false) Integer size
     ) {
-        Map<UUID, SellableVariant> variants = variantLookup.findForInventory(q, categoryId, includeInactive)
-            .stream().collect(Collectors.toMap(SellableVariant::variantId, Function.identity()));
+        boolean unfilteredCatalog = !includeInactive && categoryId == null && (q == null || q.isBlank());
+        List<SellableVariant> matching = unfilteredCatalog
+            ? List.of() : variantLookup.findForInventory(q, categoryId, includeInactive);
+        Collection<UUID> ids = unfilteredCatalog
+            ? variantLookup.findForSaleIds() : matching.stream().map(SellableVariant::variantId).toList();
         var activeIds = includeInactive
-            ? variantLookup.getForSale(variants.keySet()).stream().map(SellableVariant::variantId).toList()
-            : variants.keySet();
-        var result = stockQuery.search(variants.keySet(), activeIds, belowMin, includeInactive,
+            ? variantLookup.getForSale(ids).stream().map(SellableVariant::variantId).toList()
+            : ids;
+        var result = stockQuery.search(ids, activeIds, belowMin, includeInactive,
             Math.max(page, 0), PageResponse.clampSize(size));
+        var metadata = unfilteredCatalog
+            ? variantLookup.getForSale(result.items().stream().map(StockView::variantId).toList())
+            : matching;
+        Map<UUID, SellableVariant> variants = metadata.stream()
+            .collect(Collectors.toMap(SellableVariant::variantId, Function.identity()));
         boolean owner = context.isOwner();
         List<StockItem> items = result.items().stream().map(stock -> {
             SellableVariant variant = variants.get(stock.variantId());

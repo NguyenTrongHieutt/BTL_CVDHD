@@ -5,9 +5,17 @@
 # Chủ: Hiếu.
 name: banhang
 
+x-app-logging: &app-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   db:
     image: pgvector/pgvector:pg18
+    logging: *app-logging
+    command: ["postgres", "-c", "temp_file_limit=512MB"]
     environment:
       POSTGRES_DB: banhang
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Thiếu POSTGRES_PASSWORD trong deploy/.env}
@@ -30,6 +38,7 @@ services:
   backend:
     build: ../backend
     image: banhang-backend:latest
+    logging: *app-logging
     environment:
       DB_URL: jdbc:postgresql://db:5432/banhang
       DB_BACKEND_PASSWORD: ${DB_BACKEND_PASSWORD:?}
@@ -50,6 +59,7 @@ services:
 
   ai-service:
     build: ../ai-service
+    logging: *app-logging
     environment:
       DATABASE_URL: postgresql://ai_service:${DB_AI_PASSWORD:?}@db:5432/banhang
       JWT_SECRET: ${JWT_SECRET:?}
@@ -63,6 +73,7 @@ services:
         condition: service_healthy
 
   web:
+    logging: *app-logging
     build:
       context: ..
       dockerfile: deploy/web.Dockerfile
@@ -77,6 +88,7 @@ services:
   # Job nạp dữ liệu mẫu (AD-18), chỉ chạy khi gọi: docker compose ... run --rm seed
   seed:
     image: banhang-backend:latest   # dùng lại image của backend (build cùng lúc với backend)
+    logging: *app-logging
     profiles: ["tools"]
     environment:
       DB_URL: jdbc:postgresql://db:5432/banhang

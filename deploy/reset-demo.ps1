@@ -24,6 +24,7 @@ function Wait-Healthy([string]$service) {
     throw "$service không lên được, xem: docker compose logs $service"
 }
 
+& (Join-Path $PSScriptRoot 'check-docker-storage.ps1')
 if (-not $NoBuild) { Write-Host "0/6 Build image (một lần)"; Invoke-Compose build }
 Write-Host "1/6 Xóa container và volume cũ"; Invoke-Compose down -v --remove-orphans
 Write-Host "2/6 Bật db"; Invoke-Compose up -d --no-build db; Wait-Healthy "db"

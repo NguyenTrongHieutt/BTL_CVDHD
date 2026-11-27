@@ -1,6 +1,9 @@
 package vn.nhom17.banhang.inventory;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -13,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +25,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -28,6 +33,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import vn.nhom17.banhang.TestcontainersConfiguration;
+import vn.nhom17.banhang.catalog.VariantLookup;
 import vn.nhom17.banhang.platform.TenantScope;
 
 @SpringBootTest
@@ -41,6 +47,7 @@ class StockLedgerDocumentIntegrationTest {
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactions;
     @Autowired JsonMapper json;
+    @MockitoSpyBean VariantLookup variants;
 
     @Test
     void openingUsesItsOriginalQuantityAndCostAfterLaterReceipts() throws Exception {
@@ -73,6 +80,7 @@ class StockLedgerDocumentIntegrationTest {
         Owner owner = newStore();
         Product milk = product(owner, "Sữa tươi", 5, 100);
         Product water = product(owner, "Nước suối", 5, 100);
+        product(owner, "Hàng ngoài chứng từ", 5, 100);
         String receivedAt = "2026-11-20T09:30:00+07:00";
         JsonNode receipt = receipt(owner, supplier(owner), receivedAt, "Giao đủ hàng",
                 List.of(receiptLine(milk, 2, 200), receiptLine(water, 3, 400)));
@@ -87,6 +95,7 @@ class StockLedgerDocumentIntegrationTest {
                 .andExpect(jsonPath("$.total").value(1))
                 .andExpect(jsonPath("$.items[0].documentId").value(id.toString()));
         Snapshot before = snapshot(owner);
+        clearInvocations(variants);
         String response = document(owner.cookie(), "PURCHASE_RECEIPT", id)
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.documentType").value("PURCHASE_RECEIPT"))
@@ -111,6 +120,8 @@ class StockLedgerDocumentIntegrationTest {
                 .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         assertThat(OffsetDateTime.parse(json.readTree(response).get("recordedAt").asString()).toInstant())
                 .isEqualTo(OffsetDateTime.parse(receivedAt).toInstant());
+        verify(variants).getForInventory(Set.of(milk.variantId(), water.variantId()));
+        verify(variants, never()).findForInventory(null, null, true);
         assertThat(snapshot(owner)).isEqualTo(before);
     }
 

@@ -190,6 +190,7 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 | `POST /api/v1/sales/orders` | Body như `quote` cùng `quotedTotal` và header `Idempotency-Key`. Tổng tính lại khác `quotedTotal` trả `409 /errors/sales/cart-stale`. Thành công trả `201 Order` có `pointsEarned`, `pointsRedeemed` và `pointsDiscount`. Cùng khóa và nội dung trả lại đơn đã ghi. |
 | `GET /api/v1/sales/orders/{id}/receipt` | DH-05, Chủ cửa hàng và Nhân viên. Trả dữ liệu in của đơn thuộc cửa hàng hiện tại: `{store: {name, address, phone, invoiceFooter}, order: {orderCode, createdAt, subtotal, discount, total}, lines: [{lineNo, productName, variantName, quantity, unitPrice, netLineAmount}]}`. Dòng hàng và số tiền lấy từ đơn đã lưu, thông tin cửa hàng từ TK-05. Đơn không có hoặc thuộc cửa hàng khác trả `404 /errors/common/not-found`. |
 | `GET /api/v1/sales/sellable?ids=` hoặc `?q=&categoryId=&minPrice=&maxPrice=&inStock=&page=&size=` | Hàng bán được, gộp catalog + inventory: `{variantId, productId, productName, variantName, sku, barcode, unit, salePrice, quantity, belowMin}` (không có Giá vốn) |
+| `GET /api/v1/sales/sellable/exact?code=` | Chủ cửa hàng và Nhân viên tra SKU hoặc mã vạch đầy đủ trong cửa hàng hiện tại. Kết quả có dạng `PageResponse` như danh sách hàng bán được. Nếu mã cùng khớp SKU và mã vạch trên một biến thể thì trả một dòng. Nếu hai biến thể khớp thì trả cả hai để người dùng chọn. Mã chưa khớp trả danh sách rỗng. |
 | `GET /api/v1/sales/orders` | DH-09 và KH-03. Bộ lọc tùy chọn: `customerId`, `orderCode` (tìm một phần mã), `customerPhone` (số đầy đủ), `fromDate`, `toDate` (ngày Việt Nam, tính cả hai đầu), `status`, `sellerId`. Phân trang `page`, `size`: `PageResponse<{orderId, orderCode, createdAt, status, total, sellerName, canCancel}>`, mới nhất trước. |
 | `GET /api/v1/sales/orders/sellers` | Người đã bán hàng trong cửa hàng hiện tại: `[{sellerId, sellerName}]`. |
 | `GET /api/v1/sales/customers/{customerId}/purchase-summary` | `{orderCount, totalSpent, lastPurchaseAt}` (FR-20), tính từ các đơn `COMPLETED`. Khi chưa có đơn hoàn thành, số đơn và tổng chi là 0, lần mua gần nhất là `null`. |
@@ -210,7 +211,7 @@ Sửa và ngừng kinh doanh invalidate các khóa này cả khi lỗi, vì mấ
 
 `GET /api/v1/reporting/dashboard` (BC-01), chỉ Chủ cửa hàng, trả `{date, today: {revenue, orderCount}, top5Last7Days: [{productId, name, quantity, revenue}]}`. `date` là hôm nay theo giờ Việt Nam. Doanh thu tính đơn sau giảm giá, bỏ đơn hủy và trừ tiền hoàn theo ngày trả. Xếp hạng gộp biến thể theo sản phẩm, tính số bán ròng trong 7 ngày gồm hôm nay và lấy tối đa 5 sản phẩm. Màn tổng quan lấy cảnh báo tồn thấp qua `/api/v1/inventory/low-stock/page`.
 
-`GET /api/v1/reporting/q/{Qn}`, chỉ Chủ cửa hàng. Hỗ trợ `Q1` đến `Q5`. Phản hồi dùng chung một khung:
+`GET /api/v1/reporting/q/{Qn}`, chỉ Chủ cửa hàng. Hỗ trợ `Q1` đến `Q5`. Với `Q3` và `Q4` từ 30 ngày trở lên, API có thể dùng kết quả cùng cửa hàng và bộ lọc trong tối đa 10 giây theo mặc định. Phản hồi dùng chung một khung:
 
 ```json
 {

@@ -11,12 +11,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.transaction.annotation.Isolation;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,15 +40,21 @@ class ReportingQueryController {
     private final NamedParameterJdbcTemplate jdbc;
     private final CurrentContext context;
     private final Clock clock;
+    private final TransactionTemplate readOnly;
+    private final ReportingQueryCache cache;
 
-    ReportingQueryController(NamedParameterJdbcTemplate jdbc, CurrentContext context, Clock clock) {
+    ReportingQueryController(NamedParameterJdbcTemplate jdbc, CurrentContext context, Clock clock,
+                             PlatformTransactionManager transactionManager, ReportingQueryCache cache) {
         this.jdbc = jdbc;
         this.context = context;
         this.clock = clock;
+        this.readOnly = new TransactionTemplate(transactionManager);
+        this.readOnly.setReadOnly(true);
+        this.readOnly.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        this.cache = cache;
     }
 
     @GetMapping("/{queryId}")
-    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     QueryResponse query(
             @PathVariable String queryId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
@@ -59,14 +67,31 @@ class ReportingQueryController {
             @RequestParam(required = false) UUID categoryId) {
         LocalDate today = LocalDate.now(clock.withZone(TimeZones.VIETNAM));
         return switch (queryId) {
-            case "Q1" -> revenue(requireRange(fromDate, toDate));
-            case "Q2" -> orders(requireRange(fromDate, toDate));
-            case "Q3" -> grossProfit(requireRange(fromDate, toDate));
-            case "Q4" -> ranking(rankingRange(fromDate, toDate, today), parseDirection(direction),
+            case "Q1" -> read(() -> revenue(requireRange(fromDate, toDate)));
+            case "Q2" -> read(() -> orders(requireRange(fromDate, toDate)));
+            case "Q3" -> grossProfitReport(requireRange(fromDate, toDate));
+            case "Q4" -> rankingReport(rankingRange(fromDate, toDate, today), parseDirection(direction),
                     parseRankBy(rankBy), validateLimit(limit), categoryId);
-            case "Q5" -> inventory(today, validateInventoryFilters(productName, categoryName));
+            case "Q5" -> read(() -> inventory(today, validateInventoryFilters(productName, categoryName)));
             default -> throw invalid("queryId", "Chỉ hỗ trợ Q1, Q2, Q3, Q4 và Q5 trong giai đoạn này.");
         };
+    }
+
+    private QueryResponse grossProfitReport(DateRange range) {
+        var key = new ReportingQueryCache.Key(context.storeId(), "Q3", range, null, null, 0, null);
+        return cache.get(key, () -> read(() -> grossProfit(range)));
+    }
+
+    private QueryResponse rankingReport(DateRange range, Direction direction, RankBy rankBy,
+                                        int limit, UUID categoryId) {
+        var key = new ReportingQueryCache.Key(context.storeId(), "Q4", range, direction.name(), rankBy.name(),
+                limit, categoryId);
+        return cache.get(key, () -> read(() -> ranking(range, direction, rankBy, limit, categoryId)));
+    }
+
+    private QueryResponse read(Supplier<QueryResponse> query) {
+        // Uses the existing tenant transaction manager, including its transaction-local RLS context.
+        return readOnly.execute(status -> query.get());
     }
 
     private QueryResponse revenue(DateRange range) {
@@ -185,24 +210,28 @@ class ReportingQueryController {
                       AND r.created_at >= :from AND r.created_at < :until
                 ), events AS (
                     SELECT (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date AS date,
-                           o.total_amount AS revenue, 0::bigint AS cost_of_goods_sold
+                           sum(o.total_amount) AS revenue, 0::bigint AS cost_of_goods_sold
                     FROM sales o
+                    GROUP BY (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
                     UNION ALL
                     SELECT (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
-                           -r.refund_amount, 0::bigint
+                           sum(-r.refund_amount), 0::bigint
                     FROM returns r
+                    GROUP BY (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
                     UNION ALL
                     SELECT (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
-                           0::bigint, l.quantity::bigint * l.unit_cost
+                           0::bigint, sum(l.quantity::bigint * l.unit_cost)
                     FROM sales o
                     JOIN app.sales_order_line l ON l.order_id = o.id AND l.store_id = o.store_id
+                    GROUP BY (o.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
                     UNION ALL
                     SELECT (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date,
-                           0::bigint, -(rl.quantity::bigint * ol.unit_cost)
+                           0::bigint, sum(-(rl.quantity::bigint * ol.unit_cost))
                     FROM returns r
                     JOIN app.sales_return_line rl ON rl.return_id = r.id AND rl.store_id = r.store_id
                     JOIN app.sales_order_line ol ON ol.id = rl.order_line_id AND ol.store_id = rl.store_id
                                                AND ol.order_id = r.order_id AND ol.variant_id = rl.variant_id
+                    GROUP BY (r.created_at AT TIME ZONE 'Asia/Ho_Chi_Minh')::date
                 )
                 SELECT c.date,
                        coalesce(sum(e.revenue), 0)::bigint AS revenue,
@@ -262,13 +291,21 @@ class ReportingQueryController {
                     JOIN app.sales_return_line l ON l.return_id = r.id AND l.store_id = r.store_id
                     WHERE r.store_id = :storeId AND o.status <> 'CANCELLED'
                       AND r.created_at >= :from AND r.created_at < :until
+                ), variant_totals AS (
+                    SELECT variant_id,
+                           sum(sold_quantity) AS sold_quantity,
+                           sum(sales_amount) AS sales_amount,
+                           sum(returned_quantity) AS returned_quantity,
+                           sum(refund_amount) AS refund_amount
+                    FROM movements
+                    GROUP BY variant_id
                 ), totals AS (
                     SELECT v.product_id,
                            (sum(m.sold_quantity) - sum(m.returned_quantity))::bigint AS quantity,
                            (sum(m.sales_amount) - sum(m.refund_amount))::bigint AS revenue,
                            sum(m.sold_quantity)::bigint AS sold_quantity,
                            sum(m.returned_quantity)::bigint AS returned_quantity
-                    FROM movements m
+                    FROM variant_totals m
                     JOIN app.product_variant v ON v.id = m.variant_id AND v.store_id = :storeId
                     GROUP BY v.product_id
                 )
@@ -453,7 +490,14 @@ class ReportingQueryController {
     }
 
     record QueryResponse(String queryId, DateRange range, Map<String, Object> params,
-                         List<Column> columns, List<?> rows, Object summary) {}
+                         List<Column> columns, List<?> rows, Object summary) {
+        QueryResponse {
+            params = Map.copyOf(params);
+            columns = List.copyOf(columns);
+            rows = List.copyOf(rows);
+            if (summary instanceof Map<?, ?> totals) summary = Map.copyOf(totals);
+        }
+    }
     record DateRange(LocalDate fromDate, LocalDate toDate) {}
     record Column(String key, String label, String type) {}
     record RevenueDay(LocalDate date, long grossSales, long refundTotal, long revenue, long discountTotal) {}

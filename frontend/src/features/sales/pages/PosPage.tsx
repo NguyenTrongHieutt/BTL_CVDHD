@@ -275,7 +275,7 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
       <Typography.Title level={1} className="pos-heading" style={{ marginTop: 0 }}>Bán hàng</Typography.Title>
       <div className="pos-grid">
         <div className="pos-main">
-      <Card title="Thêm hàng vào giỏ"><ProductPicker searchRef={search} onPick={add} disabled={pending !== null} /></Card>
+      <Card title="Thêm hàng vào giỏ"><ProductPicker exactCodeLookup searchRef={search} onPick={add} disabled={pending !== null} /></Card>
       <Card title="Giỏ hàng" extra={
         <span role="status" aria-atomic="true">
           {itemCount > 0 ? (

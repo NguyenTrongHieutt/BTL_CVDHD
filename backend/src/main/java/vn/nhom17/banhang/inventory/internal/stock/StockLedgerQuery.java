@@ -91,8 +91,7 @@ public class StockLedgerQuery {
         ), args.toArray());
 
         var variantIds = rows.stream().map(Row::variantId).collect(Collectors.toSet());
-        Map<UUID, SellableVariant> variantsById = variants.findForInventory(null, null, true).stream()
-                .filter(variant -> variantIds.contains(variant.variantId()))
+        Map<UUID, SellableVariant> variantsById = variants.getForInventory(variantIds).stream()
                 .collect(Collectors.toMap(SellableVariant::variantId, Function.identity()));
         Map<UUID, String> actorNames = users.findNames(
                 rows.stream().map(Row::actorId).filter(Objects::nonNull).distinct().toList());

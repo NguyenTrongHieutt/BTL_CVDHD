@@ -39,7 +39,16 @@ public class SellableController {
         var result = variantLookup.searchForSale(
             q, categoryId, minPrice, maxPrice, page, size
         );
+        return withStock(result);
+    }
 
+    @GetMapping("/sellable/exact")
+    public PageResponse<SellableItem> exact(@RequestParam String code) {
+        var variants = variantLookup.findForSaleByExactCode(code);
+        return withStock(new PageResponse<>(variants, variants.size(), 0, PageResponse.DEFAULT_SIZE));
+    }
+
+    private PageResponse<SellableItem> withStock(PageResponse<SellableVariant> result) {
         var variantIds = result.items().stream()
             .map(SellableVariant::variantId)
             .toList();

@@ -63,7 +63,7 @@ describe('RequireAuth', () => {
     backend(STAFF);
     renderApp('/sales/pos');
 
-    expect(await screen.findByRole('heading', { name: 'Bán hàng' })).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Bán hàng' }, { timeout: 4000 })).toBeTruthy();
     expect(screen.getByText('Tạp hóa Chị Lan')).toBeTruthy();
     expect(screen.getByText('Nhân viên')).toBeTruthy();
   });

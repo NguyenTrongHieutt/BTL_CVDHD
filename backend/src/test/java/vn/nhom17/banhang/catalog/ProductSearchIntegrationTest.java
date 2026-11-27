@@ -469,6 +469,136 @@ class ProductSearchIntegrationTest {
     }
 
     @Test
+    void exactLookupMatchesFullCodesWithoutChangingNameOrPrefixSearch() throws Exception {
+        Owner owner = newStore();
+        Created milk = create(owner, product("Sữa tươi kiểm mã", 15000)
+                .sku(" vnm-001 ").barcode("000123").opening(2, 10000));
+        create(owner, product("Sữa tươi mã dài hơn", 20000).sku("VNM-001-L").barcode("0001234"));
+        asStore(owner.storeId(), () -> jdbc.update(
+                "update app.stock set min_quantity = 3 where variant_id = ?", milk.variantId()));
+
+        for (String code : List.of(" \u00a0vNm-001\u200b ", "000123")) {
+            mvc.perform(get("/api/v1/sales/sellable/exact").cookie(owner.cookie()).param("code", code))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.total").value(1))
+                    .andExpect(jsonPath("$.page").value(0))
+                    .andExpect(jsonPath("$.size").value(20))
+                    .andExpect(jsonPath("$.items.length()").value(1))
+                    .andExpect(jsonPath("$.items[0].variantId").value(milk.variantId().toString()))
+                    .andExpect(jsonPath("$.items[0].sku").value("VNM-001"))
+                    .andExpect(jsonPath("$.items[0].barcode").value("000123"))
+                    .andExpect(jsonPath("$.items[0].quantity").value(2))
+                    .andExpect(jsonPath("$.items[0].belowMin").value(true));
+        }
+        for (String miss : List.of("VNM-00", "00012", "123", "sua tuoi", "missing", "", "  ", "x".repeat(51))) {
+            mvc.perform(get("/api/v1/sales/sellable/exact").cookie(owner.cookie()).param("code", miss))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.total").value(0))
+                    .andExpect(jsonPath("$.items").isEmpty());
+        }
+        assertThat(TenantScope.runAs(owner.storeId(), () -> lookup.findForSaleByExactCode(null))).isEmpty();
+        assertThat(TenantScope.runAs(owner.storeId(), () -> lookup.findForSaleByExactCode("VNM\u0000001"))).isEmpty();
+        assertThatThrownBy(() -> lookup.findForSaleByExactCode(""))
+                .isInstanceOf(IllegalStateException.class);
+
+        // Luồng tìm thường vẫn khớp tên ở giữa và tiền tố mã; exact không thay hợp đồng cũ.
+        for (String q : List.of("tuoi", "vnm-00", "00012")) {
+            mvc.perform(get("/api/v1/sales/sellable").cookie(owner.cookie()).param("q", q))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(2));
+        }
+
+        Created literal = create(owner, product("Hàng SKU tự nhập", 1000).sku("BÁNH  %_\\00ß"));
+        String normalized = Normalizer.normalize("bánh  %_\\00ß", Normalizer.Form.NFD);
+        assertThat(TenantScope.runAs(owner.storeId(), () -> lookup.findForSaleByExactCode(normalized)))
+                .extracting(SellableVariant::variantId).containsExactly(literal.variantId());
+        assertThat(TenantScope.runAs(owner.storeId(), () -> lookup.findForSaleByExactCode("banh  %_\\00ss")))
+                .isEmpty();
+        assertThat(TenantScope.runAs(owner.storeId(), () -> lookup.findForSaleByExactCode("bánh %_\\00ss")))
+                .isEmpty();
+    }
+
+    @Test
+    void exactLookupDeduplicatesOneVariantButReturnsBothCrossFieldMatches() throws Exception {
+        Owner owner = newStore();
+        Created same = create(owner, product("Cùng SKU và mã vạch", 1000).sku("000011").barcode("000011"));
+        mvc.perform(get("/api/v1/sales/sellable/exact").cookie(owner.cookie()).param("code", "000011"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items.length()").value(1))
+                .andExpect(jsonPath("$.items[0].variantId").value(same.variantId().toString()))
+                .andExpect(jsonPath("$.items[0].quantity").value(0))
+                .andExpect(jsonPath("$.items[0].belowMin").value(false));
+
+        Created bySku = create(owner, product("Áo theo SKU", 2000).sku("CROSS01"));
+        Created byBarcode = create(owner, product("Bánh theo mã vạch", 3000).sku("OTHER01").barcode("CROSS01"));
+        mvc.perform(get("/api/v1/sales/sellable/exact").cookie(owner.cookie()).param("code", "cross01"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(2))
+                .andExpect(jsonPath("$.items.length()").value(2))
+                .andExpect(jsonPath("$.items[*].variantId", containsInAnyOrder(
+                        bySku.variantId().toString(), byBarcode.variantId().toString())));
+    }
+
+    @Test
+    void exactLookupOnlyFindsActiveUndeletedVariantsAndProductsInThisStore() throws Exception {
+        Owner owner = newStore();
+        Owner other = newStore();
+        Created local = create(owner, product("Hàng ở đây", 1000).sku("SAME001").barcode("000001"));
+        create(other, product("Hàng Cửa hàng khác", 2000).sku("SAME001").barcode("000001"));
+        Created foreign = create(other, product("Chỉ ở Cửa hàng khác", 3000).sku("FOREIGN").barcode("000002"));
+        Created stopped = create(owner, product("Sản phẩm đã ngừng", 4000).sku("STOPPED").barcode("000003"));
+        deactivate(owner, stopped.productId());
+        Created deleted = create(owner, product("Sản phẩm đã xóa", 5000).sku("DELETED").barcode("000004"));
+        asStore(owner.storeId(), () -> jdbc.update("update app.product set deleted_at = now() where id = ?",
+                deleted.productId()));
+        UUID activeVariant = UUID.randomUUID();
+        UUID inactiveVariant = UUID.randomUUID();
+        UUID deletedVariant = UUID.randomUUID();
+        insertVariant(owner, local.productId(), activeVariant, "V-ACTIVE", "Cỡ lớn", 5500, "ACTIVE", false);
+        insertVariant(owner, local.productId(), inactiveVariant, "V-STOPPED", "Đã ngừng", 6000, "INACTIVE", false);
+        insertVariant(owner, local.productId(), deletedVariant, "V-DELETED", "Đã xóa", 7000, "ACTIVE", true);
+        asStore(owner.storeId(), () -> jdbc.update("update app.product_variant set barcode = ? where id = ?",
+                "000005", inactiveVariant));
+        asStore(owner.storeId(), () -> jdbc.update("update app.product_variant set barcode = ? where id = ?",
+                "000006", deletedVariant));
+
+        for (String code : List.of("SAME001", "000001")) {
+            mvc.perform(get("/api/v1/sales/sellable/exact").cookie(owner.cookie()).param("code", code))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(1))
+                    .andExpect(jsonPath("$.items[0].variantId").value(local.variantId().toString()));
+        }
+        mvc.perform(get("/api/v1/sales/sellable/exact").cookie(owner.cookie()).param("code", "v-active"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].variantId").value(activeVariant.toString()))
+                .andExpect(jsonPath("$.items[0].variantName").value("Cỡ lớn"));
+        for (String code : List.of("FOREIGN", "000002", "STOPPED", "000003", "DELETED", "000004",
+                "V-STOPPED", "000005", "V-DELETED", "000006")) {
+            mvc.perform(get("/api/v1/sales/sellable/exact").cookie(owner.cookie()).param("code", code))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(0))
+                    .andExpect(jsonPath("$.items").isEmpty());
+        }
+        assertThat(TenantScope.runAs(other.storeId(), () -> lookup.findForSaleByExactCode("FOREIGN")))
+                .extracting(SellableVariant::variantId).containsExactly(foreign.variantId());
+    }
+
+    @Test
+    void exactLookupAllowsStaffAndOmitsCosts() throws Exception {
+        Cookie ownerCookie = login("dev.chu.a");
+        Cookie staff = login("dev.nv.a");
+        String code = "EXACT-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase(Locale.ROOT);
+        mvc.perform(post(PRODUCTS).cookie(ownerCookie).header("Idempotency-Key", UUID.randomUUID().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsString(product("Hàng tra mã của Nhân viên", 20000)
+                                .sku(code).opening(3, 12345).body())))
+                .andExpect(status().isCreated());
+        String response = mvc.perform(get("/api/v1/sales/sellable/exact").cookie(staff).param("code", code))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.total").value(1))
+                .andExpect(jsonPath("$.items[0].salePrice").value(20000))
+                .andExpect(jsonPath("$.items[0].quantity").value(3))
+                .andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
+        assertThat(response.toLowerCase(Locale.ROOT)).doesNotContain("cost", "profit", "opening");
+        mvc.perform(get("/api/v1/sales/sellable/exact").param("code", code)).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     void aRejectedSearchDoesNotRollTheCallersTransactionBack() throws Exception {
         Owner owner = newStore();
         Created milk = create(owner, product("Sữa tươi Vinamilk", 15000));

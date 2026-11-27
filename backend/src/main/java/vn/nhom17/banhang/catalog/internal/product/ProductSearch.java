@@ -45,10 +45,11 @@ final class ProductSearch {
     static final String FOLDED_NAME = SearchText.folded("p.name");
 
     /**
-     * Tên chứa {@code q} (tham số thứ nhất), cùng cách với tìm Khách hàng theo tên ({@link SearchText#containsFolded}:
-     * bỏ dấu, chữ thường, gộp khoảng trắng, rồi mới thoát {@code \ % _}).
+     * Tên chứa {@code q} (tham số thứ nhất), cùng cách với tìm Khách hàng theo tên: dùng cột sinh lưu sẵn tên bỏ
+     * dấu, chữ thường, gộp khoảng trắng ({@link SearchText#containsPrecomputed}); tham số vẫn chuẩn hóa rồi thoát
+     * {@code \ % _}.
      */
-    private static final String NAME_MATCH = SearchText.containsFolded("p.name");
+    private static final String NAME_MATCH = SearchText.containsPrecomputed("p.search_name");
 
     /**
      * SKU, mã vạch của Biến thể có bí danh {@code %1$s} bắt đầu bằng {@code q} (hai tham số: đã viết hoa, đã thoát,
@@ -63,14 +64,14 @@ final class ProductSearch {
      */
     private static final String ANY_VARIANT_CODE_OR_LABEL_MATCH = "exists (select 1 from app.product_variant x"
             + " where x.store_id = p.store_id and x.product_id = p.id and x.deleted_at is null"
-            + " and (" + CODE_MATCH.formatted("x") + " or " + SearchText.containsFolded("x.name") + "))";
+            + " and (" + CODE_MATCH.formatted("x") + " or " + SearchText.containsPrecomputed("x.search_name") + "))";
 
     /**
      * Hàng còn bán: mã (quét mã vạch ra đúng Biến thể đó) hoặc nhãn của chính Biến thể {@code v} (gõ "xanh" ra
      * "Áo thun – Xanh / M", SP-07). Ba tham số như trên.
      */
     private static final String OWN_CODE_OR_LABEL_MATCH = CODE_MATCH.formatted("v") + " or "
-            + SearchText.containsFolded("v.name");
+            + SearchText.containsPrecomputed("v.search_name");
 
     /** Màn Tồn kho ({@link Scope#INVENTORY}, của inventory): chỉ mã của chính Biến thể, như trước SP-07. */
     private static final String OWN_CODE_MATCH = CODE_MATCH.formatted("v");

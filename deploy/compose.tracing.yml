@@ -1,0 +1,52 @@
+# Add after compose.grafana.yml. Both OTLP and the Tempo query API stay internal.
+x-trace-logging: &trace-logging
+  driver: local
+  options: { max-size: "5m", max-file: "2" }
+
+services:
+  tempo-volume-setup:
+    image: busybox:1.37.0
+    user: "0:0"
+    command: ["sh", "-ec", "chown 10001:10001 /var/tempo && chmod 0700 /var/tempo"]
+    volumes:
+      - tempo-data:/var/tempo
+    mem_limit: 32m
+    logging: *trace-logging
+
+  tempo:
+    image: grafana/tempo:2.10.10
+    command: ["-config.file=/etc/tempo/tempo.yml", "-target=all"]
+    environment:
+      GOMEMLIMIT: 350MiB
+    volumes:
+      - ./monitoring/tracing/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo-data:/var/tempo
+    depends_on:
+      tempo-volume-setup:
+        condition: service_completed_successfully
+    mem_limit: 512m
+    cpus: 0.75
+    logging: *trace-logging
+    restart: unless-stopped
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.166.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    environment:
+      GOMEMLIMIT: 170MiB
+    volumes:
+      - ./monitoring/tracing/collector.yml:/etc/otelcol-contrib/config.yaml:ro
+    depends_on:
+      - tempo
+    mem_limit: 256m
+    cpus: 0.5
+    logging: *trace-logging
+    restart: unless-stopped
+
+  grafana:
+    volumes:
+      - ./monitoring/grafana/provisioning/datasources/tempo.yml:/etc/grafana/provisioning/datasources/tempo.yml:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+
+volumes:
+  tempo-data:

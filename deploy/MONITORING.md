@@ -61,11 +61,25 @@ docker compose -p $project @environment @files up -d --no-deps --wait grafana
 
 Đăng nhập tài khoản `admin` bằng mật khẩu trong tệp và mở [Tổng quan vận hành](http://127.0.0.1:13000/d/banhang-overview/). Cổng `13000` chỉ lắng nghe trên máy chủ. Chuỗi độ trễ AI sẽ xuất hiện sau khi có yêu cầu tìm theo mô tả, gợi ý hàng hoặc hỏi đáp. Đổi khoảng thời gian trên dashboard để xem số liệu đã có trong Prometheus.
 
-## Phạm vi đo và tracing
+## Metric hạ tầng và truy vết
 
-Prometheus hiện thu thời gian phản hồi, lỗi và tải HTTP của API, tài nguyên JVM, kết nối trong pool Hikari, metrics Kafka client ở worker, thời gian các tác vụ AI và trạng thái Nginx. Probe của PostgreSQL, Kafka broker, Kafka Connect và kho tệp xác nhận khả năng kết nối hoặc endpoint sức khỏe. Theo dõi sâu còn cần metrics query/lock/WAL của PostgreSQL, tình trạng broker và lag toàn consumer group, độ trễ của CDC, dung lượng kho tệp và tài nguyên của từng container. Có thể xem lag các worker bằng `deploy/kafka/check-capacity.py`.
+Thêm các overlay dưới đây sau khi [Grafana](#dashboard-grafana) đã được cấu hình. Dùng lại project và volume đang chạy. Lần bật đầu tiên khởi động lại primary để nạp `pg_stat_statements`. Hai replica tiếp tục dùng các volume riêng hiện có.
 
-Hiện log truyền `X-Request-Id` giữa các lời gọi HTTP. Hệ thống chưa thu span hoặc truyền ngữ cảnh tracing qua Kafka. Để xem từng chặng của một giao dịch trong Grafana, cần instrument backend, AI và worker bằng OpenTelemetry, truyền `traceparent` qua HTTP và Kafka, rồi gửi span qua OTLP tới kho trace như Tempo.
+Đặt `DB_MONITOR_PASSWORD` trong tệp `deploy/telemetry.local` và cấp riêng mật khẩu dài cho tài khoản chỉ đọc của bộ thu. Tải [OpenTelemetry Java agent 2.34.0](https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/tag/v2.34.0), kiểm tra SHA-256 rồi đặt `OTEL_JAVA_AGENT_FILE` thành đường dẫn tuyệt đối đến JAR. Hàm băm mong đợi là `da44154cea128257779c8a782b9651fd7c0c6aa177cd3810f9a867ac8509555d`.
+
+```powershell
+$environment += @('--env-file', 'deploy/telemetry.local')
+$files += @('-f', 'deploy/compose.tracing.yml', '-f', 'deploy/compose.otel-java.yml',
+  '-f', 'deploy/compose.infra-metrics.yml', '-f', 'deploy/compose.container-metrics.yml',
+  '-f', 'deploy/compose.telemetry-scrapes.yml')
+docker compose -p $project @environment @files config --quiet
+docker compose -p $project @environment @files up -d --wait --scale backend=2
+powershell.exe -NoProfile -File deploy/monitoring/containers/collect.ps1 -Project $project -Watch
+```
+
+Mở dashboard **Hạ tầng và hàng đợi** trong Grafana. PostgreSQL có khóa, hoạt động truy vấn, WAL và độ trễ replica. Kafka có trạng thái broker, partition và độ trễ tính từ offset đã commit của consumer group. CDC đo khoảng cách từ checkpoint đã commit trong kho báo cáo tới cuối log Kafka và thời gian kể từ heartbeat đã áp dụng. CPU, RAM, mạng, I/O và số lần restart của container lấy từ Docker CLI trên máy chủ. Bộ xuất textfile chỉ đọc tệp số liệu qua mạng Compose.
+
+Để xem một giao dịch, vào **Explore → Tempo** và nhập trace ID trong ô TraceQL. Có thể tìm đơn bán bằng `{ resource.service.name = "banhang-backend" && span.http.route = "/api/v1/sales/orders" }`. Java agent truyền W3C Trace Context khi gửi lệnh Kafka. Worker tiếp tục cùng trace khi ghi PostgreSQL. Collector lọc URL có tham số, nội dung SQL và dữ liệu nhạy cảm trước khi lưu. Mặc định lấy mẫu 10% trace mới và lưu 24 giờ. Đặt `OTEL_TRACES_SAMPLER_ARG=1.0` trong phiên demo giới hạn nếu cần thu mọi yêu cầu mới.
 
 ## Cân bằng tải API
 

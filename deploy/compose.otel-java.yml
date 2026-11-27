@@ -1,0 +1,69 @@
+# Optional Java tracing. Add after compose.kafka.yml and the tracing services overlay.
+# Obtain the official v2.34.0 agent before enabling this overlay:
+# https://github.com/open-telemetry/opentelemetry-java-instrumentation/releases/download/v2.34.0/opentelemetry-javaagent.jar
+# SHA-256: da44154cea128257779c8a782b9651fd7c0c6aa177cd3810f9a867ac8509555d
+# OTEL_JAVA_AGENT_FILE must be an absolute path to the verified local JAR.
+# This overlay never downloads or executes a remote artifact during startup.
+x-otel-java-environment: &otel-java-environment
+  JAVA_TOOL_OPTIONS: "-javaagent:/otel/opentelemetry-javaagent.jar ${OTEL_JAVA_EXTRA_OPTIONS:-}"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  OTEL_EXPORTER_OTLP_PROTOCOL: grpc
+  OTEL_TRACES_EXPORTER: otlp
+  # Keep Prometheus as the only metrics pipeline and existing stdout JSON logs.
+  OTEL_METRICS_EXPORTER: none
+  OTEL_LOGS_EXPORTER: none
+  # Honor sampled W3C parents across HTTP -> Kafka -> @KafkaListener -> JDBC.
+  # Sample 10% of new root traces by default; use 1.0 for a bounded demo session.
+  OTEL_PROPAGATORS: tracecontext
+  OTEL_TRACES_SAMPLER: parentbased_traceidratio
+  OTEL_TRACES_SAMPLER_ARG: "${OTEL_TRACES_SAMPLER_ARG:-0.1}"
+  OTEL_RESOURCE_ATTRIBUTES: "deployment.environment.name=${OTEL_DEPLOYMENT_ENVIRONMENT:-demo},service.version=${OTEL_SERVICE_VERSION:-local}"
+  # The agent instruments real KafkaProducer/Consumer and Spring listener containers.
+  # Do not add a second tracing SDK, Kafka interceptor or Micrometer tracing bridge.
+  OTEL_INSTRUMENTATION_KAFKA_PRODUCER_PROPAGATION_ENABLED: "true"
+  OTEL_INSTRUMENTATION_LOGBACK_MDC_ENABLED: "true"
+  # Redact SQL literals and explicitly disable the agent's opt-in bind-value capture.
+  OTEL_INSTRUMENTATION_COMMON_DB_QUERY_SANITIZATION_ENABLED: "true"
+  OTEL_INSTRUMENTATION_JDBC_QUERY_SANITIZATION_ENABLED: "true"
+  OTEL_INSTRUMENTATION_JDBC_EXPERIMENTAL_CAPTURE_QUERY_PARAMETERS: "false"
+  OTEL_INSTRUMENTATION_COMMON_DB_EXPERIMENTAL_SQLCOMMENTER_ENABLED: "false"
+  # Do not opt in to HTTP/message header, user identity or message payload capture.
+  OTEL_INSTRUMENTATION_HTTP_CLIENT_CAPTURE_REQUEST_HEADERS: ""
+  OTEL_INSTRUMENTATION_HTTP_CLIENT_CAPTURE_RESPONSE_HEADERS: ""
+  OTEL_INSTRUMENTATION_HTTP_SERVER_CAPTURE_REQUEST_HEADERS: ""
+  OTEL_INSTRUMENTATION_HTTP_SERVER_CAPTURE_RESPONSE_HEADERS: ""
+  OTEL_INSTRUMENTATION_MESSAGING_EXPERIMENTAL_CAPTURE_HEADERS: ""
+  OTEL_INSTRUMENTATION_COMMON_MESSAGING_HEADERS_EXCLUDED: "*"
+  OTEL_INSTRUMENTATION_COMMON_ENDUSER_ID_ENABLED: "false"
+  OTEL_INSTRUMENTATION_COMMON_ENDUSER_ROLE_ENABLED: "false"
+  OTEL_INSTRUMENTATION_COMMON_ENDUSER_SCOPE_ENABLED: "false"
+  # The instrumentation adds trace_id/span_id to Logback MDC, including ECS logs.
+  LOGGING_PATTERN_CORRELATION: "[trace_id=%X{trace_id:-} span_id=%X{span_id:-}] "
+
+x-otel-java-volumes: &otel-java-volumes
+  - type: bind
+    source: ${OTEL_JAVA_AGENT_FILE:?Set OTEL_JAVA_AGENT_FILE to the verified v2.34.0 Java agent JAR}
+    target: /otel/opentelemetry-javaagent.jar
+    read_only: true
+    bind:
+      create_host_path: false
+
+services:
+  backend:
+    environment:
+      <<: *otel-java-environment
+      OTEL_SERVICE_NAME: banhang-backend
+    volumes: *otel-java-volumes
+
+  order-worker:
+    environment:
+      <<: *otel-java-environment
+      OTEL_SERVICE_NAME: banhang-order-worker
+    volumes: *otel-java-volumes
+
+  # This process owns both the quick-command and file-command listener groups.
+  backoffice-worker:
+    environment:
+      <<: *otel-java-environment
+      OTEL_SERVICE_NAME: banhang-backoffice-worker
+    volumes: *otel-java-volumes

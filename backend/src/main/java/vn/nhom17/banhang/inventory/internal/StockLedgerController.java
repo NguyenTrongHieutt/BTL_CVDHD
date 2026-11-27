@@ -14,6 +14,7 @@ import vn.nhom17.banhang.inventory.StockDocumentType;
 import vn.nhom17.banhang.inventory.internal.stock.StockLedgerDocumentQuery;
 import vn.nhom17.banhang.inventory.internal.stock.StockLedgerQuery;
 import vn.nhom17.banhang.platform.PageResponse;
+import vn.nhom17.banhang.platform.ReplicaRead;
 
 @RestController
 @RequestMapping("/api/v1/inventory")
@@ -26,6 +27,7 @@ public class StockLedgerController {
         this.documents = documents;
     }
 
+    @ReplicaRead
     @GetMapping("/ledger")
     public PageResponse<StockLedgerQuery.Entry> ledger(
             @RequestParam(required = false) UUID variantId,

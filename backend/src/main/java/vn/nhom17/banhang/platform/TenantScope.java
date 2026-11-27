@@ -5,7 +5,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /**
- * Chạy một đoạn code dưới ngữ cảnh một Cửa hàng mà không cần JWT. CHỈ dùng cho seed, test và đăng ký Cửa hàng
+ * Chạy một đoạn code dưới ngữ cảnh một Cửa hàng mà không cần JWT. Dùng cho seed, test, worker nội bộ và đăng ký Cửa hàng
  * (AD-5 mục 7). Gọi bên ngoài transaction: hook của platform đặt {@code app.store_id} khi transaction bắt đầu.
  */
 public final class TenantScope {

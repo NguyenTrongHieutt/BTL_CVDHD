@@ -4,8 +4,63 @@ import { MemoryRouter } from 'react-router';
 import { expect, it, vi } from 'vitest';
 import { CurrentUserContext } from '../../../shared/api/session';
 import type { CreateOrderRequest } from '../../../shared/types/sales';
-import { cartStorageKey, emptyCart, saveCart } from '../cart/cartStorage';
+import { cartStorageKey, emptyCart, loadCart, saveCart } from '../cart/cartStorage';
 import { PosPage } from './PosPage';
+
+it.each([false, true])('mở giỏ mới ngay khi Kafka nhận lệnh (thử lại sau tải trang: %s)', async (reload) => {
+  const user = { storeId: 'store-kafka', storeName: 'Cửa hàng', userId: 'owner-kafka', displayName: 'An', role: 'OWNER' as const };
+  const cart = { ...emptyCart(), lines: [{ variantId: 'variant-1', quantity: 1 }] };
+  saveCart(user.storeId, user.userId, cart);
+  const sent: { key: string | null; body: unknown }[] = [];
+  const fetchMock = vi.fn<typeof fetch>(async (input, init) => {
+    const { pathname } = new URL(String(input), 'http://localhost');
+    if (pathname.endsWith('/inventory/low-stock')) return Response.json([]);
+    if (pathname.endsWith('/orders/quote')) return Response.json({
+      lines: [{ variantId: 'variant-1', productName: 'Bánh gạo', netLineAmount: 18_000 }],
+      subtotal: 18_000, lineDiscountTotal: 0, orderDiscount: 0, total: 18_000, warnings: [],
+    });
+    if (pathname.endsWith('/order-requests/failures')) return Response.json({ total: 1, items: [{
+      operationId: cart.idempotencyKey, reason: 'Số lượng tồn đã thay đổi.', createdAt: '2026-11-27T09:00:00Z',
+    }] });
+    expect(pathname).toBe('/api/v1/sales/orders');
+    sent.push({ key: new Headers(init?.headers).get('Idempotency-Key'), body: JSON.parse(String(init?.body)) });
+    if (reload && sent.length === 1) return Response.json({ detail: 'Chưa nhận được xác nhận.' }, { status: 503 });
+    return Response.json({ status: 'ACCEPTED', operationId: cart.idempotencyKey }, { status: 202 });
+  });
+  vi.stubGlobal('fetch', fetchMock);
+  function mount() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(<QueryClientProvider client={queryClient}>
+      <CurrentUserContext value={user}><PosPage /></CurrentUserContext>
+    </QueryClientProvider>);
+  }
+  let view = mount();
+  try {
+    const confirm = await screen.findByRole<HTMLButtonElement>('button', { name: 'Xác nhận đã nhận tiền' });
+    await waitFor(() => expect(confirm.disabled).toBe(false));
+    fireEvent.click(confirm);
+    if (reload) {
+      await screen.findByRole('button', { name: 'Thử lại xác nhận' });
+      view.unmount();
+      view = mount();
+      fireEvent.click(await screen.findByRole('button', { name: 'Thử lại xác nhận' }));
+    }
+    expect(await screen.findByText('Đã tiếp nhận đơn')).toBeTruthy();
+    expect(sent).toHaveLength(reload ? 2 : 1);
+    expect(sent.at(-1)).toEqual(sent[0]);
+    expect(screen.getByText(cart.idempotencyKey)).toBeTruthy();
+    expect(screen.getByText('Giỏ hàng đang trống.')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Xem hóa đơn' })).toBeNull();
+    expect(loadCart(user.storeId, user.userId).idempotencyKey).not.toBe(cart.idempotencyKey);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/order-requests/'))).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Đơn cần xử lý' }));
+    expect(await screen.findByText('Số lượng tồn đã thay đổi.')).toBeTruthy();
+  } finally {
+    view.unmount();
+    localStorage.removeItem(cartStorageKey(user.storeId, user.userId));
+    vi.unstubAllGlobals();
+  }
+});
 
 it.each([
   { role: 'OWNER' as const, configured: false },

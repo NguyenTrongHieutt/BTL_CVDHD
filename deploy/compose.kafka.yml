@@ -1,0 +1,346 @@
+# TH-02: chạy cùng docker-compose.yml, thêm compose.server.yml khi phục vụ HTTPS.
+# Dùng project riêng khi thử nghiệm: -p banhang-async; không dùng volume của bản demo khác.
+x-async-logging: &async-logging
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-postgres-replica: &postgres-replica
+  image: pgvector/pgvector:pg18
+  logging: *async-logging
+  entrypoint: ["/bin/sh", "/infra/replica-entrypoint.sh"]
+  environment: &replica-environment
+    PGDATA: /var/lib/postgresql/18/docker
+    DB_REPLICATION_PASSWORD: ${DB_REPLICATION_PASSWORD:?Thiếu DB_REPLICATION_PASSWORD}
+    TZ: UTC
+  depends_on:
+    db-replication-setup:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD-SHELL", "psql -U postgres -d banhang -Atc \"SELECT pg_is_in_recovery() AND current_setting('transaction_read_only') = 'on' AND EXISTS (SELECT FROM pg_stat_wal_receiver WHERE status = 'streaming')\" | grep -qx t"]
+    interval: 5s
+    timeout: 4s
+    retries: 30
+    start_period: 30s
+  mem_limit: 512m
+  cpus: 1.0
+  restart: unless-stopped
+
+services:
+  db:
+    # wal_level=logical phục vụ cả sao chép vật lý và Debezium pgoutput.
+    command:
+      - postgres
+      - -c
+      - hba_file=/etc/postgresql/async-pg_hba.conf
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=8
+      - -c
+      - max_replication_slots=8
+      - -c
+      - max_slot_wal_keep_size=512MB
+      - -c
+      - wal_keep_size=64MB
+      - -c
+      - max_wal_size=256MB
+      - -c
+      - min_wal_size=32MB
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=60
+      - -c
+      - temp_file_limit=128MB
+    ports: !reset []
+    volumes:
+      - ./kafka/pg_hba.conf:/etc/postgresql/async-pg_hba.conf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d banhang"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+    cpus: 1.0
+    restart: unless-stopped
+
+  # Chạy lại an toàn với volume đã có; không sửa init.sql đã được dùng ở bản gốc.
+  db-replication-setup:
+    image: pgvector/pgvector:pg18
+    logging: *async-logging
+    entrypoint: ["psql", "-f", "/infra/replication.sql"]
+    environment:
+      PGHOST: db
+      PGDATABASE: banhang
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+      DB_REPLICATION_PASSWORD: ${DB_REPLICATION_PASSWORD:?}
+      DB_CDC_PASSWORD: ${DB_CDC_PASSWORD:?Thiếu DB_CDC_PASSWORD}
+    volumes:
+      - ./kafka/replication.sql:/infra/replication.sql:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 128m
+
+  db-replica-1:
+    <<: *postgres-replica
+    environment:
+      <<: *replica-environment
+      REPLICATION_SLOT: pos_replica_1
+      REPLICA_NAME: db-replica-1
+    volumes:
+      - db-replica-1-data:/var/lib/postgresql
+      - ./kafka/replica-entrypoint.sh:/infra/replica-entrypoint.sh:ro
+      - ./kafka/pg_hba.conf:/etc/postgresql/async-pg_hba.conf:ro
+
+  db-replica-2:
+    <<: *postgres-replica
+    environment:
+      <<: *replica-environment
+      REPLICATION_SLOT: pos_replica_2
+      REPLICA_NAME: db-replica-2
+    volumes:
+      - db-replica-2-data:/var/lib/postgresql
+      - ./kafka/replica-entrypoint.sh:/infra/replica-entrypoint.sh:ro
+      - ./kafka/pg_hba.conf:/etc/postgresql/async-pg_hba.conf:ro
+
+  kafka:
+    image: apache/kafka:4.1.1
+    logging: *async-logging
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: "1"
+      KAFKA_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_MIN_INSYNC_REPLICAS: "1"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_NUM_PARTITIONS: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_LOG_RETENTION_HOURS: "168"
+      KAFKA_LOG_RETENTION_BYTES: "268435456"
+      KAFKA_LOG_SEGMENT_BYTES: "16777216"
+      KAFKA_LOG_RETENTION_CHECK_INTERVAL_MS: "60000"
+      KAFKA_LOG_CLEANER_DEDUPE_BUFFER_SIZE: "33554432"
+      KAFKA_NUM_NETWORK_THREADS: "2"
+      KAFKA_NUM_IO_THREADS: "4"
+      KAFKA_BACKGROUND_THREADS: "2"
+      KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+      KAFKA_LOG4J_OPTS: -Dlog4j2.configurationFile=/etc/kafka/demo-log4j2.yaml
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+      - ./kafka/log4j2.yaml:/etc/kafka/demo-log4j2.yaml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 8s
+      retries: 30
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 1.5
+    restart: unless-stopped
+
+  kafka-topics:
+    image: apache/kafka:4.1.1
+    logging: *async-logging
+    entrypoint: ["/bin/bash", "/infra/topics.sh"]
+    volumes:
+      - ./kafka/topics.sh:/infra/topics.sh:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+    mem_limit: 256m
+
+  backend:
+    environment:
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      APP_SALES_QUEUE_PUBLISH_ENABLED: "true"
+      APP_SALES_QUEUE_CONSUME_ENABLED: "false"
+      APP_DB_REPLICA_ENABLED: "true"
+      APP_DB_REPLICA_URLS: jdbc:postgresql://db-replica-1:5432/banhang,jdbc:postgresql://db-replica-2:5432/banhang
+      APP_REPORTING_WAREHOUSE_ENABLED: "true"
+      APP_REPORTING_WAREHOUSE_URL: jdbc:postgresql://warehouse:5432/banhang_warehouse
+      APP_REPORTING_WAREHOUSE_USERNAME: warehouse_reader
+      APP_REPORTING_WAREHOUSE_PASSWORD: ${DB_WAREHOUSE_READER_PASSWORD:?Thiếu DB_WAREHOUSE_READER_PASSWORD}
+    depends_on:
+      db:
+        condition: service_healthy
+      db-replica-1:
+        condition: service_started
+      db-replica-2:
+        condition: service_started
+      kafka-topics:
+        condition: service_completed_successfully
+      warehouse:
+        condition: service_started
+
+  order-worker:
+    build: ../backend
+    image: banhang-backend:latest
+    logging: *async-logging
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/banhang
+      DB_BACKEND_PASSWORD: ${DB_BACKEND_PASSWORD:?}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?}
+      DB_SYNC_PASSWORD: ${DB_SYNC_PASSWORD:?}
+      JWT_SECRET: ${JWT_SECRET:?}
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?}
+      SPRING_PROFILES_ACTIVE: ${BACKEND_PROFILES:-demo}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      APP_SALES_QUEUE_PUBLISH_ENABLED: "false"
+      APP_SALES_QUEUE_CONSUME_ENABLED: "true"
+      APP_DB_REPLICA_ENABLED: "false"
+      APP_REPORTING_WAREHOUSE_ENABLED: "false"
+    depends_on:
+      backend:
+        condition: service_healthy
+      kafka-topics:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/actuator/health | grep -q UP"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 1.0
+    restart: unless-stopped
+
+  # Database báo cáo riêng, nằm ngoài cụm nghiệp vụ ba node.
+  warehouse:
+    image: postgres:18.6
+    logging: *async-logging
+    command: ["postgres", "-c", "shared_buffers=64MB", "-c", "max_connections=30", "-c", "temp_file_limit=128MB", "-c", "max_wal_size=128MB"]
+    environment:
+      POSTGRES_DB: banhang_warehouse
+      POSTGRES_PASSWORD: ${DB_WAREHOUSE_ADMIN_PASSWORD:?Thiếu DB_WAREHOUSE_ADMIN_PASSWORD}
+      DB_WAREHOUSE_WRITER_PASSWORD: ${DB_WAREHOUSE_WRITER_PASSWORD:?Thiếu DB_WAREHOUSE_WRITER_PASSWORD}
+      DB_WAREHOUSE_READER_PASSWORD: ${DB_WAREHOUSE_READER_PASSWORD:?}
+      TZ: UTC
+    volumes:
+      - warehouse-data:/var/lib/postgresql
+      - ./cdc/00-init.sh:/docker-entrypoint-initdb.d/00-init.sh:ro
+      - ./cdc/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d banhang_warehouse"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 384m
+    cpus: 1.0
+    restart: unless-stopped
+
+  cdc-publication:
+    image: pgvector/pgvector:pg18
+    logging: *async-logging
+    entrypoint: ["psql", "-f", "/infra/publication.sql"]
+    environment:
+      PGHOST: db
+      PGDATABASE: banhang
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes:
+      - ./kafka/publication.sql:/infra/publication.sql:ro
+    depends_on:
+      backend:
+        condition: service_healthy
+      db-replication-setup:
+        condition: service_completed_successfully
+    mem_limit: 128m
+
+  connect:
+    image: quay.io/debezium/connect:3.4.3.Final
+    logging: *async-logging
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: banhang-connect-v1
+      CONFIG_STORAGE_TOPIC: banhang.connect.config
+      OFFSET_STORAGE_TOPIC: banhang.connect.offsets
+      STATUS_STORAGE_TOPIC: banhang.connect.status
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_OFFSET_STORAGE_PARTITIONS: "1"
+      CONNECT_STATUS_STORAGE_PARTITIONS: "1"
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_CONNECTOR_CLIENT_CONFIG_OVERRIDE_POLICY: All
+      CONNECT_LOG4J_LOGGERS: INFO, stdout
+      HEAP_OPTS: -Xms256m -Xmx512m
+    depends_on:
+      kafka-topics:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8083/connectors >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    mem_limit: 1g
+    cpus: 1.0
+    restart: unless-stopped
+
+  cdc-register:
+    build: ./cdc
+    image: banhang-cdc:latest
+    logging: *async-logging
+    entrypoint: ["python", "/infra/register-connector.py"]
+    environment:
+      CONNECT_URL: http://connect:8083
+      DB_CDC_PASSWORD: ${DB_CDC_PASSWORD:?}
+    volumes:
+      - ./kafka/register-connector.py:/infra/register-connector.py:ro
+    depends_on:
+      connect:
+        condition: service_healthy
+      cdc-publication:
+        condition: service_completed_successfully
+    mem_limit: 128m
+
+  cdc-worker:
+    build: ./cdc
+    image: banhang-cdc:latest
+    logging: *async-logging
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      CDC_TOPIC: banhang.reporting
+      PGHOST: warehouse
+      PGDATABASE: banhang_warehouse
+      PGUSER: warehouse_writer
+      PGPASSWORD: ${DB_WAREHOUSE_WRITER_PASSWORD:?}
+    depends_on:
+      warehouse:
+        condition: service_healthy
+      cdc-register:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "/app/worker.py", "--healthcheck"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    mem_limit: 256m
+    cpus: 1.0
+    restart: unless-stopped
+
+volumes:
+  db-replica-1-data:
+  db-replica-2-data:
+  kafka-data:
+  warehouse-data:

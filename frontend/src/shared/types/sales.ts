@@ -102,13 +102,15 @@ export interface SellableItem {
 
 /**
  * Giỏ hàng lưu ở `localStorage` theo khóa `cart:<storeId>:<userId>`, kèm `Idempotency-Key`
- * (Consistency Conventions, dòng "Giỏ hàng"). Giỏ không lưu giá: giá luôn lấy lại từ `quote`.
+ * (Consistency Conventions, dòng "Giỏ hàng"). Giỏ đang nhập lấy giá từ `quote`.
  */
 export interface StoredCart {
   lines: QuoteLineRequest[];
   orderDiscount?: DiscountIntent;
   customerId?: Uuid;
   pointsRedeemed?: number;
+  /** Payload đã gửi để có thể thử lại đúng nội dung nếu trình duyệt tải lại trước khi nhận xác nhận. */
+  pendingPayment?: CreateOrderRequest;
   idempotencyKey: string;
   updatedAt: IsoDateTime;
 }

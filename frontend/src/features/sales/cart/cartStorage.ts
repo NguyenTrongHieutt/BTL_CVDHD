@@ -45,7 +45,11 @@ export function loadCart(storeId: string, userId: string): StoredCart {
     const raw = storage()?.getItem(cartStorageKey(storeId, userId));
     const parsed: unknown = raw ? JSON.parse(raw) : null;
     if (isStoredCart(parsed)) {
-      const { pointsRedeemed, ...cart } = parsed;
+      const { pointsRedeemed, pendingPayment, ...stored } = parsed;
+      const validPayment = pendingPayment && Array.isArray(pendingPayment.lines)
+        && (pendingPayment.paymentMethod === 'CASH' || pendingPayment.paymentMethod === 'BANK_TRANSFER')
+        && Number.isSafeInteger(pendingPayment.quotedTotal);
+      const cart = validPayment ? { ...stored, pendingPayment } : stored;
       if (cart.customerId && typeof pointsRedeemed === 'number' && Number.isInteger(pointsRedeemed)
         && pointsRedeemed > 0 && pointsRedeemed <= MAX_LOYALTY_POINTS) {
         return { ...cart, pointsRedeemed };

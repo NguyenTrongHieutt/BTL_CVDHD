@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.platform.PageResponse;
+import vn.nhom17.banhang.platform.ReplicaRead;
 
 /**
  * Khách hàng (FR-18 KH-01, FR-19 KH-02): xem, tìm, thêm, sửa; cả Chủ cửa hàng và Nhân viên. Quyền khai báo ở
@@ -42,6 +43,7 @@ class CustomerController {
     }
 
     /** Tìm theo tên (không dấu, không phân biệt hoa thường) hoặc số điện thoại (khớp một phần). */
+    @ReplicaRead
     @GetMapping
     PageResponse<CustomerView> list(@RequestParam(required = false) String q,
                                     @RequestParam(required = false) Integer page,

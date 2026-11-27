@@ -1,0 +1,18 @@
+# Log stdout để Docker local driver xoay vòng, không tạo tệp log Kafka riêng.
+Configuration:
+  status: WARN
+  Appenders:
+    Console:
+      name: STDOUT
+      PatternLayout:
+        pattern: "[%d] %p %m (%c)%n"
+  Loggers:
+    Root:
+      level: INFO
+      AppenderRef:
+        ref: STDOUT
+    Logger:
+      - name: kafka.request.logger
+        level: WARN
+      - name: kafka.network.RequestChannel$
+        level: WARN

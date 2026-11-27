@@ -155,7 +155,7 @@ class ReportingQueryCacheControllerTest {
     }
 
     private ReportingQueryController controller() {
-        return new ReportingQueryController(jdbc, context, CLOCK, transactions, cache);
+        return new ReportingQueryController(jdbc, context, CLOCK, transactions, cache, mock(ReportingWarehouse.class));
     }
 
     private static QueryResponse query(ReportingQueryController controller, String queryId,

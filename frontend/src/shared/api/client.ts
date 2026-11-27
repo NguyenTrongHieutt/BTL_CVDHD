@@ -172,6 +172,10 @@ export interface ApiClientConfig {
 }
 
 let onUnauthorized: (() => void) | null = null;
+let preferPrimaryUntil = 0;
+const COMMITTED_WRITE_PREFIX = /^\/api\/v1\/(catalog|inventory|sales)\//u;
+const PREVIEW_SUFFIX = /\/(quote|preview)(?:[/?]|$)/u;
+const READ_AFTER_WRITE_MS = 6000;
 
 export function configureApiClient(config: ApiClientConfig): void {
   if (config.onUnauthorized !== undefined) onUnauthorized = config.onUnauthorized;
@@ -245,6 +249,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   headers.set(REQUEST_ID_HEADER, requestId);
   headers.set('Accept', 'application/json, application/problem+json');
   if (options.idempotencyKey) headers.set(IDEMPOTENCY_KEY_HEADER, options.idempotencyKey);
+  const method = options.method ?? (options.body === undefined ? 'GET' : 'POST');
+  if (method === 'GET' && COMMITTED_WRITE_PREFIX.test(path) && Date.now() < preferPrimaryUntil) {
+    headers.set('X-Read-Primary', 'true');
+  }
 
   let body: string | FormData | undefined;
   if (options.body instanceof FormData) {
@@ -257,7 +265,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   let response: Response;
   try {
     response = await fetch(buildUrl(path, options.query), {
-      method: options.method ?? (body === undefined ? 'GET' : 'POST'),
+      method,
       headers,
       body,
       credentials: 'same-origin',
@@ -282,6 +290,9 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     throw error;
   }
 
+  if (method !== 'GET' && response.status !== 202 && COMMITTED_WRITE_PREFIX.test(path) && !PREVIEW_SUFFIX.test(path)) {
+    preferPrimaryUntil = Date.now() + READ_AFTER_WRITE_MS;
+  }
   const data = (await readBody(response, options.responseType ?? 'json', responseRequestId)) as T;
   return {
     data,

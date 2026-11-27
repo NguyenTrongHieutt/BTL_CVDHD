@@ -8,6 +8,7 @@ import { CustomersPage } from './CustomersPage';
 
 const CUSTOMERS_PATH = '/api/v1/catalog/customers';
 const PHONE_INVALID = 'Số điện thoại phải là 0 và 9 chữ số, hoặc +84 và 9 chữ số';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -243,7 +244,7 @@ describe('Khách hàng (FR-18 KH-01, FR-19 KH-02)', () => {
     await waitFor(() => expect(rows()).toEqual(['Chưa có tên · 0901 234 567']));
     const [post] = callsTo('POST', CUSTOMERS_PATH);
     expect(bodyOf(post)).toEqual({ phone: '0901234567' });
-    expect(new Headers(post[1]?.headers).get('Idempotency-Key')).toBeNull();
+    expect(new Headers(post[1]?.headers).get('Idempotency-Key')).toMatch(UUID);
     // Ô tìm kiếm điền số vừa thêm; xóa đi thì về danh sách đầy đủ
     expect(searchBox().value).toBe('0901234567');
     expect(lastListQuery()).toEqual({ page: '0', size: '20', q: '0901234567' });
@@ -341,6 +342,7 @@ describe('Khách hàng (FR-18 KH-01, FR-19 KH-02)', () => {
     const [put] = callsTo('PUT', `${CUSTOMERS_PATH}/k-1`);
     // PUT thay toàn bộ: ghi chú để trống thì không gửi (backend xóa giá trị cũ)
     expect(bodyOf(put)).toEqual({ phone: '0912345678', name: 'Chị Hoa (chợ Bến Thành)' });
+    expect(new Headers(put[1]?.headers).get('Idempotency-Key')).toMatch(UUID);
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 

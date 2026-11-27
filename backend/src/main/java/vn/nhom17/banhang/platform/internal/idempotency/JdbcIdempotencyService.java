@@ -20,6 +20,7 @@ import tools.jackson.databind.json.JsonMapper;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.IdempotencyService;
 import vn.nhom17.banhang.platform.ProblemException;
+import vn.nhom17.banhang.platform.internal.write.WorkerTransactionScope;
 
 /** AD-7. Giữ khóa và tạo chứng từ trong CÙNG một transaction; lỗi unique do gửi trùng đồng thời thì đọc lại. */
 @Component
@@ -47,30 +48,19 @@ class JdbcIdempotencyService implements IdempotencyService {
     @Override
     public <T> IdempotentResult<T> execute(String documentType, UUID key, String requestHash, Supplier<UUID> create,
                                            Function<UUID, T> load) {
-        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+        boolean active = TransactionSynchronizationManager.isActualTransactionActive();
+        if (active && !WorkerTransactionScope.active()) {
             throw new IllegalStateException("IdempotencyService.execute phải được gọi ngoài transaction");
         }
         if (key == null) {
             throw ProblemException.unprocessable("/errors/common/idempotency-key-missing", "Thiếu Idempotency-Key",
                     "Request tạo chứng từ phải có header Idempotency-Key (UUID).");
         }
+        // Worker đã khóa lệnh; khóa chứng từ, tác dụng nghiệp vụ và kết quả cuối phải commit cùng nhau.
+        // Lỗi unique cạnh tranh được đưa lên worker để rollback và thử lại, không đọc trong transaction đã hỏng.
+        if (active) return createOrReplay(documentType, key, requestHash, create, load);
         try {
-            return tx.execute(s -> {
-                Existing existing = find(documentType, key);
-                if (existing != null) {
-                    return replay(existing, requestHash, load);
-                }
-                jdbc.update("""
-                        insert into app.idempotency_record (store_id, document_type, idempotency_key, request_hash)
-                        values (?, ?, ?, ?)
-                        """, context.storeId(), documentType, key, requestHash);
-                UUID documentId = create.get();
-                jdbc.update("""
-                        update app.idempotency_record set document_id = ?
-                        where store_id = ? and document_type = ? and idempotency_key = ?
-                        """, documentId, context.storeId(), documentType, key);
-                return new IdempotentResult<>(load.apply(documentId), false);
-            });
+            return tx.execute(s -> createOrReplay(documentType, key, requestHash, create, load));
         } catch (DuplicateKeyException concurrent) {
             // Một yêu cầu trùng khác vừa thắng: đọc lại bản ghi của nó trong transaction mới
             return tx.execute(s -> {
@@ -81,6 +71,22 @@ class JdbcIdempotencyService implements IdempotencyService {
                 return replay(winner, requestHash, load);
             });
         }
+    }
+
+    private <T> IdempotentResult<T> createOrReplay(String documentType, UUID key, String requestHash,
+                                                  Supplier<UUID> create, Function<UUID, T> load) {
+        Existing existing = find(documentType, key);
+        if (existing != null) return replay(existing, requestHash, load);
+        jdbc.update("""
+                insert into app.idempotency_record (store_id, document_type, idempotency_key, request_hash)
+                values (?, ?, ?, ?)
+                """, context.storeId(), documentType, key, requestHash);
+        UUID documentId = create.get();
+        jdbc.update("""
+                update app.idempotency_record set document_id = ?
+                where store_id = ? and document_type = ? and idempotency_key = ?
+                """, documentId, context.storeId(), documentType, key);
+        return new IdempotentResult<>(load.apply(documentId), false);
     }
 
     private <T> IdempotentResult<T> replay(Existing existing, String requestHash, Function<UUID, T> load) {

@@ -32,6 +32,7 @@ class ArchitectureRulesTest {
     private static final Map<String, String> TABLE_OWNER = Map.ofEntries(
             Map.entry("store", "platform"), Map.entry("app_user", "platform"), Map.entry("audit_log", "platform"),
             Map.entry("order_counter", "platform"), Map.entry("idempotency_record", "platform"),
+            Map.entry("backoffice_write_request", "platform"),
             Map.entry("category", "catalog"), Map.entry("product", "catalog"), Map.entry("product_variant", "catalog"),
             Map.entry("product_image", "catalog"), Map.entry("product_import", "catalog"),
             Map.entry("customer", "catalog"), Map.entry("supplier", "catalog"),

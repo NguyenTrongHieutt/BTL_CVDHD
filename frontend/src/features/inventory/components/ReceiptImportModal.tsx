@@ -1,4 +1,4 @@
-import { DownloadOutlined, UploadOutlined } from '@ant-design/icons';
+import { DownloadOutlined, FileTextOutlined, UploadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, Button, Flex, Input, Modal, Steps, Typography, Upload } from 'antd';
 import { useEffect, useId, useRef, useState } from 'react';
@@ -9,7 +9,8 @@ import {
   fetchReceiptImportTemplate, previewReceiptImport, RECEIPT_IMPORT_MAX_BYTES, RECEIPT_IMPORT_MAX_ROWS, saveReceiptImport,
 } from '../receiptImportApi';
 import type {
-  Receipt, ReceiptImportCommit, ReceiptImportEdit, ReceiptImportPreview, ReceiptImportRow, ReceiptImportValues,
+  Receipt, ReceiptImportCommit, ReceiptImportEdit, ReceiptImportPreview, ReceiptImportPreviewInput, ReceiptImportRow,
+  ReceiptImportValues,
 } from '../receiptImportApi';
 import { ReceiptImportReview } from './ReceiptImportReview';
 import { ReceiptImportRowEditor } from './ReceiptImportRowEditor';
@@ -50,13 +51,23 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
   const [pendingCommit, setPendingCommit] = useState<ReceiptImportCommit>();
   const [requiresReview, setRequiresReview] = useState(false);
   const content = useRef<HTMLDivElement>(null);
+  const previewAttempt = useRef<ReceiptImportPreviewInput | undefined>(undefined);
   const noteId = useId();
+  const fileErrorId = useId();
 
   const template = useMutation({
     mutationFn: fetchReceiptImportTemplate,
     onSuccess: (blob, format) => downloadBlob(blob, `mau-nhap-kho.${format}`),
   });
-  const inspect = useMutation({ mutationFn: previewReceiptImport });
+  const inspect = useMutation({
+    mutationFn: previewReceiptImport,
+    onSuccess: () => {
+      previewAttempt.current = undefined;
+    },
+    onError: (error) => {
+      if (!shouldReuseIdempotencyKey(error)) previewAttempt.current = undefined;
+    },
+  });
   const commit = useMutation({
     mutationFn: saveReceiptImport,
     onSuccess: (receipt) => {
@@ -72,6 +83,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
   const busy = inspect.isPending || commit.isPending;
   const canSave = preview !== undefined && preview.rows.length > 0
     && preview.errors.length === 0 && preview.rows.every(row => row.valid);
+  const retryingPreview = inspect.isError && shouldReuseIdempotencyKey(inspect.error);
 
   useEffect(() => {
     const region = content.current;
@@ -85,7 +97,15 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
   function check(nextEdits = edits) {
     if (!file || !supplier || busy || pendingCommit) return;
     commit.reset();
-    inspect.mutate({ file, supplierId: supplier.value, note, edits: nextEdits }, {
+    const sameAttempt = previewAttempt.current?.file === file
+      && previewAttempt.current.supplierId === supplier.value
+      && previewAttempt.current.note === note
+      && JSON.stringify(previewAttempt.current.edits) === JSON.stringify(nextEdits);
+    const attempt = sameAttempt
+      ? previewAttempt.current as ReceiptImportPreviewInput
+      : { file, supplierId: supplier.value, note, edits: nextEdits, key: newIdempotencyKey() };
+    previewAttempt.current = attempt;
+    inspect.mutate(attempt, {
       onSuccess: (result) => {
         setPreview(result);
         setEdits(nextEdits);
@@ -121,6 +141,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
     setPreview(undefined);
     setReviewSearch('');
     setRequiresReview(false);
+    previewAttempt.current = undefined;
     inspect.reset();
     commit.reset();
     return Upload.LIST_IGNORE;
@@ -132,6 +153,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
       setReviewSearch('');
       inspect.reset();
       commit.reset();
+      previewAttempt.current = undefined;
     } else {
       setOpen(false);
     }
@@ -180,7 +202,7 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
       <Flex vertical gap={14} className="receipt-import-content">
         <Steps size="small" responsive={false} current={preview ? 1 : 0}
           items={[{ title: 'Chọn file' }, { title: 'Xem trước và sửa' }]} />
-        {inspect.isError && <ImportProblem error={inspect.error} />}
+        {preview && inspect.isError && <ImportProblem error={inspect.error} />}
         {commit.isError && <ImportProblem error={commit.error} />}
         {commit.isError && pendingCommit && (
           <Alert showIcon type="info" title="Bấm Gửi lại phiếu để nhận kết quả của cùng lần nhập." />
@@ -233,11 +255,20 @@ export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLine
               </Typography.Text>
               <Flex align="center" gap={8} wrap>
                 <Upload accept={accept} showUploadList={false} disabled={busy} beforeUpload={pick}>
-                  <Button icon={<UploadOutlined aria-hidden />} disabled={busy}>{file ? 'Chọn file khác' : 'Chọn file'}</Button>
+                  <Button icon={<UploadOutlined aria-hidden />} disabled={busy}
+                    aria-describedby={fileError ? fileErrorId : undefined}>{file ? 'Chọn file khác' : 'Chọn file'}</Button>
                 </Upload>
-                {file && <Typography.Text>{file.name}</Typography.Text>}
+                {file && <Typography.Text aria-live="polite" style={{ overflowWrap: 'anywhere' }}>
+                  <FileTextOutlined aria-hidden /> {file.name}
+                </Typography.Text>}
               </Flex>
-              {fileError && <Typography.Text type="danger" role="alert">{fileError}</Typography.Text>}
+              {inspect.isError && <ImportProblem error={inspect.error} />}
+              {retryingPreview && (
+                <Typography.Text type="secondary" role="status">
+                  File đã chọn vẫn được giữ. Bấm Xem trước để thử lại cùng yêu cầu.
+                </Typography.Text>
+              )}
+              {fileError && <Typography.Text id={fileErrorId} type="danger" role="alert">{fileError}</Typography.Text>}
             </Flex>
           </>
         )}

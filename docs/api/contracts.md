@@ -17,6 +17,34 @@ Hợp đồng chạy thật là **OpenAPI do springdoc sinh** (`/v3/api-docs`, g
 | Tạo chứng từ | Header `Idempotency-Key: <uuid>` (AD-7). Lần đầu `201`; gửi lại cùng nội dung `200` + `Idempotent-Replay: true`; cùng khóa khác nội dung `409` |
 | Truy vết | Header `X-Request-Id` đi qua mọi khối |
 
+### Ghi back-office qua Kafka
+
+Khi `app.backoffice.queue.publish-enabled=true`, các thao tác thêm/sửa/ngừng Sản phẩm và Biến thể, thêm/sửa Khách hàng,
+đổi ngưỡng tồn, lập Phiếu nhập, lập Phiếu kiểm kho, cùng xem trước/xác nhận nhập CSV/XLSX trả
+`202 {operationId, status:"ACCEPTED", statusUrl:"/api/v1/platform/write-requests/<operationId>"}` sau ACK Kafka.
+Header `Location` chỉ tới `statusUrl`; phản hồi vẫn là 202, không chuyển hướng HTTP. API chưa ghi dữ liệu nghiệp vụ
+hoặc bản ghi tiếp nhận vào primary tại bước này. Khi tắt cấu hình, giữ nguyên đường ghi và hợp đồng đồng bộ.
+
+`GET statusUrl` yêu cầu đăng nhập, luôn đọc primary và chỉ trả kết quả của đúng Cửa hàng/người gửi:
+
+| `status` | Nội dung |
+|---|---|
+| `PENDING` | Worker chưa commit kết quả, hoặc không có kết quả trong phạm vi người gọi |
+| `SUCCEEDED` | `result` là body cũ; `responseStatus` là mã cũ (200/201/204), `responseHeaders` giữ `Location`/`Idempotent-Replay` nếu có |
+| `FAILED` | `problem` là Problem Details nghiệp vụ cũ, gồm các trường mở rộng; `responseStatus` là mã lỗi gốc |
+
+Client giữ một `Idempotency-Key` UUID cho cùng nội dung qua các lần thử lại và chỉ chờ hữu hạn. Các endpoint trước đây
+bắt buộc khóa vẫn bắt buộc; endpoint trước đây không nhận khóa vẫn tương thích caller cũ, nhưng caller mới nên tự giữ
+khóa để retry an toàn. Cùng khóa/nội dung trả cùng operation; cùng khóa khác nội dung có operation riêng và kết quả
+409, không ghi đè kết quả cũ. Worker commit tác dụng nghiệp vụ và kết quả cuối trong cùng transaction; phát lại lệnh
+chỉ đọc lại kết quả, kể cả sau khi worker bị dừng trước ACK offset.
+
+Body kết quả lưu 7 ngày, sau đó tác vụ bảo trì xóa phần lớn và giữ bản ghi khóa/hash nhỏ để chống chạy lại. Khi body
+đã xóa, status trả `FAILED` với `responseStatus:410`, type `/errors/platform/write-result-expired`; người dùng tải lại
+dữ liệu hiện tại. Tệp gốc lưu trong vùng dùng chung có giới hạn dung lượng/thời hạn, Kafka chỉ mang tham chiếu và
+SHA-256. Topic `backoffice.write-commands.v1` và `backoffice.file-commands.v1` có consumer/group riêng, key là store ID;
+chúng độc lập với ACK và consumer của bán hàng.
+
 ## 2. Bảng điểm phụ thuộc chéo
 
 | # | Bên cung cấp | API | Bên dùng | Loại |

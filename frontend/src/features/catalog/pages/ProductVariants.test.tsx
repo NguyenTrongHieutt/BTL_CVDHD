@@ -479,6 +479,7 @@ describe('ProductsPage — Biến thể (FR-7, SP-07)', () => {
     const puts = calls('PUT', PRODUCT_PATH);
     expect(puts).toHaveLength(1);
     expect(bodyOf(puts[0])).toEqual({ name: 'Áo thun cổ tròn', unit: 'cái' });
+    expect(keyOf(puts[0])).toMatch(UUID);
     await waitFor(() => expect(within(rowOf('Áo thun cổ tròn')).getByText('2 Biến thể')).toBeTruthy());
   });
 
@@ -502,6 +503,7 @@ describe('ProductsPage — Biến thể (FR-7, SP-07)', () => {
     const puts = calls('PUT', VARIANT_PATH);
     expect(puts).toHaveLength(1);
     expect(new URL(String(puts[0][0]), 'http://localhost').pathname).toBe(`${PRODUCTS_PATH}/p-shirt/variants/v-blue`);
+    expect(keyOf(puts[0])).toMatch(UUID);
     expect(bodyOf(puts[0])).toEqual({
       name: 'Xanh / M',
       attributes: { Màu: 'Xanh', Size: 'M' },
@@ -688,6 +690,7 @@ describe('ProductsPage — Biến thể (FR-7, SP-07)', () => {
     expect(puts).toHaveLength(1);
     expect(new URL(String(puts[0][0]), 'http://localhost').pathname).toBe(`${PRODUCTS_PATH}/p-shirt/variants/v-blue`);
     expect(bodyOf(puts[0])).toMatchObject({ name: 'Xanh / M (lô cũ)', salePrice: 160000 });
+    expect(keyOf(puts[0])).toMatch(UUID);
     expect(within(variantTableRow('Xanh / M (lô cũ)')).getByText('Ngừng kinh doanh')).toBeTruthy();
   });
 
@@ -715,6 +718,7 @@ describe('ProductsPage — Biến thể (FR-7, SP-07)', () => {
     clickLast('Ngừng kinh doanh');
 
     await waitFor(() => expect(calls('POST', VARIANT_DEACTIVATE_PATH)).toHaveLength(1));
+    expect(keyOf(calls('POST', VARIANT_DEACTIVATE_PATH)[0])).toMatch(UUID);
     await waitFor(() =>
       expect(within(variantTableRow('Đỏ / L')).queryByRole('button', { name: /Ngừng kinh doanh Biến thể/ })).toBeNull(),
     );

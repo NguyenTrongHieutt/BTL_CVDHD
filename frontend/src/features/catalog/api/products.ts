@@ -3,8 +3,8 @@
  *
  * Bảng dùng khóa `['catalog', 'products', params]`, `params` gồm bộ lọc và trang. Thêm thành công thì invalidate `['catalog', 'products']`,
  * `['inventory', 'stock']` (Sản phẩm mới có dòng Tồn kho, kèm Tồn kho đầu kỳ nếu có) và `['catalog', 'categories']`
- * (số Sản phẩm của Danh mục đổi). Thêm Sản phẩm là một chứng từ (Tồn kho đầu kỳ `OPENING`) nên có
- * `Idempotency-Key` (AD-7). Sửa xong (thành công hay lỗi) thì invalidate `['catalog', 'products']` (bảng hiện giá mới
+ * (số Sản phẩm của Danh mục đổi). Mọi thao tác ghi Sản phẩm/Biến thể có `Idempotency-Key` để theo dõi cùng một yêu cầu
+ * qua hàng đợi. Sửa xong (thành công hay lỗi) thì invalidate `['catalog', 'products']` (bảng hiện giá mới
  * ngay), `['catalog', 'categories']`, `['inventory', 'stock']` và `['sales', 'sellable']` (giá, tên, mã ở màn bán
  * hàng). Ngừng kinh doanh xong (thành công hay lỗi) thì invalidate `['catalog', 'products']`, `['inventory', 'stock']`
  * và `['sales', 'sellable']` (Sản phẩm ẩn khỏi màn bán hàng). Tải lên, gỡ ảnh (SP-01b) xong (thành công hay lỗi) thì
@@ -20,6 +20,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRef } from 'react';
 import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { pageRequestToQuery } from '../../../shared/api/pagination';
+import { useStableIdempotencyKey } from '../../../shared/api/useStableIdempotencyKey';
 import type { PageRequest, PageResponse } from '../../../shared/api/pagination';
 import type {
   AddVariantRequest,
@@ -89,7 +90,7 @@ export function mayHaveBeenCreated(error: unknown): boolean {
  */
 export function useCreateProduct() {
   const queryClient = useQueryClient();
-  const idempotencyKey = useRef<string | null>(null);
+  const idempotency = useStableIdempotencyKey();
   const refreshAfterCreate = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey: productsQueryKey }),
@@ -99,16 +100,15 @@ export function useCreateProduct() {
     ]);
   return useMutation({
     mutationFn: (request: CreateProductRequest | CreateProductWithVariantsRequest) => {
-      idempotencyKey.current ??= newIdempotencyKey();
-      return api.post<Product>(PRODUCTS_PATH, request, { idempotencyKey: idempotencyKey.current });
+      return api.post<Product>(PRODUCTS_PATH, request, { idempotencyKey: idempotency.keyFor(request) });
     },
     onSuccess: async () => {
-      idempotencyKey.current = null;
+      idempotency.succeeded();
       await refreshAfterCreate();
     },
     onError: (error) => {
       if (mayHaveBeenCreated(error)) void refreshAfterCreate();
-      if (!shouldReuseIdempotencyKey(error)) idempotencyKey.current = null;
+      idempotency.failed(error);
     },
   });
 }
@@ -127,16 +127,19 @@ export function fetchProduct(id: Uuid, signal?: AbortSignal): Promise<Product> {
 
 /**
  * Sửa Sản phẩm (FR-2, SP-02), chỉ Chủ cửa hàng: `PUT /api/v1/catalog/products/{id}`, thay toàn bộ (trường tùy chọn
- * không gửi thì xóa, trừ SKU là giữ nguyên), trả chi tiết Sản phẩm. Không có `Idempotency-Key`: gửi lại cùng nội dung
- * ra cùng kết quả. Xong, kể cả khi lỗi, thì tải lại bảng Sản phẩm (giá mới hiện ngay; `404`, `409 product-inactive`
+ * không gửi thì xóa, trừ SKU là giữ nguyên), trả chi tiết Sản phẩm. Giữ `Idempotency-Key` qua lỗi mơ hồ. Xong, kể cả
+ * khi lỗi, thì tải lại bảng Sản phẩm (giá mới hiện ngay; `404`, `409 product-inactive`
  * cho thấy bảng đang cũ), Danh mục (số Sản phẩm đổi khi đổi Danh mục), Tồn kho và hàng bán được (giá, tên, mã đổi);
  * mất phản hồi có thể là máy chủ đã lưu rồi.
  */
 export function useUpdateProduct() {
   const queryClient = useQueryClient();
+  const idempotency = useStableIdempotencyKey();
   return useMutation({
     mutationFn: ({ id, request }: { id: Uuid; request: UpdateProductRequest }) =>
-      api.put<Product>(productPath(id), request),
+      api.put<Product>(productPath(id), request, { idempotencyKey: idempotency.keyFor({ id, request }) }),
+    onSuccess: idempotency.succeeded,
+    onError: idempotency.failed,
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: productsQueryKey }),
@@ -154,14 +157,19 @@ function deactivateProductPath(id: Uuid): string {
 
 /**
  * Ngừng kinh doanh (FR-3, SP-03), chỉ Chủ cửa hàng: `POST /api/v1/catalog/products/{id}/deactivate`, không có body,
- * trả chi tiết Sản phẩm. Một chiều; gọi lại với Sản phẩm đã ngừng vẫn `200` nên không cần `Idempotency-Key`.
+ * trả chi tiết Sản phẩm. Một chiều; lần gửi lại giữ cùng `Idempotency-Key`.
  * Xong, kể cả khi lỗi, thì tải lại bảng Sản phẩm (dòng đổi trạng thái), Tồn kho và hàng bán được (Sản phẩm ẩn khỏi
  * màn bán hàng, tìm kiếm): mất phản hồi có thể là máy chủ đã ngừng rồi, `404` cho thấy bảng đang cũ.
  */
 export function useDeactivateProduct() {
   const queryClient = useQueryClient();
+  const idempotency = useStableIdempotencyKey();
   return useMutation({
-    mutationFn: (id: Uuid) => api.post<Product>(deactivateProductPath(id)),
+    mutationFn: (id: Uuid) => api.post<Product>(deactivateProductPath(id), undefined, {
+      idempotencyKey: idempotency.keyFor({ id }),
+    }),
+    onSuccess: idempotency.succeeded,
+    onError: idempotency.failed,
     onSettled: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: productsQueryKey }),
@@ -199,45 +207,52 @@ function useRefreshAfterVariantChange() {
  */
 export function useAddVariant() {
   const refresh = useRefreshAfterVariantChange();
-  const idempotencyKey = useRef<string | null>(null);
+  const idempotency = useStableIdempotencyKey();
   return useMutation({
     mutationFn: ({ productId, request }: { productId: Uuid; request: AddVariantRequest }) => {
-      idempotencyKey.current ??= newIdempotencyKey();
-      return api.post<Product>(variantsPath(productId), request, { idempotencyKey: idempotencyKey.current });
+      return api.post<Product>(variantsPath(productId), request, {
+        idempotencyKey: idempotency.keyFor({ productId, request }),
+      });
     },
-    onSuccess: () => {
-      idempotencyKey.current = null;
-    },
-    onError: (error) => {
-      if (!shouldReuseIdempotencyKey(error)) idempotencyKey.current = null;
-    },
+    onSuccess: idempotency.succeeded,
+    onError: idempotency.failed,
     onSettled: refresh,
   });
 }
 
 /**
  * Sửa một Biến thể (SP-07): `PUT /api/v1/catalog/products/{id}/variants/{variantId}`, thay toàn bộ, trả chi tiết Sản
- * phẩm. Không có `Idempotency-Key`. Xong, kể cả khi lỗi, thì tải lại các bảng liên quan.
+ * phẩm. Giữ `Idempotency-Key` qua lỗi mơ hồ. Xong, kể cả khi lỗi, thì tải lại các bảng liên quan.
  */
 export function useUpdateVariant() {
   const refresh = useRefreshAfterVariantChange();
+  const idempotency = useStableIdempotencyKey();
   return useMutation({
     mutationFn: ({ productId, variantId, request }: { productId: Uuid; variantId: Uuid; request: UpdateVariantRequest }) =>
-      api.put<Product>(variantPath(productId, variantId), request),
+      api.put<Product>(variantPath(productId, variantId), request, {
+        idempotencyKey: idempotency.keyFor({ productId, variantId, request }),
+      }),
+    onSuccess: idempotency.succeeded,
+    onError: idempotency.failed,
     onSettled: refresh,
   });
 }
 
 /**
  * Ngừng kinh doanh một Biến thể (SP-07): `POST …/variants/{variantId}/deactivate`, không có body, trả chi tiết Sản
- * phẩm. Một chiều; gọi lại vẫn `200`. Biến thể đang bán cuối cùng: `409 last-active-variant`. Xong, kể cả khi lỗi, thì
+ * phẩm và dùng `Idempotency-Key`. Biến thể đang bán cuối cùng: `409 last-active-variant`. Xong, kể cả khi lỗi, thì
  * tải lại các bảng liên quan (Biến thể ẩn khỏi màn bán hàng).
  */
 export function useDeactivateVariant() {
   const refresh = useRefreshAfterVariantChange();
+  const idempotency = useStableIdempotencyKey();
   return useMutation({
     mutationFn: ({ productId, variantId }: { productId: Uuid; variantId: Uuid }) =>
-      api.post<Product>(`${variantPath(productId, variantId)}/deactivate`),
+      api.post<Product>(`${variantPath(productId, variantId)}/deactivate`, undefined, {
+        idempotencyKey: idempotency.keyFor({ productId, variantId }),
+      }),
+    onSuccess: idempotency.succeeded,
+    onError: idempotency.failed,
     onSettled: refresh,
   });
 }
@@ -333,10 +348,10 @@ export function fetchProductImportTemplate(format: ProductImportFormat): Promise
   });
 }
 
-export function previewProductImport(file: File): Promise<ProductImportPreview> {
+export function previewProductImport({ file, key }: { file: File; key: string }): Promise<ProductImportPreview> {
   const form = new FormData();
   form.append('file', file);
-  return api.post<ProductImportPreview>(PRODUCT_IMPORT_PREVIEW_PATH, form);
+  return api.post<ProductImportPreview>(PRODUCT_IMPORT_PREVIEW_PATH, form, { idempotencyKey: key });
 }
 
 /** Giữ cùng khóa cho lần gửi lại sau lỗi mạng, với đúng file và bản xem trước đã xác nhận. */

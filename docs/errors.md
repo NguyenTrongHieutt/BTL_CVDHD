@@ -14,6 +14,12 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/common/idempotency-key-reuse` | 409 | Cùng `Idempotency-Key` nhưng nội dung khác (AD-7) | common |
 | `/errors/common/internal` | 500 | Lỗi không mong đợi; báo kèm `requestId` | common |
 | `/errors/platform/invalid-credentials` | 401 | Sai tên đăng nhập hoặc mật khẩu, hoặc tài khoản đã bị khóa khi đăng nhập (một thông báo chung, không lộ tài khoản có tồn tại hay bị khóa, FR-44) | platform |
+| `/errors/platform/write-queue-unavailable` | 503 | Chưa nhận ACK Kafka cho thao tác back-office. Client giữ nguyên dữ liệu và `Idempotency-Key` để thử lại; không tự tạo khóa khác | platform |
+| `/errors/platform/write-result-expired` | 410 | Kết quả back-office đã được xử lý nhưng body hết hạn lưu sau 7 ngày. Khóa chống trùng vẫn giữ, gửi lại cùng khóa không chạy nghiệp vụ lần nữa | platform |
+| `/errors/platform/import-file-storage-unavailable` | 503 | Chưa lưu được tệp vào vùng dùng chung trước khi đưa lệnh nhập lên Kafka; thử lại với cùng khóa | platform |
+| `/errors/platform/import-files-full` | 503 | Vùng tệp nhập dùng chung đã đạt giới hạn dung lượng; không tiếp nhận thêm tệp đến khi có chỗ | platform |
+| `/errors/platform/import-file-invalid` | 409 | Tham chiếu, nội dung băm, kích thước, cửa hàng hoặc người gửi của tệp nhập không khớp | platform |
+| `/errors/platform/import-file-expired` | 410 | Tệp đang chờ xử lý đã hết thời hạn lưu trong vùng dùng chung | platform |
 | `/errors/platform/account-locked` | 401 | Tài khoản bị khóa khi đang dùng (AD-9), kèm xóa cookie. Khóa qua `POST /api/v1/platform/users/{id}/lock` thì có hiệu lực ngay ở request kế tiếp; thay đổi trạng thái không qua API đó thì chậm nhất khi cache trạng thái (60 giây) hết hạn. Giới hạn đã biết: mở khóa lại thì token cũ dùng tiếp được (khóa, đặt lại mật khẩu không thu hồi token, phiên đã mở không kết thúc); `ai-service` chỉ kiểm chữ ký và hạn của token, không kiểm trạng thái tài khoản, nên không trả mã này | platform |
 | `/errors/platform/login-taken` | 409 | Tên đăng nhập, số điện thoại hoặc email đã dùng (AD-9) | platform |
 | `/errors/platform/owner-protected` | 409 | Khóa, mở khóa hoặc đặt lại mật khẩu cho tài khoản Chủ cửa hàng (kể cả chính mình) qua `/api/v1/platform/users/{id}/…` (FR-45, TK-02). Các thao tác này chỉ dành cho Nhân viên | platform |

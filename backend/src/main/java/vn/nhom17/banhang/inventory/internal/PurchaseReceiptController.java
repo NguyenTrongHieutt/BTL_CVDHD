@@ -13,21 +13,30 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.inventory.StockDocumentType;
 import vn.nhom17.banhang.platform.IdempotencyService;
+import vn.nhom17.banhang.platform.BackofficeWriteQueue;
 
 @RestController
 @RequestMapping("/api/v1/inventory/purchase-receipts")
 class PurchaseReceiptController {
     private final PurchaseReceiptService receipts;
     private final IdempotencyService idempotency;
+    private final BackofficeWriteQueue queue;
 
-    PurchaseReceiptController(PurchaseReceiptService receipts, IdempotencyService idempotency) {
+    PurchaseReceiptController(PurchaseReceiptService receipts, IdempotencyService idempotency, BackofficeWriteQueue queue) {
         this.receipts = receipts;
         this.idempotency = idempotency;
+        this.queue = queue;
     }
 
     @PostMapping
-    ResponseEntity<Receipt> create(@RequestHeader(value = "Idempotency-Key", required = false) UUID key,
+    ResponseEntity<?> create(@RequestHeader(value = "Idempotency-Key", required = false) UUID key,
             @RequestBody CreateReceipt request) {
+        if (queue.enabled()) return queue.submit("PURCHASE_RECEIPT_CREATE", key,
+                new InventoryWriteCommands.Receipt(key, request)).response();
+        return createNow(key, request);
+    }
+
+    ResponseEntity<Receipt> createNow(UUID key, CreateReceipt request) {
         var input = PurchaseReceiptService.validate(request);
         var result = idempotency.execute(StockDocumentType.PURCHASE_RECEIPT.name(), key, idempotency.hash(input),
                 () -> receipts.save(input), receipts::load);

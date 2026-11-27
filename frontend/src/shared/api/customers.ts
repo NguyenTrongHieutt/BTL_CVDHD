@@ -27,8 +27,8 @@ export function fetchCustomer(id: Uuid, signal?: AbortSignal): Promise<Customer>
   return api.get<Customer>(customerPath(id), { signal });
 }
 
-export function createCustomer(request: CustomerRequest): Promise<Customer> {
-  return api.post<Customer>(CUSTOMERS_PATH, request);
+export function createCustomer(request: CustomerRequest, idempotencyKey?: string): Promise<Customer> {
+  return api.post<Customer>(CUSTOMERS_PATH, request, { idempotencyKey });
 }
 
 export function existingCustomerIdOf(error: unknown): Uuid | null {

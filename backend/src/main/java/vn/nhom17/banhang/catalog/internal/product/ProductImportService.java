@@ -144,16 +144,21 @@ class ProductImportService {
             throw tooLarge();
         }
         byte[] content;
-        try {
-            content = file.getBytes();
+        try (var input = file.getInputStream()) {
+            content = input.readNBytes((int) MAX_BYTES + 1);
         } catch (IOException unreadable) {
             log.warn("Không đọc được file nhập Sản phẩm tải lên: {}", unreadable.toString());
             throw FieldErrors.of("file", "Không đọc được tệp gửi lên. Hãy chọn lại file rồi thử lại.");
         }
+        return read(content, file.getOriginalFilename());
+    }
+
+    /** Worker receives only bytes verified by the durable file store. Parsing remains on the file lane. */
+    ImportFile read(byte[] content, String filename) {
         if (content.length > MAX_BYTES) {
             throw tooLarge();
         }
-        return new ImportFile(sha256(content), ProductImportReader.read(content, file.getOriginalFilename()));
+        return new ImportFile(sha256(content), ProductImportReader.read(content, filename));
     }
 
     @Transactional(readOnly = true)

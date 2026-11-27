@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.platform.PageResponse;
 import vn.nhom17.banhang.platform.ReplicaRead;
+import vn.nhom17.banhang.platform.BackofficeWriteQueue;
 
 /**
  * Sản phẩm (FR-1, SP-01; FR-2, SP-02; FR-3, SP-03; FR-5, SP-05; tạo kèm nhiều Biến thể FR-7, SP-07). Xem chi tiết và
@@ -24,6 +25,7 @@ import vn.nhom17.banhang.platform.ReplicaRead;
  * {@code SecurityConfig} của platform (AD-16). Thêm có {@code Idempotency-Key} (AD-7): lần đầu {@code 201}, gửi lại
  * cùng nội dung {@code 200} + {@code Idempotent-Replay: true}. Thêm, sửa, ngừng từng Biến thể:
  * {@link ProductVariantController}.
+ * Khi bật hàng đợi back-office, đường ghi trả 202 kèm statusUrl; worker giữ nguyên kết quả nghiệp vụ cuối.
  */
 @RestController
 @RequestMapping(ProductController.PATH)
@@ -34,9 +36,11 @@ class ProductController {
     static final String IDEMPOTENT_REPLAY_HEADER = "Idempotent-Replay";
 
     private final ProductService products;
+    private final BackofficeWriteQueue queue;
 
-    ProductController(ProductService products) {
+    ProductController(ProductService products, BackofficeWriteQueue queue) {
         this.products = products;
+        this.queue = queue;
     }
 
     /**
@@ -153,10 +157,15 @@ class ProductController {
     }
 
     @PostMapping
-    ResponseEntity<ProductView> create(@RequestHeader(name = IDEMPOTENCY_KEY_HEADER, required = false)
+    ResponseEntity<?> create(@RequestHeader(name = IDEMPOTENCY_KEY_HEADER, required = false)
                                        String idempotencyKey,
                                        @RequestBody CreateProductRequest request) {
-        ProductService.Created result = products.create(parseKey(idempotencyKey), request);
+        UUID key = parseKey(idempotencyKey);
+        if (queue.enabled()) return queue.submit("PRODUCT_CREATE", key, new ProductWriteCommands.Create(key, request)).response();
+        return createdResponse(products.create(key, request));
+    }
+
+    static ResponseEntity<ProductView> createdResponse(ProductService.Created result) {
         if (result.replayed()) {
             return ResponseEntity.ok().header(IDEMPOTENT_REPLAY_HEADER, "true").body(result.product());
         }
@@ -168,7 +177,11 @@ class ProductController {
      * cùng nội dung ra cùng kết quả và không ghi gì lần hai. Xem {@link ProductService#update}.
      */
     @PutMapping("/{id}")
-    ProductView update(@PathVariable UUID id, @RequestBody UpdateProductRequest request) {
+    Object update(@PathVariable UUID id,
+                       @RequestHeader(name = IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey,
+                       @RequestBody UpdateProductRequest request) {
+        if (queue.enabled()) return queue.submit("PRODUCT_UPDATE", BackofficeWriteQueue.optionalKey(idempotencyKey),
+                new ProductWriteCommands.Update(id, request)).response();
         return products.update(id, request);
     }
 
@@ -177,7 +190,10 @@ class ProductController {
      * ngừng vẫn {@code 200} với trạng thái hiện tại, nên không cần {@code Idempotency-Key}.
      */
     @PostMapping("/{id}/deactivate")
-    ProductView deactivate(@PathVariable UUID id) {
+    Object deactivate(@PathVariable UUID id,
+                           @RequestHeader(name = IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey) {
+        if (queue.enabled()) return queue.submit("PRODUCT_DEACTIVATE", BackofficeWriteQueue.optionalKey(idempotencyKey),
+                new ProductWriteCommands.Deactivate(id)).response();
         return products.deactivate(id);
     }
 

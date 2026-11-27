@@ -21,6 +21,10 @@ export const IDEMPOTENT_REPLAY_HEADER = 'Idempotent-Replay';
 export const NETWORK_ERROR_TYPE = '/errors/client/network';
 /** Mã lỗi chỉ sinh ở frontend khi phản hồi 2xx không đọc được thành JSON. */
 export const INVALID_RESPONSE_TYPE = '/errors/client/invalid-response';
+/** Mã lỗi khi thao tác ghi nền vẫn chưa kết thúc sau thời gian chờ hữu hạn. */
+export const WRITE_STATUS_PENDING_TYPE = '/errors/client/write-status-pending';
+/** Mã lỗi khi API trạng thái thao tác ghi trả dữ liệu không đúng hợp đồng. */
+export const INVALID_WRITE_STATUS_TYPE = '/errors/client/invalid-write-status';
 
 /** Một lỗi dữ liệu nhập trong `errors[]` (backend và ai-service đều dùng `field` và `message`). */
 export interface FieldError {
@@ -176,6 +180,10 @@ let preferPrimaryUntil = 0;
 const COMMITTED_WRITE_PREFIX = /^\/api\/v1\/(catalog|inventory|sales)\//u;
 const PREVIEW_SUFFIX = /\/(quote|preview)(?:[/?]|$)/u;
 const READ_AFTER_WRITE_MS = 6000;
+const OPERATION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const WRITE_STATUS_PREFIX = '/api/v1/platform/write-requests/';
+const WRITE_STATUS_POLL_MS = 500;
+const WRITE_STATUS_MAX_POLLS = 20;
 
 export function configureApiClient(config: ApiClientConfig): void {
   if (config.onUnauthorized !== undefined) onUnauthorized = config.onUnauthorized;
@@ -242,6 +250,131 @@ async function readBody(response: Response, responseType: 'json' | 'blob' | 'tex
   }
 }
 
+interface AcceptedWrite {
+  operationId: string;
+  status: 'ACCEPTED';
+  statusUrl: string;
+}
+
+interface WriteStatus {
+  operationId: string;
+  status: 'PENDING' | 'SUCCEEDED' | 'FAILED';
+  result?: unknown;
+  problem?: unknown;
+  responseStatus?: number;
+  responseHeaders?: Record<string, unknown>;
+}
+
+function acceptedWriteOf(body: unknown, responseStatus: number, method: HttpMethod): AcceptedWrite | null {
+  if (method === 'GET' || responseStatus !== 202 || !isRecord(body)) return null;
+  const operationId = asString(body.operationId);
+  const statusUrl = asString(body.statusUrl);
+  if (!operationId || !OPERATION_ID.test(operationId) || body.status !== 'ACCEPTED') return null;
+  const expectedStatusUrl = `${WRITE_STATUS_PREFIX}${operationId}`;
+  if (statusUrl !== expectedStatusUrl) return null;
+  return { operationId, status: 'ACCEPTED', statusUrl };
+}
+
+function writeStatusOf(body: unknown, operationId: string): WriteStatus | null {
+  if (!isRecord(body) || body.operationId !== operationId) return null;
+  if (body.status !== 'PENDING' && body.status !== 'SUCCEEDED' && body.status !== 'FAILED') return null;
+  const responseStatus = typeof body.responseStatus === 'number' ? body.responseStatus : undefined;
+  const responseHeaders = isRecord(body.responseHeaders) ? body.responseHeaders : undefined;
+  return {
+    operationId,
+    status: body.status,
+    ...(Object.hasOwn(body, 'result') ? { result: body.result } : {}),
+    ...(Object.hasOwn(body, 'problem') ? { problem: body.problem } : {}),
+    ...(responseStatus === undefined ? {} : { responseStatus }),
+    ...(responseHeaders === undefined ? {} : { responseHeaders }),
+  };
+}
+
+function invalidWriteStatus(requestId: string): ApiError {
+  return new ApiError({
+    type: INVALID_WRITE_STATUS_TYPE,
+    title: 'Không đọc được trạng thái thao tác',
+    status: 502,
+    detail: 'Máy chủ trả trạng thái xử lý không hợp lệ. Vui lòng thử lại cùng yêu cầu.',
+    requestId,
+  });
+}
+
+function waitForNextStatus(signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason ?? new DOMException('aborted', 'AbortError'));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(done, WRITE_STATUS_POLL_MS);
+    function done() {
+      signal?.removeEventListener('abort', aborted);
+      resolve();
+    }
+    function aborted() {
+      clearTimeout(timer);
+      reject(signal?.reason ?? new DOMException('aborted', 'AbortError'));
+    }
+    signal?.addEventListener('abort', aborted, { once: true });
+  });
+}
+
+function markCommittedWrite(path: string, method: HttpMethod): void {
+  if (method !== 'GET' && COMMITTED_WRITE_PREFIX.test(path) && !PREVIEW_SUFFIX.test(path)) {
+    preferPrimaryUntil = Date.now() + READ_AFTER_WRITE_MS;
+  }
+}
+
+async function awaitQueuedWrite<T>(
+  accepted: AcceptedWrite,
+  originalPath: string,
+  originalMethod: HttpMethod,
+  options: RequestOptions,
+): Promise<ApiResponse<T>> {
+  let lastRequestId = accepted.operationId;
+  for (let poll = 0; poll < WRITE_STATUS_MAX_POLLS; poll += 1) {
+    const response = await apiRequest<unknown>(accepted.statusUrl, {
+      method: 'GET',
+      signal: options.signal,
+      authRedirect: options.authRedirect,
+    });
+    lastRequestId = response.requestId;
+    const write = writeStatusOf(response.data, accepted.operationId);
+    if (!write) throw invalidWriteStatus(response.requestId);
+    if (write.status === 'PENDING') {
+      if (poll + 1 < WRITE_STATUS_MAX_POLLS) await waitForNextStatus(options.signal);
+      continue;
+    }
+
+    const terminalStatus = write.responseStatus;
+    if (terminalStatus === undefined || terminalStatus < 100 || terminalStatus > 599) {
+      throw invalidWriteStatus(response.requestId);
+    }
+    if (write.status === 'FAILED') {
+      throw parseProblem(write.problem, terminalStatus, '', response.requestId);
+    }
+    if (terminalStatus < 200 || terminalStatus >= 300) throw invalidWriteStatus(response.requestId);
+
+    const headers = new Headers(response.headers);
+    for (const [name, value] of Object.entries(write.responseHeaders ?? {})) {
+      if (typeof value === 'string') headers.set(name, value);
+    }
+    markCommittedWrite(originalPath, originalMethod);
+    return {
+      data: write.result as T,
+      status: terminalStatus,
+      headers,
+      requestId: response.requestId,
+      idempotentReplay: headers.get(IDEMPOTENT_REPLAY_HEADER) === 'true',
+    };
+  }
+
+  throw new ApiError({
+    type: WRITE_STATUS_PENDING_TYPE,
+    title: 'Thao tác vẫn đang được xử lý',
+    status: 504,
+    detail: 'Hệ thống xử lý nền chưa phản hồi kết quả. Vui lòng thử lại; yêu cầu cũ sẽ được tiếp tục, không tạo bản ghi trùng.',
+    requestId: lastRequestId,
+  });
+}
+
 /** Gửi một request và trả cả dữ liệu lẫn thông tin phản hồi. Phần lớn code chỉ cần `api.get/post/...`. */
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<ApiResponse<T>> {
   const requestId = randomUuid();
@@ -290,10 +423,10 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     throw error;
   }
 
-  if (method !== 'GET' && response.status !== 202 && COMMITTED_WRITE_PREFIX.test(path) && !PREVIEW_SUFFIX.test(path)) {
-    preferPrimaryUntil = Date.now() + READ_AFTER_WRITE_MS;
-  }
   const data = (await readBody(response, options.responseType ?? 'json', responseRequestId)) as T;
+  const acceptedWrite = acceptedWriteOf(data, response.status, method);
+  if (acceptedWrite) return awaitQueuedWrite<T>(acceptedWrite, path, method, options);
+  if (response.status !== 202) markCommittedWrite(path, method);
   return {
     data,
     status: response.status,

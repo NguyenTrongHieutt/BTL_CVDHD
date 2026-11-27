@@ -112,6 +112,7 @@ class RoleMatrixTest {
                 row("GET", "/actuator/modulith", U, F, F),
                 // platform
                 row("GET", "/api/v1/platform/me", U, A, A),
+                row("GET", "/api/v1/platform/write-requests/{id}", U, A, A),
                 // Thông tin cá nhân (TK-04): cả hai vai trò, chỉ trên chính mình. Body "{}" của ma trận là dữ liệu sai
                 // (400), nên không đổi gì ở tài khoản dev.
                 row("GET", "/api/v1/platform/me/profile", U, A, A),

@@ -73,6 +73,12 @@ it('tải thêm kết quả tìm SKU, tự điền ngưỡng hiện tại và l�
       ([input, init]) => String(input).endsWith('/stock/stock-active/min-quantity')
         && init?.method === 'PUT' && init.body === JSON.stringify({ minQuantity: 5 }),
     )).toBe(true));
+    const write = fetchMock.mock.calls.find(
+      ([input, init]) => String(input).endsWith('/stock/stock-active/min-quantity') && init?.method === 'PUT',
+    );
+    expect(new Headers(write?.[1]?.headers).get('Idempotency-Key')).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(await screen.findByText('Đã lưu ngưỡng tồn tối thiểu.')).toBeTruthy();
   } finally {
     view.unmount();

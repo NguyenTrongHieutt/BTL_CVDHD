@@ -5,8 +5,8 @@
 import { DownloadOutlined, FileTextOutlined, UploadOutlined } from '@ant-design/icons';
 import { useMutation } from '@tanstack/react-query';
 import { Alert, Button, Flex, Modal, Typography, Upload } from 'antd';
-import { useEffect, useRef, useState } from 'react';
-import { isApiError, shouldReuseIdempotencyKey } from '../../../shared/api/client';
+import { useEffect, useId, useRef, useState } from 'react';
+import { isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { downloadBlob } from '../../../shared/api/downloadBlob';
 import { ErrorAlert } from '../../../shared/components';
 import { describeError } from '../../../shared/messages.vi';
@@ -103,9 +103,19 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
   const { close, modalProps } = useCatalogDialog(onClose);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
+  const fileErrorId = useId();
   const previewRegion = useRef<HTMLDivElement>(null);
+  const previewAttempt = useRef<{ file: File; key: string } | null>(null);
   const importing = useImportProducts();
-  const preview = useMutation({ mutationFn: previewProductImport });
+  const preview = useMutation({
+    mutationFn: previewProductImport,
+    onSuccess: () => {
+      previewAttempt.current = null;
+    },
+    onError: (error) => {
+      if (!shouldReuseIdempotencyKey(error)) previewAttempt.current = null;
+    },
+  });
   const template = useMutation({
     mutationFn: fetchProductImportTemplate,
     onSuccess: (blob, format) => downloadBlob(blob, `mau-nhap-san-pham.${format}`),
@@ -113,6 +123,7 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
   const pending = importing.isPending || preview.isPending;
   const stale = importing.isError && isApiError(importing.error) && importing.error.type === IMPORT_PREVIEW_STALE;
   const retryingCommit = importing.isError && shouldReuseIdempotencyKey(importing.error);
+  const retryingPreview = preview.isError && shouldReuseIdempotencyKey(preview.error);
   const ready = preview.data;
   const confirm = ready !== undefined && !stale;
 
@@ -123,6 +134,7 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
   const chooseFile = (picked: File) => {
     importing.reset();
     preview.reset();
+    previewAttempt.current = null;
     const problem = fileProblem(picked);
     setFileError(problem);
     setFile(problem === null ? picked : null);
@@ -131,6 +143,7 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
   const goBack = () => {
     preview.reset();
     importing.reset();
+    previewAttempt.current = null;
   };
 
   const startOver = () => {
@@ -148,7 +161,10 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
       return;
     }
     importing.reset();
-    preview.mutate(file);
+    if (previewAttempt.current?.file !== file) {
+      previewAttempt.current = { file, key: newIdempotencyKey() };
+    }
+    preview.mutate(previewAttempt.current);
   };
 
   const footer = importing.isSuccess
@@ -198,7 +214,6 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
               )}
             </div>
           )}
-          {preview.isError && <ImportError error={preview.error} />}
           {ready ? (
             <div className="import-preview" ref={previewRegion} tabIndex={-1}
               role="region" aria-label="Kết quả xem trước">
@@ -239,18 +254,25 @@ export function ProductImportModal({ onClose, onImported }: ProductImportModalPr
                       return Upload.LIST_IGNORE;
                     }}
                   >
-                    <Button icon={<UploadOutlined aria-hidden />} disabled={pending}>
+                    <Button icon={<UploadOutlined aria-hidden />} disabled={pending}
+                      aria-describedby={fileError ? fileErrorId : undefined}>
                       {file === null ? 'Chọn file' : 'Chọn file khác'}
                     </Button>
                   </Upload>
                   {file && (
-                    <Typography.Text style={{ overflowWrap: 'anywhere' }}>
+                    <Typography.Text style={{ overflowWrap: 'anywhere' }} aria-live="polite">
                       <FileTextOutlined aria-hidden /> {file.name}
                     </Typography.Text>
                   )}
                 </Flex>
+                {preview.isError && <ImportError error={preview.error} />}
+                {retryingPreview && (
+                  <Typography.Paragraph type="secondary" role="status" style={{ marginTop: 8, marginBottom: 0 }}>
+                    File đã chọn vẫn được giữ. Bấm Xem trước để thử lại cùng yêu cầu.
+                  </Typography.Paragraph>
+                )}
                 {fileError && (
-                  <Typography.Paragraph type="danger" role="alert" style={{ marginTop: 8, marginBottom: 0 }}>
+                  <Typography.Paragraph id={fileErrorId} type="danger" role="alert" style={{ marginTop: 8, marginBottom: 0 }}>
                     {fileError}
                   </Typography.Paragraph>
                 )}

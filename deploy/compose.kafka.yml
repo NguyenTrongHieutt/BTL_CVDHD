@@ -165,11 +165,24 @@ services:
         condition: service_healthy
     mem_limit: 256m
 
+  backoffice-files-setup:
+    image: banhang-backend:latest
+    logging: *async-logging
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-ec", "chown 10001 /var/lib/banhang/import-files && chmod 0700 /var/lib/banhang/import-files"]
+    volumes:
+      - backoffice-import-files:/var/lib/banhang/import-files
+    mem_limit: 64m
+
   backend:
+    volumes:
+      - backoffice-import-files:/var/lib/banhang/import-files
     environment:
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       APP_SALES_QUEUE_PUBLISH_ENABLED: "true"
       APP_SALES_QUEUE_CONSUME_ENABLED: "false"
+      APP_BACKOFFICE_QUEUE_PUBLISH_ENABLED: "true"
+      APP_BACKOFFICE_FILES_DIRECTORY: /var/lib/banhang/import-files
       APP_DB_REPLICA_ENABLED: "true"
       APP_DB_REPLICA_URLS: jdbc:postgresql://db-replica-1:5432/banhang,jdbc:postgresql://db-replica-2:5432/banhang
       APP_REPORTING_WAREHOUSE_ENABLED: "true"
@@ -185,14 +198,16 @@ services:
         condition: service_started
       kafka-topics:
         condition: service_completed_successfully
+      backoffice-files-setup:
+        condition: service_completed_successfully
       warehouse:
         condition: service_started
 
-  order-worker:
+  order-worker: &business-worker
     build: ../backend
     image: banhang-backend:latest
     logging: *async-logging
-    environment:
+    environment: &business-worker-environment
       DB_URL: jdbc:postgresql://db:5432/banhang
       DB_BACKEND_PASSWORD: ${DB_BACKEND_PASSWORD:?}
       DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?}
@@ -219,6 +234,17 @@ services:
     mem_limit: 1g
     cpus: 1.0
     restart: unless-stopped
+
+  backoffice-worker:
+    <<: *business-worker
+    environment:
+      <<: *business-worker-environment
+      APP_SALES_QUEUE_CONSUME_ENABLED: "false"
+      APP_BACKOFFICE_QUEUE_CONSUME_ENABLED: "true"
+      APP_BACKOFFICE_QUEUE_FILE_CONSUME_ENABLED: "true"
+      APP_BACKOFFICE_FILES_DIRECTORY: /var/lib/banhang/import-files
+    volumes:
+      - backoffice-import-files:/var/lib/banhang/import-files
 
   # Database báo cáo riêng, nằm ngoài cụm nghiệp vụ ba node.
   warehouse:
@@ -344,3 +370,4 @@ volumes:
   db-replica-2-data:
   kafka-data:
   warehouse-data:
+  backoffice-import-files:

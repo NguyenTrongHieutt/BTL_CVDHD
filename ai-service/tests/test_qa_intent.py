@@ -19,6 +19,7 @@ TODAY = date(2026, 11, 28)
         ("Tuần này bán được bao nhiêu tiền?", "Q1", {"fromDate": "2026-11-23", "toDate": "2026-11-28"}),
         ("Có bao nhiêu đơn hàng tháng này?", "Q2", {"fromDate": "2026-11-01", "toDate": "2026-11-28"}),
         ("Số hóa đơn tháng trước", "Q2", {"fromDate": "2026-10-01", "toDate": "2026-10-31"}),
+        ("Tháng này có bao nhiêu đơn đã hủy?", "Q2", {"fromDate": "2026-11-01", "toDate": "2026-11-28"}),
         ("Lãi 7 ngày gần nhất", "Q3", {"fromDate": "2026-11-22", "toDate": "2026-11-28"}),
         ("Lợi nhuận từ 01/11/2026 đến 20/11/2026", "Q3", {"fromDate": "2026-11-01", "toDate": "2026-11-20"}),
         ("Doanh thu từ 2026-10-01 đến 2026-10-03", "Q1", {"fromDate": "2026-10-01", "toDate": "2026-10-03"}),
@@ -40,6 +41,7 @@ TODAY = date(2026, 11, 28)
             {"fromDate": "2026-10-30", "toDate": "2026-11-28", "direction": "SLOW_SELLING", "rankBy": "QUANTITY", "limit": 10},
         ),
         ("Tồn kho hiện tại", "Q5", {}),
+        ("Tồn kho của toàn cửa hàng là bao nhiêu?", "Q5", {}),
         ("Tồn kho sản phẩm Bia Tiger", "Q5", {"productName": "Bia Tiger"}),
         ("Giá trị tồn kho danh mục Nước giải khát", "Q5", {"categoryName": "Nước giải khát"}),
         (
@@ -70,6 +72,7 @@ def test_supported_questions_resolve_to_exact_reporting_params(question, query_i
     "question",
     [
         "Thời tiết hôm nay thế nào?",
+        "Lợi nhuận ròng tháng này là bao nhiêu?",
         "Doanh thu cửa hàng khác hôm nay",
         "Doanh thu toàn bộ cửa hàng hôm nay",
         "Doanh thu cửa hàng có store_id=123 hôm nay",

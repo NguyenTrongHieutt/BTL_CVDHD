@@ -2,6 +2,7 @@
 
 import math
 from datetime import date, timedelta
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Literal
 from urllib.parse import urlencode
 
@@ -114,7 +115,12 @@ def _lead(query_id: QueryId, summary: dict[str, Any], params: dict[str, str | in
         case QueryId.Q1:
             return f"Doanh thu thuần trong kỳ là {_format(summary['revenue'])} ₫."
         case QueryId.Q2:
-            return f"Trong kỳ có {_format(summary['orderCount'])} đơn hàng."
+            lead = f"Trong kỳ có {_format(summary['orderCount'])} đơn hàng chưa bị hủy."
+            if "cancelledCount" in summary:
+                lead += f" Có {_format(summary['cancelledCount'])} đơn đã hủy."
+            if "fullyReturnedCount" in summary:
+                lead += f" Có {_format(summary['fullyReturnedCount'])} đơn đã trả toàn bộ."
+            return lead
         case QueryId.Q3:
             return f"Lợi nhuận gộp trong kỳ là {_format(summary['grossProfit'])} ₫."
         case QueryId.Q4:
@@ -138,8 +144,11 @@ def _lead(query_id: QueryId, summary: dict[str, Any], params: dict[str, str | in
             if summary["comparisonValue"] == 0:
                 lead += " Kỳ so sánh bằng 0 nên không tính tỷ lệ phần trăm thay đổi."
             else:
-                rate = abs(difference) * 100 / abs(summary["comparisonValue"])
-                lead += f" Mức thay đổi {_format(rate)}% so với kỳ so sánh."
+                rate = (Decimal(difference) * 100 / Decimal(summary["comparisonValue"])).quantize(
+                    Decimal("0.1"), rounding=ROUND_HALF_UP,
+                )
+                percentage = format(rate, "f").replace(".", ",")
+                lead += f" Tỷ lệ thay đổi {percentage}% so với kỳ so sánh."
             return lead
         case QueryId.Q7:
             return f"Có {_format(summary['matchCount'])} mặt hàng tồn nhiều hoặc không bán được trong kỳ. Hãy đối chiếu tốc độ bán và số ngày tồn trong bảng."

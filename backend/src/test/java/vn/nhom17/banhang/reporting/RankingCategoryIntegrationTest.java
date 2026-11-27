@@ -75,7 +75,7 @@ class RankingCategoryIntegrationTest {
         Session store = login("dev.chu.a");
         Session other = login("dev.chu.b");
         var time = OffsetDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh")).minusDays(2).toString();
-        UUID[] ids = new UUID[5];
+        UUID[] ids = new UUID[7];
         inStore(store, () -> {
             UUID category = category(store, "Gợi ý kho");
             ids[0] = variant(store, product(store, category, "Cần nhập theo tốc độ"));
@@ -89,6 +89,12 @@ class RankingCategoryIntegrationTest {
             sale(store, ids[2], 10, 100_000, "CANCELLED", time);
             ids[3] = variant(store, product(store, category, "Tồn nhiều dưới giá vốn"));
             stock(store, ids[3], 60, 0, 11_000);
+            ids[5] = variant(store, product(store, category, "Đủ bán đúng 7 ngày"));
+            sale(store, ids[5], 10, 100_000, "COMPLETED", time);
+            stock(store, ids[5], 5, 0, 1000);
+            ids[6] = variant(store, product(store, category, "Đủ bán đúng 30 ngày"));
+            sale(store, ids[6], 10, 100_000, "COMPLETED", time);
+            stock(store, ids[6], 10, 0, 1000);
         });
         inStore(other, () -> {
             ids[4] = variant(other, product(other, category(other, "Gợi ý kho khác"), "Hàng riêng"));
@@ -98,12 +104,14 @@ class RankingCategoryIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(insightValue(ids[0], "soldQuantity")).value(org.hamcrest.Matchers.hasItem(14)))
                 .andExpect(jsonPath(insightValue(ids[0], "suggestedQuantity")).value(org.hamcrest.Matchers.hasItem(5)))
-                .andExpect(jsonPath(insightValue(ids[1], "suggestedQuantity")).value(org.hamcrest.Matchers.hasItem(6)));
+                .andExpect(jsonPath(insightValue(ids[1], "suggestedQuantity")).value(org.hamcrest.Matchers.hasItem(6)))
+                .andExpect(jsonPath(insightValue(ids[5], "stockQuantity")).isEmpty());
         mvc.perform(get("/api/v1/reporting/q/Q7").cookie(store.cookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(insightValue(ids[2], "dailySales")).isNotEmpty())
                 .andExpect(jsonPath(insightValue(ids[3], "stockQuantity")).value(org.hamcrest.Matchers.hasItem(60)))
-                .andExpect(jsonPath(insightValue(ids[4], "stockQuantity")).isEmpty());
+                .andExpect(jsonPath(insightValue(ids[4], "stockQuantity")).isEmpty())
+                .andExpect(jsonPath(insightValue(ids[6], "stockQuantity")).isEmpty());
         mvc.perform(get("/api/v1/reporting/q/Q9").cookie(store.cookie()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath(insightValue(ids[2], "stockValue")).value(org.hamcrest.Matchers.hasItem(50_000)))

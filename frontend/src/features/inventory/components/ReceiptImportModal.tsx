@@ -1,12 +1,16 @@
 import { DownloadOutlined, FileTextOutlined, UploadOutlined } from '@ant-design/icons';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Flex, Input, Modal, Steps, Typography, Upload } from 'antd';
 import { useEffect, useId, useRef, useState } from 'react';
 import { isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { downloadBlob } from '../../../shared/api/downloadBlob';
 import { ErrorAlert } from '../../../shared/components';
+import { useImportCapabilities } from '../../../shared/api/multipartImport';
+import { LargeImportModal } from '../../../shared/components/LargeImportModal';
+import type { LargeImportEditorProps } from '../../../shared/components/LargeImportModal';
 import {
-  fetchReceiptImportTemplate, previewReceiptImport, RECEIPT_IMPORT_MAX_BYTES, RECEIPT_IMPORT_MAX_ROWS, saveReceiptImport,
+  fetchReceiptImportTemplate, invalidateReceiptQueries, previewReceiptImport, RECEIPT_IMPORT_MAX_BYTES,
+  RECEIPT_IMPORT_MAX_ROWS, saveReceiptImport,
 } from '../receiptImportApi';
 import type {
   Receipt, ReceiptImportCommit, ReceiptImportEdit, ReceiptImportPreview, ReceiptImportPreviewInput, ReceiptImportRow,
@@ -38,7 +42,58 @@ function ImportProblem({ error }: { error: unknown }) {
   return <ErrorAlert error={error} style={{ marginBottom: 0 }} />;
 }
 
-export function ReceiptImportModal({ initialSupplier, initialNote, hasManualLines, onClose, onImported }: Props) {
+function MultipartReceiptEditor({ row, errors, busy, onCancel, onApply }: LargeImportEditorProps) {
+  const action = row.action === 'EXISTING' || row.action === 'NEW_VARIANT' ? row.action : 'NEW_PRODUCT';
+  return <ReceiptImportRowEditor row={{
+    ...row, action, sku: row.sku ?? null, parentCode: row.parentCode ?? null, productName: row.productName ?? null,
+    variantName: row.variantName ?? null, quantity: row.quantity ?? null, unitCost: row.unitCost ?? null,
+    values: row.values ?? {},
+  }} errors={errors} busy={busy} onCancel={onCancel} onApply={values => onApply({
+    row: row.row,
+    values: Object.fromEntries(Object.entries(values).map(([field, value]) => [field, value ?? ''])),
+  })} />;
+}
+
+export function ReceiptImportModal(props: Props) {
+  const caps = useImportCapabilities();
+  return caps.data?.enabled
+    ? <MultipartReceiptImport {...props} capabilities={caps.data} />
+    : <LegacyReceiptImport {...props} />;
+}
+
+function MultipartReceiptImport({ initialSupplier, initialNote, hasManualLines, onClose, onImported, capabilities }:
+Props & { capabilities: NonNullable<ReturnType<typeof useImportCapabilities>['data']> }) {
+  const client = useQueryClient();
+  const [supplier, setSupplier] = useState(initialSupplier);
+  const [note, setNote] = useState(initialNote);
+  const noteId = useId();
+  const template = useMutation({
+    mutationFn: fetchReceiptImportTemplate,
+    onSuccess: (blob, format) => downloadBlob(blob, `mau-nhap-kho.${format}`),
+  });
+  return <LargeImportModal<Receipt> kind="PURCHASE_RECEIPT" capabilities={capabilities} onClose={onClose}
+    onSaved={result => {
+      void invalidateReceiptQueries(client, true);
+      onImported(result);
+      onClose();
+    }}
+    receipt={{ supplierId: supplier?.value, note, editor: MultipartReceiptEditor, controls: <>
+      {hasManualLines && <Alert type="info" showIcon title="Các dòng thủ công vẫn nằm ở màn Phiếu nhập." />}
+      <ReceiptSupplierSelect value={supplier} onChange={setSupplier} />
+      <Flex vertical gap={4}>
+        <label htmlFor={noteId}>Ghi chú (không bắt buộc)</label>
+        <Input id={noteId} value={note} maxLength={500}
+          onChange={event => setNote(event.target.value)} />
+      </Flex>
+    </> }}
+    templates={<>
+      <Button disabled={template.isPending} onClick={() => template.mutate('xlsx')}>Tải mẫu Excel</Button>
+      <Button disabled={template.isPending} onClick={() => template.mutate('csv')}>Tải mẫu CSV</Button>
+      {template.isError && <ImportProblem error={template.error} />}
+    </>} />;
+}
+
+function LegacyReceiptImport({ initialSupplier, initialNote, hasManualLines, onClose, onImported }: Props) {
   const [open, setOpen] = useState(true);
   const [supplier, setSupplier] = useState(initialSupplier);
   const [note, setNote] = useState(initialNote);

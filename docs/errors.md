@@ -50,3 +50,14 @@ Mọi lỗi API trả RFC 9457 Problem Details (AD-19). Mỗi module chỉ thêm
 | `/errors/ai/quota-exceeded` | 429 | Hết 50 câu Hỏi đáp dữ liệu trong ngày (AD-13) | ai |
 | `/errors/ai/unavailable` | 503 | Dịch vụ AI không sẵn sàng (nginx hoặc ai-service trả, AD-1) | ai |
 | `/errors/ai/not-implemented` | 501 | Endpoint AI chưa làm (khung GĐ0: `/ai/search` trước AI-01, `/ai/ask` trước AI-03) | ai |
+# Lỗi tải và nhập tệp lớn
+
+| Mã lỗi | HTTP | Tình huống |
+| --- | --- | --- |
+| `/errors/platform/import-upload-invalid` | 400 | Phiên, manifest hoặc xác nhận phần tải lên sai định dạng. |
+| `/errors/platform/import-upload-conflict` | 409 | Phiên đã chuyển trạng thái hoặc yêu cầu khác với lần đầu. |
+| `/errors/platform/import-upload-parts` | 409 | Còn phần chưa được xác nhận đúng kích thước, checksum hoặc ETag. |
+| `/errors/platform/import-job-stale` | 409 | Bản xem trước không còn hiệu lực hoặc phiên bản đã đổi. |
+| `/errors/platform/import-upload-expired` | 410 | Hết hạn khôi phục phiên tải. |
+| `/errors/platform/import-upload-quota` | 429 | Hết hạn mức tải file hoặc tác vụ nhập. |
+| `/errors/platform/import-upload-unavailable` | 503 | Không thể kiểm tra hoặc thao tác trên kho tạm thời. |

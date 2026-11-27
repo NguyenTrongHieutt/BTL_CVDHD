@@ -2,6 +2,11 @@ package vn.nhom17.banhang.catalog.internal.product;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PushbackReader;
+import java.io.StringReader;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.nio.ByteBuffer;
@@ -119,7 +124,7 @@ final class ProductImportReader {
                 ? readCsv(content, profile) : read(content, profile);
     }
 
-    private record CsvRecord(int row, List<String> cells) {
+    record CsvRecord(int row, List<String> cells) {
     }
 
     /** UTF-8, có thể có BOM; số dòng là dòng vật lý bắt đầu bản ghi, kể cả ô chứa xuống dòng. */
@@ -139,7 +144,11 @@ final class ProductImportReader {
             text = text.substring(1);
         }
         CsvRows records = new CsvRows(profile);
-        csvRecords(text, csvDelimiter(text), records::accept);
+        try {
+            csvRecords(new PushbackReader(new StringReader(text)), csvDelimiter(text), false, records::accept);
+        } catch (IOException impossible) {
+            throw new IllegalStateException(impossible);
+        }
         if (records.columns == null) {
             headerColumns(List.of(), profile);
         }
@@ -171,7 +180,7 @@ final class ProductImportReader {
         }
     }
 
-    private static ImportRow readCsvRow(CsvRecord record, Map<ImportColumn, Integer> columns) {
+    static ImportRow readCsvRow(CsvRecord record, Map<ImportColumn, Integer> columns) {
         Map<ImportColumn, String> texts = new EnumMap<>(ImportColumn.class);
         Map<ImportColumn, BigDecimal> numbers = new EnumMap<>(ImportColumn.class);
         Map<ImportColumn, String> errors = new EnumMap<>(ImportColumn.class);
@@ -226,7 +235,45 @@ final class ProductImportReader {
         return semicolons > commas ? ';' : ',';
     }
 
-    private static void csvRecords(String text, char delimiter, Consumer<CsvRecord> consumer) {
+    static void streamCsv(InputStream input, Profile profile, Consumer<ImportRow> consumer) throws IOException {
+        var decoder = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT);
+        try (var reader = new BufferedReader(new InputStreamReader(input, decoder))) {
+            reader.mark(8194);
+            StringBuilder first = new StringBuilder();
+            for (int value; (value = reader.read()) != -1 && value != '\r' && value != '\n'; ) {
+                if (first.length() == 8192) throw invalid("Dòng tiêu đề CSV quá dài.");
+                first.append((char) value);
+            }
+            reader.reset();
+            if (!first.isEmpty() && first.charAt(0) == '\ufeff') reader.read();
+            class Records implements Consumer<CsvRecord> {
+                Map<ImportColumn, Integer> columns;
+                @Override public void accept(CsvRecord record) {
+                    if (columns == null) columns = headerColumns(record.cells(), profile);
+                    else {
+                        var row = readCsvRow(record, columns);
+                        if (row != null) consumer.accept(row);
+                    }
+                }
+            }
+            var records = new Records();
+            csvRecords(new PushbackReader(reader), csvDelimiter(first.toString()), true, records);
+            if (records.columns == null) headerColumns(List.of(), profile);
+        } catch (CharacterCodingException invalidUtf8) {
+            throw invalid("CSV phải dùng mã hóa UTF-8.");
+        }
+    }
+
+    private static boolean consume(PushbackReader input, char lookahead) throws IOException {
+        int next = input.read();
+        if (next == lookahead) return true;
+        if (next != -1) input.unread(next);
+        return false;
+    }
+
+    private static void csvRecords(PushbackReader input, char delimiter, boolean bounded, Consumer<CsvRecord> consumer)
+            throws IOException {
         List<String> cells = new ArrayList<>();
         StringBuilder cell = new StringBuilder();
         boolean quoted = false;
@@ -234,21 +281,21 @@ final class ProductImportReader {
         boolean started = false;
         int line = 1;
         int recordLine = 1;
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
+        for (int value; (value = input.read()) != -1; ) {
+            char c = (char) value;
+            if (bounded && (cell.length() > 8192 || cells.size() > 256)) {
+                throw invalid("CSV dòng " + recordLine + " có ô quá dài hoặc quá nhiều cột.");
+            }
             if (quoted) {
                 if (c == '"') {
-                    if (i + 1 < text.length() && text.charAt(i + 1) == '"') {
+                    if (consume(input, '"')) {
                         cell.append('"');
-                        i++;
                     } else {
                         quoted = false;
                         closedQuote = true;
                     }
                 } else if (c == '\r' || c == '\n') {
-                    if (c == '\r' && i + 1 < text.length() && text.charAt(i + 1) == '\n') {
-                        i++;
-                    }
+                    if (c == '\r') consume(input, '\n');
                     cell.append('\n');
                     line++;
                 } else {
@@ -264,9 +311,7 @@ final class ProductImportReader {
                 if (c != delimiter) {
                     consumer.accept(new CsvRecord(recordLine, List.copyOf(cells)));
                     cells.clear();
-                    if (c == '\r' && i + 1 < text.length() && text.charAt(i + 1) == '\n') {
-                        i++;
-                    }
+                    if (c == '\r') consume(input, '\n');
                     recordLine = ++line;
                 }
             } else if (c == '"' && !started && !closedQuote) {
@@ -380,7 +425,7 @@ final class ProductImportReader {
         return headerColumns(cells, profile);
     }
 
-    private static Map<ImportColumn, Integer> headerColumns(List<String> header, Profile profile) {
+    static Map<ImportColumn, Integer> headerColumns(List<String> header, Profile profile) {
         Map<ImportColumn, Integer> columns = new EnumMap<>(ImportColumn.class);
         Set<String> repeated = new LinkedHashSet<>();
         if (header != null) {

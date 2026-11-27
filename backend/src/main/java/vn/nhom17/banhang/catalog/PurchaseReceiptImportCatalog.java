@@ -1,9 +1,13 @@
 package vn.nhom17.banhang.catalog;
 
 import java.math.BigDecimal;
+import java.io.InputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.BiConsumer;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Catalog boundary for a mixed purchase receipt import. Parsing and catalog validation are shared with product
@@ -38,6 +42,8 @@ public interface PurchaseReceiptImportCatalog {
     record Template(byte[] content, String filename, String contentType) {}
 
     FileData read(byte[] content, String filename, List<Edit> edits);
+    void readLarge(InputStream content, String filename, long bytes, BiConsumer<Integer, Object> rows);
+    FileData restore(List<JsonNode> rows, List<Edit> edits, JsonMapper json);
     Template template(String format);
     Prepared prepare(FileData file);
 

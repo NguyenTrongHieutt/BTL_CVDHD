@@ -1,0 +1,69 @@
+# Kho S3-compatible dành cho demo Compose. Production cấu hình bucket S3 riêng.
+x-storage-environment: &storage-environment
+  APP_IMPORT_UPLOADS_ENABLED: "true"
+  APP_IMPORT_UPLOADS_ENDPOINT: http://import-storage:9000
+  APP_IMPORT_UPLOADS_PUBLIC_ENDPOINT: ${IMPORT_STORAGE_PUBLIC_ORIGIN:?Cần HTTPS origin của demo}
+  APP_IMPORT_UPLOADS_BUCKET: banhang-imports
+  APP_IMPORT_UPLOADS_ACCESS_KEY: ${IMPORT_STORAGE_USER:?Thiếu IMPORT_STORAGE_USER}
+  APP_IMPORT_UPLOADS_SECRET_KEY: ${IMPORT_STORAGE_PASSWORD:?Thiếu IMPORT_STORAGE_PASSWORD}
+
+x-storage-image: &storage-image ghcr.io/coollabsio/minio@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9
+x-storage-log: &storage-log
+  driver: local
+  options:
+    max-size: "10m"
+    max-file: "2"
+
+services:
+  import-storage:
+    image: *storage-image
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${IMPORT_STORAGE_USER:?}
+      MINIO_ROOT_PASSWORD: ${IMPORT_STORAGE_PASSWORD:?}
+      MINIO_BROWSER: "off"
+      MINIO_STALE_UPLOADS_EXPIRY: "48h"
+      MINIO_STALE_UPLOADS_CLEANUP_INTERVAL: "1h"
+    volumes:
+      - import-object-data:/data
+    mem_limit: 512m
+    logging: *storage-log
+    restart: unless-stopped
+
+  import-storage-setup:
+    image: *storage-image
+    entrypoint: ["/bin/sh", "-eu", "-c"]
+    command:
+      - |
+        for i in $$(seq 1 30); do
+          if mc alias set local http://import-storage:9000 "$$IMPORT_STORAGE_USER" "$$IMPORT_STORAGE_PASSWORD" >/dev/null 2>&1 &&
+             mc mb --ignore-existing local/banhang-imports >/dev/null; then
+            exit 0
+          fi
+          sleep 2
+        done
+        exit 1
+    environment:
+      IMPORT_STORAGE_USER: ${IMPORT_STORAGE_USER:?}
+      IMPORT_STORAGE_PASSWORD: ${IMPORT_STORAGE_PASSWORD:?}
+    depends_on:
+      import-storage:
+        condition: service_started
+    logging: *storage-log
+
+  backend:
+    environment: *storage-environment
+    depends_on:
+      import-storage-setup:
+        condition: service_completed_successfully
+
+  backoffice-worker:
+    environment: *storage-environment
+    depends_on:
+      import-storage-setup:
+        condition: service_completed_successfully
+    tmpfs:
+      - /tmp:rw,size=160m,mode=1777
+
+volumes:
+  import-object-data:

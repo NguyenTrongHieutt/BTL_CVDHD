@@ -29,6 +29,16 @@ public interface VariantLookup {
     /** Chỉ lấy mã Biến thể còn bán để module khác lọc và phân trang trước khi tải thông tin chi tiết. */
     List<UUID> findForSaleIds();
 
+    /**
+     * Tra đúng toàn bộ SKU hoặc mã vạch của hàng còn bán trong Cửa hàng hiện tại. Chuẩn hóa như mã khi lưu
+     * (văn bản một dòng, NFC, cắt khoảng trắng hai đầu, chữ HOA); không bỏ dấu, không gộp khoảng trắng giữa mã,
+     * không đổi sang số. Mã trống, không hợp lệ hoặc không có thì trả danh sách rỗng. Một Biến thể khớp cả hai
+     * trường chỉ trả một lần; SKU của Biến thể này trùng mã vạch Biến thể khác thì trả cả hai, sắp như tìm kiếm.
+     *
+     * @throws IllegalStateException không có ngữ cảnh Cửa hàng, kể cả khi {@code code} trống
+     */
+    List<SellableVariant> findForSaleByExactCode(String code);
+
     /** Biến thể chưa xóa mềm khớp bộ lọc của màn Tồn kho. */
     List<SellableVariant> findForInventory(String query, UUID categoryId, boolean includeInactive);
 

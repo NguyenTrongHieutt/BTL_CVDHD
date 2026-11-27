@@ -11,12 +11,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-import org.springframework.transaction.annotation.Isolation;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,15 +40,21 @@ class ReportingQueryController {
     private final NamedParameterJdbcTemplate jdbc;
     private final CurrentContext context;
     private final Clock clock;
+    private final TransactionTemplate readOnly;
+    private final ReportingQueryCache cache;
 
-    ReportingQueryController(NamedParameterJdbcTemplate jdbc, CurrentContext context, Clock clock) {
+    ReportingQueryController(NamedParameterJdbcTemplate jdbc, CurrentContext context, Clock clock,
+                             PlatformTransactionManager transactionManager, ReportingQueryCache cache) {
         this.jdbc = jdbc;
         this.context = context;
         this.clock = clock;
+        this.readOnly = new TransactionTemplate(transactionManager);
+        this.readOnly.setReadOnly(true);
+        this.readOnly.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
+        this.cache = cache;
     }
 
     @GetMapping("/{queryId}")
-    @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     QueryResponse query(
             @PathVariable String queryId,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
@@ -59,14 +67,31 @@ class ReportingQueryController {
             @RequestParam(required = false) UUID categoryId) {
         LocalDate today = LocalDate.now(clock.withZone(TimeZones.VIETNAM));
         return switch (queryId) {
-            case "Q1" -> revenue(requireRange(fromDate, toDate));
-            case "Q2" -> orders(requireRange(fromDate, toDate));
-            case "Q3" -> grossProfit(requireRange(fromDate, toDate));
-            case "Q4" -> ranking(rankingRange(fromDate, toDate, today), parseDirection(direction),
+            case "Q1" -> read(() -> revenue(requireRange(fromDate, toDate)));
+            case "Q2" -> read(() -> orders(requireRange(fromDate, toDate)));
+            case "Q3" -> grossProfitReport(requireRange(fromDate, toDate));
+            case "Q4" -> rankingReport(rankingRange(fromDate, toDate, today), parseDirection(direction),
                     parseRankBy(rankBy), validateLimit(limit), categoryId);
-            case "Q5" -> inventory(today, validateInventoryFilters(productName, categoryName));
+            case "Q5" -> read(() -> inventory(today, validateInventoryFilters(productName, categoryName)));
             default -> throw invalid("queryId", "Chỉ hỗ trợ Q1, Q2, Q3, Q4 và Q5 trong giai đoạn này.");
         };
+    }
+
+    private QueryResponse grossProfitReport(DateRange range) {
+        var key = new ReportingQueryCache.Key(context.storeId(), "Q3", range, null, null, 0, null);
+        return cache.get(key, () -> read(() -> grossProfit(range)));
+    }
+
+    private QueryResponse rankingReport(DateRange range, Direction direction, RankBy rankBy,
+                                        int limit, UUID categoryId) {
+        var key = new ReportingQueryCache.Key(context.storeId(), "Q4", range, direction.name(), rankBy.name(),
+                limit, categoryId);
+        return cache.get(key, () -> read(() -> ranking(range, direction, rankBy, limit, categoryId)));
+    }
+
+    private QueryResponse read(Supplier<QueryResponse> query) {
+        // Uses the existing tenant transaction manager, including its transaction-local RLS context.
+        return readOnly.execute(status -> query.get());
     }
 
     private QueryResponse revenue(DateRange range) {
@@ -465,7 +490,14 @@ class ReportingQueryController {
     }
 
     record QueryResponse(String queryId, DateRange range, Map<String, Object> params,
-                         List<Column> columns, List<?> rows, Object summary) {}
+                         List<Column> columns, List<?> rows, Object summary) {
+        QueryResponse {
+            params = Map.copyOf(params);
+            columns = List.copyOf(columns);
+            rows = List.copyOf(rows);
+            if (summary instanceof Map<?, ?> totals) summary = Map.copyOf(totals);
+        }
+    }
     record DateRange(LocalDate fromDate, LocalDate toDate) {}
     record Column(String key, String label, String type) {}
     record RevenueDay(LocalDate date, long grossSales, long refundTotal, long revenue, long discountTotal) {}

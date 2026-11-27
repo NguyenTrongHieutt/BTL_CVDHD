@@ -164,6 +164,7 @@ class RoleMatrixTest {
                 row("DELETE", "/api/v1/catalog/customers/{id}", U, A, A),
                 // sales: cả hai vai trò; quy tắc hủy đơn của Nhân viên kiểm ở sales (AD-16)
                 row("GET", "/api/v1/sales/sellable", U, A, A),
+                row("GET", "/api/v1/sales/sellable/exact", U, A, A),
                 row("POST", "/api/v1/sales/orders/quote", U, A, A),
                 row("POST", "/api/v1/sales/orders", U, A, A),
                 row("GET", "/api/v1/sales/orders", U, A, A),

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 import vn.nhom17.banhang.catalog.SellableVariant;
 import vn.nhom17.banhang.catalog.VariantLookup;
+import vn.nhom17.banhang.catalog.internal.FieldErrors;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.PageResponse;
 import vn.nhom17.banhang.platform.ProblemException;
@@ -60,6 +61,26 @@ class JdbcVariantLookup implements VariantLookup {
                 ProductSearch.Criteria.NONE);
         return jdbc.query("select v.id\n" + matching.text(),
                 (rs, row) -> rs.getObject("id", UUID.class), matching.args().toArray());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<SellableVariant> findForSaleByExactCode(String code) {
+        UUID storeId = context.storeId();
+        var errors = new FieldErrors();
+        String normalized = ProductService.checkSku(code, "code", errors);
+        if (!errors.isEmpty() || normalized == null || normalized.isEmpty()) {
+            return List.of();
+        }
+        ProductSearch.Sql matching = ProductSearch.from(ProductSearch.Scope.SELLABLE, storeId,
+                ProductSearch.Criteria.NONE);
+        List<Object> args = new ArrayList<>(matching.args());
+        args.add(storeId);
+        args.add(normalized);
+        args.add(normalized);
+        // Mã đã lưu chữ HOA. So sánh cột gốc để dùng hai unique B-tree (store_id, sku/barcode), không LIKE/upper(cột).
+        return jdbc.query(COLUMNS + matching.text()
+                + " and v.store_id = ? and (v.sku = ? or v.barcode = ?)\n" + ORDER, ROW, args.toArray());
     }
 
     private final JdbcTemplate jdbc;

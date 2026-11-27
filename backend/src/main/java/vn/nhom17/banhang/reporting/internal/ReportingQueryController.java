@@ -76,8 +76,76 @@ class ReportingQueryController {
             case "Q4" -> rankingReport(rankingRange(fromDate, toDate, today), parseDirection(direction),
                     parseRankBy(rankBy), validateLimit(limit), categoryId);
             case "Q5" -> read(() -> inventory(today, validateInventoryFilters(productName, categoryName)));
-            default -> throw invalid("queryId", "Chỉ hỗ trợ Q1, Q2, Q3, Q4 và Q5 trong giai đoạn này.");
+            default -> throw invalid("queryId", "Chỉ hỗ trợ các truy vấn từ Q1 đến Q9.");
         };
+    }
+
+    @GetMapping("/Q6")
+    QueryResponse compare(
+            @RequestParam String metric,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fromDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate toDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate compareFromDate,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate compareToDate) {
+        ComparisonMetric selected;
+        try {
+            selected = ComparisonMetric.valueOf(metric);
+        } catch (IllegalArgumentException ex) {
+            throw invalid("metric", "Chọn REVENUE, ORDER_COUNT hoặc GROSS_PROFIT.");
+        }
+        DateRange range = requireRange(fromDate, toDate);
+        DateRange baseline = requireRange(compareFromDate, compareToDate);
+        if (selected != ComparisonMetric.ORDER_COUNT) {
+            var projected = warehouse.read(context.storeId(), source -> compare(selected, range, baseline, source));
+            if (projected.isPresent()) return projected.get();
+        }
+        return read(() -> compare(selected, range, baseline, jdbc));
+    }
+
+    @GetMapping("/Q7")
+    QueryResponse slowStock() {
+        return inventoryInsights(InventoryInsights.Q7);
+    }
+
+    @GetMapping("/Q8")
+    QueryResponse restock() {
+        return inventoryInsights(InventoryInsights.Q8);
+    }
+
+    @GetMapping("/Q9")
+    QueryResponse sellPriority() {
+        return inventoryInsights(InventoryInsights.Q9);
+    }
+
+    private QueryResponse inventoryInsights(InventoryInsights insight) {
+        LocalDate today = LocalDate.now(clock.withZone(TimeZones.VIETNAM));
+        return read(() -> insight.query(jdbc, context.storeId(), today));
+    }
+
+    private QueryResponse compare(ComparisonMetric metric, DateRange range, DateRange baseline,
+                                  NamedParameterJdbcTemplate source) {
+        long current = comparisonValue(metric, range, source);
+        long previous = comparisonValue(metric, baseline, source);
+        Map<String, Object> parameters = dateParameters(range);
+        parameters.put("metric", metric.name());
+        parameters.put("compareFromDate", baseline.fromDate().toString());
+        parameters.put("compareToDate", baseline.toDate().toString());
+        return new QueryResponse("Q6", range, parameters,
+                List.of(column("fromDate", "Từ ngày", "date"), column("toDate", "Đến ngày", "date"),
+                        column("value", metric.label, metric == ComparisonMetric.ORDER_COUNT ? "int" : "money")),
+                List.of(new ComparisonRow(range.fromDate(), range.toDate(), current),
+                        new ComparisonRow(baseline.fromDate(), baseline.toDate(), previous)),
+                Map.of("metric", metric.name(), "currentValue", current, "comparisonValue", previous,
+                        "difference", current - previous));
+    }
+
+    private long comparisonValue(ComparisonMetric metric, DateRange range, NamedParameterJdbcTemplate source) {
+        Object summary = switch (metric) {
+            case REVENUE -> revenue(range, source).summary();
+            case ORDER_COUNT -> orders(range).summary();
+            case GROSS_PROFIT -> grossProfit(range, source).summary();
+        };
+        return ((Number) ((Map<?, ?>) summary).get(metric.key)).longValue();
     }
 
     private QueryResponse grossProfitReport(DateRange range) {
@@ -510,6 +578,7 @@ class ReportingQueryController {
     }
     record DateRange(LocalDate fromDate, LocalDate toDate) {}
     record Column(String key, String label, String type) {}
+    record ComparisonRow(LocalDate fromDate, LocalDate toDate, long value) {}
     record RevenueDay(LocalDate date, long grossSales, long refundTotal, long revenue, long discountTotal) {}
     record OrderDay(LocalDate date, long orderCount, long cancelledCount, long fullyReturnedCount, long returnCount) {}
     record GrossProfitDay(LocalDate date, long revenue, long costOfGoodsSold, long grossProfit) {}
@@ -569,4 +638,17 @@ class ReportingQueryController {
 
     private enum Direction { BEST_SELLING, SLOW_SELLING }
     private enum RankBy { QUANTITY, REVENUE }
+    private enum ComparisonMetric {
+        REVENUE("revenue", "Doanh thu thuần"),
+        ORDER_COUNT("orderCount", "Số đơn hàng"),
+        GROSS_PROFIT("grossProfit", "Lợi nhuận gộp");
+
+        private final String key;
+        private final String label;
+
+        ComparisonMetric(String key, String label) {
+            this.key = key;
+            this.label = label;
+        }
+    }
 }

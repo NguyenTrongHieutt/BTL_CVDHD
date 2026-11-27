@@ -5,6 +5,7 @@ import dayjs from 'dayjs';
 import { api } from '../../../shared/api/client';
 import { DateRangePicker, ErrorAlert, MoneyText, RecordTable, todayInVietnam, useDocumentTitle } from '../../../shared/components';
 import type { DateRange, IsoDate } from '../../../shared/types/common';
+import { linkedReportRange } from '../reportLink';
 import type { QueryResponse } from '../../../shared/types/reporting';
 import { ReportExportButton } from '../ReportExportButton';
 
@@ -31,7 +32,7 @@ function defaultRange(): DateRange {
 
 export function ProfitReportPage() {
   useDocumentTitle('Báo cáo lợi nhuận');
-  const [range, setRange] = useState<DateRange>(defaultRange);
+  const [range, setRange] = useState<DateRange>(() => linkedReportRange(defaultRange));
   const query = useQuery({
     queryKey: ['reporting', 'profit', range],
     queryFn: ({ signal }) => api.get<QueryResponse<ProfitDay, ProfitSummary>>('/api/v1/reporting/q/Q3', {

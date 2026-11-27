@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -36,6 +37,89 @@ class RankingCategoryIntegrationTest {
     @Autowired MockMvc mvc;
     @Autowired JdbcTemplate jdbc;
     @Autowired PlatformTransactionManager transactionManager;
+
+    @Test
+    void comparesTwoInclusivePeriodsUsingTheSameMetricsAsReports() throws Exception {
+        Session store = login("dev.chu.a");
+        inStore(store, () -> {
+            UUID variant = variant(store, product(store, category(store, "So sánh kỳ"), "Hàng so sánh"));
+            sale(store, variant, 8, 80_000, "COMPLETED", "2008-02-01T02:00:00Z");
+            Sale current = sale(store, variant, 12, 120_000, "COMPLETED", "2008-03-01T02:00:00Z");
+            returned(store, current, 2, 20_000, "2008-03-01T16:59:59Z");
+            sale(store, variant, 100, 1_000_000, "CANCELLED", "2008-03-01T03:00:00Z");
+            sale(store, variant, 10, 100_000, "COMPLETED", "2008-03-01T17:00:00Z");
+        });
+        for (String metric : new String[]{"REVENUE", "ORDER_COUNT", "GROSS_PROFIT"}) {
+            int current = switch (metric) {
+                case "REVENUE" -> 100_000;
+                case "ORDER_COUNT" -> 1;
+                default -> 90_000;
+            };
+            int comparison = switch (metric) {
+                case "REVENUE" -> 80_000;
+                case "ORDER_COUNT" -> 1;
+                default -> 72_000;
+            };
+            mvc.perform(get("/api/v1/reporting/q/Q6").cookie(store.cookie()).param("metric", metric)
+                            .param("fromDate", "2008-03-01").param("toDate", "2008-03-01")
+                            .param("compareFromDate", "2008-02-01").param("compareToDate", "2008-02-01"))
+                    .andExpect(status().isOk()).andExpect(jsonPath("$.summary.currentValue").value(current))
+                    .andExpect(jsonPath("$.summary.comparisonValue").value(comparison))
+                    .andExpect(jsonPath("$.summary.difference").value(current - comparison))
+                    .andExpect(jsonPath("$.rows[1].fromDate").value("2008-02-01"));
+        }
+    }
+
+    @Test
+    void computesInventoryRecommendationsFromNetSalesAndKeepsOtherStoresOut() throws Exception {
+        Session store = login("dev.chu.a");
+        Session other = login("dev.chu.b");
+        var time = OffsetDateTime.now(ZoneId.of("Asia/Ho_Chi_Minh")).minusDays(2).toString();
+        UUID[] ids = new UUID[5];
+        inStore(store, () -> {
+            UUID category = category(store, "Gợi ý kho");
+            ids[0] = variant(store, product(store, category, "Cần nhập theo tốc độ"));
+            Sale fast = sale(store, ids[0], 16, 160_000, "COMPLETED", time);
+            returned(store, fast, 2, 20_000, time);
+            stock(store, ids[0], 2, 0, 1000);
+            ids[1] = variant(store, product(store, category, "Cần nhập theo ngưỡng"));
+            stock(store, ids[1], 0, 6, 1000);
+            ids[2] = variant(store, product(store, category, "Tồn nhiều có lãi"));
+            stock(store, ids[2], 50, 0, 1000);
+            sale(store, ids[2], 10, 100_000, "CANCELLED", time);
+            ids[3] = variant(store, product(store, category, "Tồn nhiều dưới giá vốn"));
+            stock(store, ids[3], 60, 0, 11_000);
+        });
+        inStore(other, () -> {
+            ids[4] = variant(other, product(other, category(other, "Gợi ý kho khác"), "Hàng riêng"));
+            stock(other, ids[4], 80, 0, 1000);
+        });
+        mvc.perform(get("/api/v1/reporting/q/Q8").cookie(store.cookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(insightValue(ids[0], "soldQuantity")).value(org.hamcrest.Matchers.hasItem(14)))
+                .andExpect(jsonPath(insightValue(ids[0], "suggestedQuantity")).value(org.hamcrest.Matchers.hasItem(5)))
+                .andExpect(jsonPath(insightValue(ids[1], "suggestedQuantity")).value(org.hamcrest.Matchers.hasItem(6)));
+        mvc.perform(get("/api/v1/reporting/q/Q7").cookie(store.cookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(insightValue(ids[2], "dailySales")).isNotEmpty())
+                .andExpect(jsonPath(insightValue(ids[3], "stockQuantity")).value(org.hamcrest.Matchers.hasItem(60)))
+                .andExpect(jsonPath(insightValue(ids[4], "stockQuantity")).isEmpty());
+        mvc.perform(get("/api/v1/reporting/q/Q9").cookie(store.cookie()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath(insightValue(ids[2], "stockValue")).value(org.hamcrest.Matchers.hasItem(50_000)))
+                .andExpect(jsonPath(insightValue(ids[3], "stockQuantity")).isEmpty());
+    }
+
+    private void stock(Session store, UUID variant, int quantity, int minimum, long cost) {
+        jdbc.update("""
+                INSERT INTO app.stock (store_id, variant_id, quantity, min_quantity, avg_unit_cost)
+                VALUES (?, ?, ?, ?, ?)
+                """, store.storeId(), variant, quantity, minimum, cost);
+    }
+
+    private String insightValue(UUID variant, String field) {
+        return "$.rows[?(@.variantId == '%s')].%s".formatted(variant, field);
+    }
 
     @Test
     void filtersExactCategoryBeforeRankingByEitherMetricAndLimiting() throws Exception {

@@ -6,6 +6,7 @@ import dayjs from 'dayjs';
 import { api } from '../../../shared/api/client';
 import { DateRangePicker, ErrorAlert, MoneyText, RecordTable, todayInVietnam, useDocumentTitle } from '../../../shared/components';
 import type { DateRange, IsoDate } from '../../../shared/types/common';
+import { linkedReportRange } from '../reportLink';
 import type { QueryResponse } from '../../../shared/types/reporting';
 import { ReportExportButton } from '../ReportExportButton';
 
@@ -55,7 +56,7 @@ function formatDate(value: IsoDate): string {
 
 export function RevenueReportPage() {
   useDocumentTitle('Báo cáo doanh thu');
-  const [range, setRange] = useState<DateRange>(defaultRange);
+  const [range, setRange] = useState<DateRange>(() => linkedReportRange(defaultRange));
   const query = useQuery({
     queryKey: ['reporting', 'revenue', range],
     queryFn: async ({ signal }) => {

@@ -23,11 +23,20 @@ export interface AskRequest {
 export interface AiQuota {
   used: number;
   limit: number;
+  /** Có ở hợp đồng đầy đủ; giao diện vẫn suy ra được từ `limit - used` với bản dịch vụ cũ. */
+  remaining?: number;
 }
+
+export type AnswerColumnType = 'text' | 'date' | 'money' | 'int' | 'number' | 'percent';
 
 export interface AnswerTable {
   columns: string[];
   rows: unknown[][];
+  /** Khóa máy đọc tương ứng với `columns`; biểu đồ tham chiếu các khóa này. */
+  columnKeys?: string[];
+  columnTypes?: AnswerColumnType[];
+  totalRows?: number;
+  truncated?: boolean;
 }
 
 export interface AnswerChart {
@@ -48,4 +57,6 @@ export interface AskResponse {
   disclaimer: string;
   quota: AiQuota;
   refused: boolean;
+  queryId?: `Q${1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9}` | null;
+  source?: string | null;
 }

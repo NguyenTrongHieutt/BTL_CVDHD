@@ -339,7 +339,8 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
       </Modal>
       <div className="pos-grid">
         <div className="pos-main">
-      <Card title="Thêm hàng vào giỏ"><ProductPicker exactCodeLookup searchRef={search} onPick={add} disabled={pending !== null} /></Card>
+      <Card title="Thêm hàng vào giỏ"><ProductPicker semantic exactCodeLookup searchRef={search} onPick={add}
+        disabled={pending !== null} /></Card>
       <Card title="Giỏ hàng" extra={
         <span role="status" aria-atomic="true">
           {itemCount > 0 ? (

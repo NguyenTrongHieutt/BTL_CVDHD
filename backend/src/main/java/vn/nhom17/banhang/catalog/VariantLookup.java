@@ -26,6 +26,9 @@ public interface VariantLookup {
      */
     List<SellableVariant> getForSale(Collection<UUID> variantIds);
 
+    /** Biến thể còn bán theo thứ tự ID sản phẩm. Biến thể mặc định được xếp trước trong mỗi sản phẩm. */
+    List<SellableVariant> findForSaleByProductIds(List<UUID> productIds);
+
     /** Chỉ lấy mã Biến thể còn bán để module khác lọc và phân trang trước khi tải thông tin chi tiết. */
     List<UUID> findForSaleIds();
 

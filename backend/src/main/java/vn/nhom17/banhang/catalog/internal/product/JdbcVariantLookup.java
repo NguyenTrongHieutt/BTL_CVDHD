@@ -103,6 +103,22 @@ class JdbcVariantLookup implements VariantLookup {
 
     @Override
     @Transactional(readOnly = true)
+    public List<SellableVariant> findForSaleByProductIds(List<UUID> productIds) {
+        UUID storeId = context.storeId();
+        if (productIds.isEmpty()) return List.of();
+        var matching = ProductSearch.from(ProductSearch.Scope.SELLABLE, storeId, ProductSearch.Criteria.NONE);
+        var args = new ArrayList<>(matching.args());
+        String ids = String.join(",", productIds.stream().map(UUID::toString).toList());
+        args.add(ids);
+        args.add(ids);
+        return jdbc.query(COLUMNS + matching.text() + """
+                 AND p.id = ANY(string_to_array(?, ',')::uuid[])
+                 ORDER BY array_position(string_to_array(?, ',')::uuid[], p.id), v.is_default DESC, v.created_at, v.id
+                """, ROW, args.toArray());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<SellableVariant> getForInventory(Collection<UUID> variantIds) {
         return getByIds(variantIds, ProductSearch.Scope.INVENTORY);
     }

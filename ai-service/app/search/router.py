@@ -16,6 +16,7 @@ Luồng tìm kiếm:
 """
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
@@ -38,6 +39,23 @@ where store_id = %(store_id)s
   and model_version = %(model_version)s
 order by embedding <=> %(vector)s
 limit %(limit)s
+"""
+ALTERNATIVES_SQL = """\
+select candidates.product_id, 1 - (candidates.embedding <=> origin.embedding) as score
+from ai.product_embedding origin
+cross join lateral (
+    select product_id, embedding
+    from ai.product_embedding
+    where store_id = %(store_id)s
+      and model_version = %(model_version)s
+      and product_id <> %(product_id)s
+    order by embedding <=> origin.embedding
+    limit %(limit)s
+) candidates
+where origin.store_id = %(store_id)s and origin.model_version = %(model_version)s
+  and origin.product_id = %(product_id)s
+  and 1 - (candidates.embedding <=> origin.embedding) >= 0.35
+order by score desc, candidates.product_id
 """
 
 
@@ -89,3 +107,19 @@ def search(
     )
     fused = fuse_rankings(semantic_ids, lexical_ids, limit)
     return SearchResponse(items=[SearchHit(productId=product_id, score=score) for product_id, score in fused])
+
+
+@router.get("/search/alternatives", response_model=SearchResponse)
+def alternatives(
+    user: CurrentUserDep,
+    productId: UUID,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = MAX_LIMIT,
+) -> SearchResponse:
+    """Xếp ứng viên gần sản phẩm hết hàng, tồn kho được kiểm khi lấy Biến thể ở sales."""
+    with db.store_transaction(user.store_id) as conn:
+        rows = conn.execute(
+            ALTERNATIVES_SQL,
+            {"store_id": user.store_id, "model_version": embedding.model_name(),
+             "product_id": productId, "limit": limit},
+        ).fetchall()
+    return SearchResponse(items=[SearchHit(productId=str(product_id), score=score) for product_id, score in rows])

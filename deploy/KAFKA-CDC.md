@@ -82,7 +82,21 @@ Cảnh báo khi slot không active kéo dài, `wal_status` sang `unreserved`/`lo
 
 Các lựa chọn được đối chiếu với [PostgreSQL 18 pg_basebackup](https://www.postgresql.org/docs/18/app-pgbasebackup.html), [giới hạn replication slot](https://www.postgresql.org/docs/18/runtime-config-replication.html), [Debezium 3.4 hỗ trợ PostgreSQL 18](https://debezium.io/releases/3.4/), [thông báo snapshot](https://debezium.io/documentation/reference/3.4/configuration/notification.html) và [cấu hình Docker Kafka](https://github.com/apache/kafka/blob/4.1.1/docker/examples/docker-compose-files/single-node/plaintext/docker-compose.yml).
 
-## Phương án khi tăng kích thước tệp
+## Nhập tệp lớn qua multipart
 
-- Có thể chuyển volume tệp sang kho đối tượng khi cần chạy worker trên nhiều máy. API cấp URL ký theo cửa hàng và mã tải lên, trình duyệt tải trực tiếp và xác minh checksum, kích thước trước khi tạo lệnh xử lý. Dùng multipart của kho đối tượng nếu cần tiếp tục tệp rất lớn sau khi gián đoạn. [URL tải lên có chữ ký](https://docs.aws.amazon.com/AmazonS3/latest/userguide/PresignedUrlUploadObject.html) · [Multipart upload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html)
-- Bộ đọc hiện dựng danh sách dòng, còn Excel dùng `XSSFWorkbook`. Để tăng đáng kể số dòng, cần đọc CSV theo luồng và XLSX bằng trình đọc sự kiện, nạp lô vào bảng trung gian bằng `COPY`, phân trang kết quả xem trước rồi áp dụng nghiệp vụ theo loại chứng từ. [Trình đọc sự kiện XLSX của Apache POI](https://poi.apache.org/components/spreadsheet/how-to.html#xssf_sax_api) · [PostgreSQL COPY](https://www.postgresql.org/docs/18/sql-copy.html)
+Overlay [compose.multipart.yml](compose.multipart.yml) bật kho MinIO tương thích S3 cho demo. Giữ cấu hình và toàn bộ volume của project đang chạy. Thêm overlay vào sau `compose.kafka.yml` và trước override theo môi trường. Đặt ba biến riêng trong một env file local không commit.
+
+| Biến | Giá trị |
+|---|---|
+| `IMPORT_STORAGE_PUBLIC_ORIGIN` | Origin HTTPS của web, không có path. Thay đổi cùng tunnel khi URL demo đổi. |
+| `IMPORT_STORAGE_USER`, `IMPORT_STORAGE_PASSWORD` | Thông tin xác thực riêng cho kho demo. Giữ nguyên khi chạy lại volume hiện tại. |
+
+Chỉ web nhận kết nối bên ngoài. Nginx chỉ chuyển tiếp `PUT` có phần đường dẫn bucket và key quy định. Backend và worker giao tiếp với kho qua mạng Compose. Route này giữ Host và URI cho chữ ký, bỏ cookie phiên ứng dụng và tắt access log để tránh lưu URL ký. Kho nằm trong volume `import-object-data`.
+
+Phiên mới có giới hạn 128 MiB, chia part 8 MiB, tải song song tối đa hai phần. Mỗi cửa hàng có tối đa hai phiên tải hoạt động. Tổng dung lượng giữ chỗ mặc định 1 GiB. Thiết lập bảng trung gian giới hạn hai lần nhập hoạt động mỗi cửa hàng và 16 lần trên toàn cụm. Dữ liệu thô chuẩn hóa tối đa 16 MiB mỗi tác vụ. Worker dọn các phần, file và dòng trung gian theo vòng đời có giới hạn. Khi overlay tắt, giao diện vẫn dùng tuyến upload qua backend 2 MiB.
+
+API chỉ ký URL khi có `Content-Length` và SHA-256 đúng với part đã khai. Khi người dùng mở lại màn, chọn phiên đang dở và đúng file gốc. Giao diện hỏi lại S3 qua backend, giữ các phần đã xác nhận và gửi lại những phần còn thiếu. Backend dùng `ListParts` để kiểm tra kích thước, checksum và ETag trước khi ghép. Sau khi ghép, backend xác nhận object qua `HeadObject` và gửi lệnh xem trước qua Kafka. [Multipart upload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html)
+
+Worker đọc CSV theo luồng và mở XLSX theo sự kiện từ file tạm có giới hạn. Các dòng được ghi theo lô bằng JDBC vào bảng PostgreSQL dùng RLS. API xem trước lấy theo trang và không gửi lại file khi xác nhận. Bộ quy tắc đối chiếu nghiệp vụ dùng danh sách dòng đã chuẩn hóa trong giới hạn tác vụ. Ngưỡng danh mục là 50.000 dòng, Phiếu nhập là 1.000 dòng. Đo lượng dữ liệu và thời gian khóa trước khi tăng giới hạn. [Trình đọc sự kiện XLSX của Apache POI](https://poi.apache.org/components/spreadsheet/how-to.html#xssf_sax_api)
+
+Khi dùng Amazon S3 thay MinIO, cấu hình `APP_IMPORT_UPLOADS_ENABLED`, `APP_IMPORT_UPLOADS_BUCKET`, `APP_IMPORT_UPLOADS_REGION` và thông tin xác thực IAM trên backend lẫn worker. Backend dùng chuỗi cấp thông tin xác thực mặc định của AWS SDK nếu access key riêng của ứng dụng để trống. Cấp quyền ghi, đọc, xóa, liệt kê part, hủy multipart và kiểm tra object trong bucket riêng tư. Bucket phải cho phép origin frontend gửi `PUT` kèm header ký và đọc `ETag`. Thiết lập lifecycle dọn phiên multipart bỏ dở. Kiểm thử URL ký với kho và trình duyệt thực tế trước khi cung cấp cho người dùng. [CORS của S3](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ManageCorsUsing.html) · [Quyền multipart](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html#mpuAndPermissions)

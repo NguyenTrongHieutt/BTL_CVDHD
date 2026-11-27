@@ -50,7 +50,11 @@ class KafkaBackofficeWriteQueue implements BackofficeWriteQueue {
     @Override public boolean enabled() { return enabled; }
 
     @Override
-    public Accepted submit(String action, UUID key, Object payload) {
+    public UUID operation(String action, UUID key, Object payload) {
+        return command(action, key, payload).operationId();
+    }
+
+    private BackofficeCommand command(String action, UUID key, Object payload) {
         if (!enabled) throw new IllegalStateException("Back-office queue publishing is disabled");
         if (key == null) {
             throw ProblemException.unprocessable("/errors/common/idempotency-key-missing", "Thiếu Idempotency-Key",
@@ -63,8 +67,14 @@ class KafkaBackofficeWriteQueue implements BackofficeWriteQueue {
         }
         String hash = idempotency.hash(handlers.fingerprint(handler, payload));
         UUID operation = operationId(context.storeId(), context.userId(), action, key, hash);
-        var command = new BackofficeCommand(operation, context.storeId(), context.userId(), context.role(), key,
+        return new BackofficeCommand(operation, context.storeId(), context.userId(), context.role(), key,
                 action, hash, json.valueToTree(payload));
+    }
+
+    @Override
+    public Accepted submit(String action, UUID key, Object payload) {
+        var command = command(action, key, payload);
+        var handler = handlers.require(action);
         String wire = json.writeValueAsString(command);
         if (wire.getBytes(StandardCharsets.UTF_8).length > 900_000) {
             throw new ProblemException(HttpStatus.PAYLOAD_TOO_LARGE, "/errors/common/payload-too-large",
@@ -80,7 +90,7 @@ class KafkaBackofficeWriteQueue implements BackofficeWriteQueue {
                  | org.apache.kafka.common.KafkaException failure) {
             throw unavailable();
         }
-        return new Accepted(operation, "ACCEPTED", STATUS_PATH + operation);
+        return new Accepted(command.operationId(), "ACCEPTED", STATUS_PATH + command.operationId());
     }
 
     static UUID operationId(UUID store, UUID actor, String action, UUID key, String hash) {

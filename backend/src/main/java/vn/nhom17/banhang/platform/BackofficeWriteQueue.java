@@ -8,6 +8,7 @@ import org.springframework.http.ResponseEntity;
 public interface BackofficeWriteQueue {
     String STATUS_PATH = "/api/v1/platform/write-requests/";
     boolean enabled();
+    UUID operation(String action, UUID idempotencyKey, Object payload);
     Accepted submit(String action, UUID idempotencyKey, Object payload);
 
     record Accepted(UUID operationId, String status, String statusUrl) {

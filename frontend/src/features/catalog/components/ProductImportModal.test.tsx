@@ -57,11 +57,16 @@ const PREVIEW: ProductImportPreview = {
 /** Phản hồi lần lượt của các lần `POST …/import`; hết danh sách thì trả `RESULT`. */
 let importResponses: (() => Response)[];
 let previewResponses: (() => Response)[];
+const CAPABILITIES_PATH = '/api/v1/platform/import-uploads/capabilities';
+const callsTo = (path: string) => fetchMock.mock.calls.filter(
+  ([input]) => new URL(String(input), 'http://localhost').pathname === path,
+);
 
 function backend() {
   fetchMock.mockImplementation(async (input, init) => {
     const url = new URL(String(input), 'http://localhost');
     const method = init?.method ?? 'GET';
+    if (url.pathname === CAPABILITIES_PATH) return json({ enabled: false });
     if (url.pathname === TEMPLATE_PATH && method === 'GET') {
       if (url.searchParams.get('format') === 'csv') {
         return new Response('Tên Sản phẩm,Giá bán', { status: 200, headers: { 'Content-Type': 'text/csv' } });
@@ -186,7 +191,7 @@ describe('ProductImportModal', () => {
       await waitFor(() => expect(clicked).toEqual([{ href: 'blob:mau', download: 'mau-nhap-san-pham.xlsx' }]));
       expect(await created[0].text()).toBe('PK-mau');
       await waitFor(() => expect(revoke).toHaveBeenCalledWith('blob:mau'));
-      const [input, init] = fetchMock.mock.calls[0];
+      const [input, init] = callsTo(TEMPLATE_PATH)[0];
       expect(new URL(String(input), 'http://localhost').pathname).toBe(TEMPLATE_PATH);
       expect(init?.method).toBe('GET');
       expect(previewButton().disabled).toBe(true);
@@ -194,7 +199,7 @@ describe('ProductImportModal', () => {
       fireEvent.click(within(dialog()).getByRole('button', { name: 'Tải mẫu CSV' }));
       await waitFor(() => expect(clicked.at(-1)).toEqual({ href: 'blob:mau', download: 'mau-nhap-san-pham.csv' }));
       expect(await created[1].text()).toBe('Tên Sản phẩm,Giá bán');
-      expect(new URL(String(fetchMock.mock.calls[1][0]), 'http://localhost').searchParams.get('format')).toBe('csv');
+      expect(new URL(String(callsTo(TEMPLATE_PATH)[1][0]), 'http://localhost').searchParams.get('format')).toBe('csv');
     } finally {
       click.mockRestore();
       Reflect.deleteProperty(URL, 'createObjectURL');
@@ -276,7 +281,8 @@ describe('ProductImportModal', () => {
     expect(within(dialog()).queryByText(/File tối đa 2 MB/)).toBeNull();
     expect(previewButton().disabled).toBe(false);
     expect(importCalls()).toHaveLength(0);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(previewCalls()).toHaveLength(0);
+    expect(importCalls()).toHaveLength(0);
   });
 
   it('xem trước file sai mẫu hiển thị lý do và cho chọn file khác', async () => {

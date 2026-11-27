@@ -79,6 +79,10 @@ class PurchaseReceiptImportService {
     private record PreviewFingerprint(UUID storeId, RequestFingerprint request, SupplierSummary supplier,
             String catalogFingerprint, List<Stock> stock, List<PreviewRow> rows, List<RowError> errors, Long total) {}
 
+    ImportInput restore(String hash, List<JsonNode> rows, UUID supplier, String note, String edits) {
+        return new ImportInput(hash, catalog.restore(rows, readEdits(edits), json), supplier, note);
+    }
+
     ImportInput read(MultipartFile file, String supplierId, String note, String edits) {
         if (file == null) {
             throw field("file", "Chọn file .xlsx hoặc .csv để nhập kho.");

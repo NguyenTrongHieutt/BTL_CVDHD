@@ -3,12 +3,14 @@
  * Backend trả nhóm và lỗi ở bước xem trước. Chỉ gửi yêu cầu lưu sau khi người dùng xác nhận.
  */
 import { DownloadOutlined, FileTextOutlined, UploadOutlined } from '@ant-design/icons';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Flex, Modal, Typography, Upload } from 'antd';
 import { useEffect, useId, useRef, useState } from 'react';
 import { isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { downloadBlob } from '../../../shared/api/downloadBlob';
 import { ErrorAlert } from '../../../shared/components';
+import { useImportCapabilities } from '../../../shared/api/multipartImport';
+import { LargeImportModal } from '../../../shared/components/LargeImportModal';
 import { describeError } from '../../../shared/messages.vi';
 import {
   IDEMPOTENCY_KEY_REUSE,
@@ -99,7 +101,35 @@ function ImportResultView({ result }: { result: ProductImportResult }) {
   );
 }
 
-export function ProductImportModal({ onClose, onImported }: ProductImportModalProps) {
+export function ProductImportModal(props: ProductImportModalProps) {
+  const caps = useImportCapabilities();
+  return caps.data?.enabled
+    ? <MultipartProductImport {...props} capabilities={caps.data} />
+    : <LegacyProductImport {...props} />;
+}
+
+function MultipartProductImport({ onClose, onImported, capabilities }: ProductImportModalProps & {
+  capabilities: NonNullable<ReturnType<typeof useImportCapabilities>['data']>;
+}) {
+  const client = useQueryClient();
+  const template = useMutation({
+    mutationFn: fetchProductImportTemplate,
+    onSuccess: (blob, format) => downloadBlob(blob, `mau-nhap-san-pham.${format}`),
+  });
+  return <LargeImportModal<ProductImportResult> kind="PRODUCTS" capabilities={capabilities} onClose={onClose}
+    onSaved={result => {
+      for (const key of [['catalog', 'products'], ['catalog', 'categories'], ['inventory', 'stock'],
+        ['inventory', 'ledger'], ['sales', 'sellable']]) void client.invalidateQueries({ queryKey: key });
+      onImported?.(result);
+    }}
+    templates={<>
+      <Button disabled={template.isPending} onClick={() => template.mutate('xlsx')}>Tải mẫu Excel</Button>
+      <Button disabled={template.isPending} onClick={() => template.mutate('csv')}>Tải mẫu CSV</Button>
+      {template.isError && <ImportError error={template.error} />}
+    </>} />;
+}
+
+function LegacyProductImport({ onClose, onImported }: ProductImportModalProps) {
   const { close, modalProps } = useCatalogDialog(onClose);
   const [file, setFile] = useState<File | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);

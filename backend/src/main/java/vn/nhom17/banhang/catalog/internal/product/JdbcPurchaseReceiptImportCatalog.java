@@ -82,7 +82,23 @@ class JdbcPurchaseReceiptImportCatalog implements PurchaseReceiptImportCatalog {
 
     @Override
     public FileData read(byte[] content, String filename, List<Edit> edits) {
-        List<ImportRow> read = ProductImportReader.read(content, filename, ProductImportReader.Profile.RECEIPT);
+        return withEdits(ProductImportReader.read(content, filename, ProductImportReader.Profile.RECEIPT), edits);
+    }
+
+    @Override
+    public void readLarge(java.io.InputStream content, String filename, long bytes,
+            java.util.function.BiConsumer<Integer, Object> rows) {
+        LargeImportReader.read(content, filename, bytes, ProductImportReader.Profile.RECEIPT, 1000,
+                row -> rows.accept(row.row(), row));
+    }
+
+    @Override
+    public FileData restore(List<tools.jackson.databind.JsonNode> source, List<Edit> edits,
+            tools.jackson.databind.json.JsonMapper json) {
+        return withEdits(source.stream().map(row -> json.treeToValue(row, ImportRow.class)).toList(), edits);
+    }
+
+    private FileData withEdits(List<ImportRow> read, List<Edit> edits) {
         Map<Integer, Edit> patches = new HashMap<>();
         Set<Integer> rowNumbers = new HashSet<>();
         read.forEach(row -> rowNumbers.add(row.row()));

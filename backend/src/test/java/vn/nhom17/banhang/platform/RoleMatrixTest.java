@@ -113,6 +113,16 @@ class RoleMatrixTest {
                 // platform
                 row("GET", "/api/v1/platform/me", U, A, A),
                 row("GET", "/api/v1/platform/write-requests/{id}", U, A, A),
+                row("GET", "/api/v1/platform/import-uploads/capabilities", U, F, A),
+                row("GET", "/api/v1/platform/import-uploads", U, F, A),
+                row("POST", "/api/v1/platform/import-uploads", U, F, A),
+                row("GET", "/api/v1/platform/import-uploads/{id}", U, F, A),
+                row("DELETE", "/api/v1/platform/import-uploads/{id}", U, F, A),
+                row("PUT", "/api/v1/platform/import-uploads/{id}/manifest", U, F, A),
+                row("GET", "/api/v1/platform/import-uploads/{id}/parts", U, F, A),
+                row("POST", "/api/v1/platform/import-uploads/{id}/parts/urls", U, F, A),
+                row("PUT", "/api/v1/platform/import-uploads/{id}/parts/{number}", U, F, A),
+                row("POST", "/api/v1/platform/import-uploads/{id}/complete", U, F, A),
                 // Thông tin cá nhân (TK-04): cả hai vai trò, chỉ trên chính mình. Body "{}" của ma trận là dữ liệu sai
                 // (400), nên không đổi gì ở tài khoản dev.
                 row("GET", "/api/v1/platform/me/profile", U, A, A),
@@ -143,6 +153,11 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/catalog/products/import-template", U, F, A),
                 row("POST", "/api/v1/catalog/products/import/preview", U, F, A),
                 row("POST", "/api/v1/catalog/products/import", U, F, A),
+                row("POST", "/api/v1/catalog/products/import-jobs", U, F, A),
+                row("GET", "/api/v1/catalog/products/import-jobs/{id}", U, F, A),
+                row("GET", "/api/v1/catalog/products/import-jobs/{id}/rows", U, F, A),
+                row("POST", "/api/v1/catalog/products/import-jobs/{id}/confirm", U, F, A),
+                row("POST", "/api/v1/catalog/products/import-jobs/{id}/recheck", U, F, A),
                 // Ảnh Sản phẩm (SP-01b): xem cả hai vai trò (<img src> gửi cookie), tải lên, gỡ chỉ Chủ cửa hàng
                 row("GET", "/api/v1/catalog/products/{id}/image", U, A, A),
                 row("PUT", "/api/v1/catalog/products/{id}/image", U, F, A),
@@ -191,6 +206,11 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/inventory/purchase-receipts/import-template", U, F, A),
                 row("POST", "/api/v1/inventory/purchase-receipts/import/preview", U, F, A),
                 row("POST", "/api/v1/inventory/purchase-receipts/import", U, F, A),
+                row("POST", "/api/v1/inventory/purchase-receipts/import-jobs", U, F, A),
+                row("GET", "/api/v1/inventory/purchase-receipts/import-jobs/{id}", U, F, A),
+                row("GET", "/api/v1/inventory/purchase-receipts/import-jobs/{id}/rows", U, F, A),
+                row("PATCH", "/api/v1/inventory/purchase-receipts/import-jobs/{id}/rows", U, F, A),
+                row("POST", "/api/v1/inventory/purchase-receipts/import-jobs/{id}/confirm", U, F, A),
                 row("POST", "/api/v1/inventory/stocktakes", U, F, A),
                 row("PUT", "/api/v1/inventory/stock/{id}/min-quantity", U, F, A),
                 // reporting: chỉ Chủ cửa hàng

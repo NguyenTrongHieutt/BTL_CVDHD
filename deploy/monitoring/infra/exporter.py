@@ -104,6 +104,8 @@ class Samples:
 
 
 def _offsets(admin, partitions, spec):
+    if not partitions:
+        return {}
     requested = {TopicPartition(topic, partition): spec() for topic, partition in partitions}
     futures = admin.list_offsets(requested, request_timeout=REQUEST_SECONDS)
     return {(key.topic, key.partition): future.result(timeout=REQUEST_SECONDS).offset
@@ -170,7 +172,7 @@ def kafka_metrics(admin):
             [ConsumerGroupTopicPartitions(group, requested)], request_timeout=REQUEST_SECONDS
         )[group]
         result = future.result(timeout=REQUEST_SECONDS)
-        committed = {(item.topic, item.partition): item for item in result.topic_partitions}
+        committed = {(item.topic, item.partition): item for item in (result.topic_partitions or [])}
         for partition in topic_partitions[topic]:
             item = committed.get((topic, partition))
             if item is not None and item.error is not None:

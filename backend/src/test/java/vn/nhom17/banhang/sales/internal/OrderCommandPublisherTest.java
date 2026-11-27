@@ -15,6 +15,8 @@ import org.apache.kafka.clients.producer.MockProducer;
 import org.apache.kafka.clients.producer.RoundRobinPartitioner;
 import org.apache.kafka.common.serialization.StringSerializer;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
 import org.springframework.http.HttpStatus;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -61,7 +63,8 @@ class OrderCommandPublisherTest {
     void anUnavailableBrokerReturnsASafeRetryableError() {
         var kafka = new KafkaProperties();
         kafka.setBootstrapServers(List.of("127.0.0.1:1"));
-        var factory = new OrderQueueConfiguration.Publisher().salesOrderProducerFactory(kafka, 300);
+        var factory = new OrderQueueConfiguration.Publisher().salesOrderProducerFactory(kafka, 300,
+                new StaticListableBeanFactory().getBeanProvider(DefaultKafkaProducerFactoryCustomizer.class));
         try {
             var publisher = new OrderCommandPublisher(new KafkaTemplate<>(factory), context, json, "orders", 300);
             assertThatThrownBy(() -> publisher.publish(UUID.randomUUID(), request()))

@@ -1,0 +1,618 @@
+{
+  "title": "Tổng quan vận hành",
+  "uid": "banhang-overview",
+  "schemaVersion": 40,
+  "version": 2,
+  "editable": false,
+  "timezone": "browser",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "tags": [
+    "banhang",
+    "prometheus"
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "Mục đang thu",
+      "description": "Số target Prometheus thu được số liệu.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(up == 1)",
+          "legendFormat": "Đang thu",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Bản API sẵn sàng",
+      "description": "Số bản API Prometheus thu được số liệu.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(up{job=\"backend\"} == 1)",
+          "legendFormat": "Bản API",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Probe thất bại",
+      "description": "Probe HTTP và TCP đang không thành công.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu",
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(probe_success == bool 0)",
+          "legendFormat": "Thất bại",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Kết nối Nginx",
+      "description": "Kết nối mở hiện tại từ bộ xuất chỉ số Nginx.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(nginx_connections_active)",
+          "legendFormat": "Kết nối",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Yêu cầu theo bản API",
+      "description": "Tốc độ yêu cầu nghiệp vụ theo địa chỉ bản API nội bộ.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (instance) (rate(http_server_requests_seconds_count{job=\"backend\",uri=~\"/api/.*\"}[$__rate_interval]))",
+          "legendFormat": "API {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Tỷ lệ HTTP 5xx của API",
+      "description": "Tỷ lệ lỗi máy chủ trong số yêu cầu API. Không có mẫu khi không có yêu cầu.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "noValue": "Chưa có mẫu",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "(sum(rate(http_server_requests_seconds_count{job=\"backend\",uri=~\"/api/.*\",status=~\"5..\"}[$__rate_interval])) or 0 * sum(rate(http_server_requests_seconds_count{job=\"backend\",uri=~\"/api/.*\"}[$__rate_interval]))) / (sum(rate(http_server_requests_seconds_count{job=\"backend\",uri=~\"/api/.*\"}[$__rate_interval])) > 0)",
+          "legendFormat": "Lỗi 5xx",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Độ trễ p95 API",
+      "description": "95% yêu cầu API hoàn tất trong khoảng thời gian này, tính theo bản API.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, instance) (rate(http_server_requests_seconds_bucket{job=\"backend\",uri=~\"/api/.*\"}[$__rate_interval])))",
+          "legendFormat": "API {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Độ trễ p95 AI",
+      "description": "95% yêu cầu trên từng đường dẫn AI hoàn tất trong khoảng thời gian này.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, route) (rate(banhang_ai_request_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{route}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Bộ nhớ heap JVM",
+      "description": "Dung lượng heap của mỗi bản Java đang dùng.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (job,instance) (jvm_memory_used_bytes{area=\"heap\",job=~\"backend|java-workers\"})",
+          "legendFormat": "{{job}} · {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Kết nối Hikari đang dùng",
+      "description": "Số kết nối thực sự đang được dùng theo tiến trình Java.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu",
+          "custom": { "axisSoftMin": 0, "axisSoftMax": 5 }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (job,instance) (hikaricp_connections_active{job=~\"backend|java-workers\"})",
+          "legendFormat": "{{job}} · {{instance}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "Tốc độ yêu cầu AI",
+      "description": "Tải theo đường dẫn của ba API AI.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (route) (rate(banhang_ai_requests_total[$__rate_interval]))",
+          "legendFormat": "{{route}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Lag Kafka phía worker",
+      "description": "Giá trị lớn nhất theo topic trong các partition mà worker đang đọc.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (topic) (kafka_consumer_fetch_manager_records_lag{job=\"java-workers\"})",
+          "legendFormat": "{{topic}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    }
+  ]
+}

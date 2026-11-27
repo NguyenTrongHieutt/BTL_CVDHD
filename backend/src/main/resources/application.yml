@@ -47,6 +47,8 @@ server:
     max-swallow-size: 10MB
 
 management:
+  # Prometheus chỉ được expose khi overlay đặt MANAGEMENT_SERVER_PORT và thêm prometheus vào exposure.include.
+  # Mặc định vẫn dùng /actuator/health trên cổng API, không mở listener quản trị thứ hai.
   endpoints:
     web:
       exposure:
@@ -55,6 +57,11 @@ management:
     health:
       probes:
         enabled: true
+        add-additional-paths: true   # /livez và /readyz vẫn kiểm tra được listener API khi Actuator dùng cổng riêng.
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: ${MONITORING_HTTP_HISTOGRAM:false}  # histogram_quantile(0.95, ...) dùng route template.
 
 springdoc:
   api-docs:

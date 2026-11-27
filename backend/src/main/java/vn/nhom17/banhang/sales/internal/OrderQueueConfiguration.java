@@ -6,11 +6,14 @@ import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.apache.kafka.common.serialization.StringSerializer;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.kafka.autoconfigure.KafkaProperties;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaConsumerFactoryCustomizer;
+import org.springframework.boot.kafka.autoconfigure.DefaultKafkaProducerFactoryCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.annotation.EnableKafka;
@@ -30,7 +33,8 @@ class OrderQueueConfiguration {
     static class Publisher {
         @Bean
         DefaultKafkaProducerFactory<String, String> salesOrderProducerFactory(KafkaProperties kafka,
-                @Value("${app.sales.queue.publish-timeout-ms:10000}") long timeoutMillis) {
+                @Value("${app.sales.queue.publish-timeout-ms:10000}") long timeoutMillis,
+                ObjectProvider<DefaultKafkaProducerFactoryCustomizer> customizers) {
             if (timeoutMillis < 1 || timeoutMillis > Integer.MAX_VALUE) {
                 throw new IllegalArgumentException("app.sales.queue.publish-timeout-ms không hợp lệ");
             }
@@ -46,7 +50,9 @@ class OrderQueueConfiguration {
             properties.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, Math.min(timeoutMillis, 5000));
             properties.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, (int) Math.min(timeoutMillis, 5000));
             properties.put(ProducerConfig.DELIVERY_TIMEOUT_MS_CONFIG, (int) timeoutMillis);
-            return new DefaultKafkaProducerFactory<>(properties);
+            var factory = new DefaultKafkaProducerFactory<String, String>(properties);
+            customizers.orderedStream().forEach(customizer -> customizer.customize(factory));
+            return factory;
         }
 
         @Bean
@@ -62,14 +68,17 @@ class OrderQueueConfiguration {
     static class Consumer {
         @Bean
         DefaultKafkaConsumerFactory<String, String> salesOrderConsumerFactory(KafkaProperties kafka,
-                @Value("${app.sales.queue.consumer-group:sales-order-worker-v1}") String group) {
+                @Value("${app.sales.queue.consumer-group:sales-order-worker-v1}") String group,
+                ObjectProvider<DefaultKafkaConsumerFactoryCustomizer> customizers) {
             Map<String, Object> properties = new HashMap<>(kafka.buildConsumerProperties());
             properties.put(ConsumerConfig.GROUP_ID_CONFIG, group);
             properties.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
             properties.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
             properties.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1);
             properties.put(ConsumerConfig.ALLOW_AUTO_CREATE_TOPICS_CONFIG, false);
-            return new DefaultKafkaConsumerFactory<>(properties, new StringDeserializer(), new StringDeserializer());
+            var factory = new DefaultKafkaConsumerFactory<>(properties, new StringDeserializer(), new StringDeserializer());
+            customizers.orderedStream().forEach(customizer -> customizer.customize(factory));
+            return factory;
         }
 
         @Bean

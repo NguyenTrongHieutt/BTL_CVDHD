@@ -1,0 +1,341 @@
+"""Small, read-only Kafka and PostgreSQL metrics endpoint for the async demo.
+
+The poller runs outside HTTP requests. Each collection cycle makes a bounded
+number of metadata/offset and SQL reads; Prometheus receives a cached snapshot.
+No message payload, query text, customer identifier, or password is exported.
+"""
+
+import logging
+import math
+import os
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+import psycopg
+from confluent_kafka import ConsumerGroupTopicPartitions, TopicPartition
+from confluent_kafka.admin import AdminClient, OffsetSpec
+
+
+LOG = logging.getLogger("infra-metrics")
+POLL_SECONDS = 15
+REQUEST_SECONDS = 4
+TOPICS = {
+    "sales.order-commands.v1": 3,
+    "backoffice.write-commands.v1": 3,
+    "backoffice.file-commands.v1": 1,
+    "banhang.reporting": 1,
+    "banhang.connect.config": 1,
+    "banhang.connect.offsets": 1,
+    "banhang.connect.status": 1,
+}
+DATA_TOPICS = frozenset(("sales.order-commands.v1", "backoffice.write-commands.v1",
+                         "backoffice.file-commands.v1", "banhang.reporting"))
+
+# All labels have fixed or bounded cardinality. Do not add query text or IDs.
+METRICS = {
+    "infra_metrics_collect_success": ("Last read completed successfully by source.", "gauge"),
+    "infra_metrics_collect_timestamp_seconds": ("Unix time of last successful read by source.", "gauge"),
+    "infra_kafka_broker_count": ("Brokers present in Kafka cluster metadata.", "gauge"),
+    "infra_kafka_controller_present": ("Kafka cluster metadata identifies a controller.", "gauge"),
+    "infra_kafka_topic_present": ("Expected Kafka topic exists and has no metadata error.", "gauge"),
+    "infra_kafka_topic_partition_count": ("Partitions in an expected Kafka topic.", "gauge"),
+    "infra_kafka_partition_leader_present": ("Kafka partition has a leader.", "gauge"),
+    "infra_kafka_partition_replica_count": ("Assigned replicas for a Kafka partition.", "gauge"),
+    "infra_kafka_partition_isr_count": ("In-sync replicas for a Kafka partition.", "gauge"),
+    "infra_kafka_under_replicated_partitions": ("Expected partitions with ISR smaller than assigned replicas.", "gauge"),
+    "infra_kafka_offline_partitions": ("Expected partitions lacking a leader.", "gauge"),
+    "infra_kafka_partition_low_offset": ("Earliest retained Kafka record offset.", "gauge"),
+    "infra_kafka_partition_high_offset": ("Next Kafka record offset at the log end.", "gauge"),
+    "infra_kafka_partition_retained_records": ("Offset span between earliest and latest in a non-compacted data topic; not bytes.", "gauge"),
+    "infra_kafka_group_offset_present": ("A durable committed group offset exists for this partition.", "gauge"),
+    "infra_kafka_group_committed_offset": ("Next durable committed consumer-group offset.", "gauge"),
+    "infra_kafka_group_lag_records": ("Records from durable group offset to log end; absent offsets start at retention floor.", "gauge"),
+    "infra_kafka_group_retention_gap_records": ("Committed group offset behind earliest retained record.", "gauge"),
+    "infra_cdc_checkpoint_next_offset": ("Next warehouse offset durably committed with reporting data.", "gauge"),
+    "infra_cdc_lag_records": ("Kafka CDC log end minus durable warehouse checkpoint.", "gauge"),
+    "infra_cdc_retention_gap_records": ("Durable warehouse checkpoint behind earliest retained CDC record.", "gauge"),
+    "infra_cdc_checkpoint_ahead_records": ("Durable warehouse checkpoint ahead of Kafka log end.", "gauge"),
+    "infra_cdc_snapshot_completed": ("Warehouse initial snapshot completed.", "gauge"),
+    "infra_cdc_caught_up": ("Warehouse reports being caught up at its last poll.", "gauge"),
+    "infra_cdc_error_present": ("Warehouse CDC state records a worker error.", "gauge"),
+    "infra_cdc_last_poll_timestamp_seconds": ("Unix time of warehouse worker's last poll.", "gauge"),
+    "infra_cdc_last_commit_timestamp_seconds": ("Unix time of warehouse worker's last durable checkpoint.", "gauge"),
+    "infra_cdc_last_heartbeat_timestamp_seconds": ("Unix time of last source heartbeat applied to warehouse.", "gauge"),
+    "infra_postgres_query_calls_total": ("SQL execution calls recorded by pg_stat_statements in the primary database.", "counter"),
+    "infra_postgres_query_exec_seconds_total": ("SQL execution time recorded by pg_stat_statements in the primary database.", "counter"),
+    "infra_postgres_query_rows_total": ("Rows recorded by pg_stat_statements in the primary database.", "counter"),
+    "infra_postgres_query_stats_reset_timestamp_seconds": ("Unix time of latest pg_stat_statements reset.", "gauge"),
+    "infra_postgres_replica_connected": ("Expected physical standby appears in primary pg_stat_replication.", "gauge"),
+    "infra_postgres_replica_wal_lag_bytes": ("Primary WAL position minus physical standby replay position.", "gauge"),
+    "infra_postgres_wal_bytes_total": ("WAL bytes generated by the primary since pg_stat_wal reset.", "counter"),
+    "infra_postgres_lock_waiters": ("Primary sessions currently waiting on a SQL lock.", "gauge"),
+}
+
+
+def _escape_label(value):
+    return str(value).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
+
+
+class Samples:
+    def __init__(self):
+        self.lines = []
+        self.names = set()
+
+    def add(self, name, value, **labels):
+        if name not in METRICS:
+            raise ValueError("unregistered metric")
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise ValueError("non-finite metric")
+        if name not in self.names:
+            help_text, kind = METRICS[name]
+            self.lines.extend((f"# HELP {name} {help_text}", f"# TYPE {name} {kind}"))
+            self.names.add(name)
+        label_text = ""
+        if labels:
+            pairs = (f'{key}="{_escape_label(item)}"' for key, item in sorted(labels.items()))
+            label_text = "{" + ",".join(pairs) + "}"
+        rendered = str(int(numeric)) if numeric.is_integer() else repr(numeric)
+        self.lines.append(f"{name}{label_text} {rendered}")
+
+    def render(self):
+        return "\n".join(self.lines) + "\n"
+
+
+def _offsets(admin, partitions, spec):
+    if not partitions:
+        return {}
+    requested = {TopicPartition(topic, partition): spec() for topic, partition in partitions}
+    futures = admin.list_offsets(requested, request_timeout=REQUEST_SECONDS)
+    return {(key.topic, key.partition): future.result(timeout=REQUEST_SECONDS).offset
+            for key, future in futures.items()}
+
+
+def kafka_metrics(admin):
+    from collections import defaultdict
+
+    metrics = Samples()
+    metadata = admin.list_topics(timeout=REQUEST_SECONDS)
+    metrics.add("infra_kafka_broker_count", len(metadata.brokers))
+    metrics.add("infra_kafka_controller_present", metadata.controller_id >= 0)
+    partitions = []
+    under_replicated = 0
+    offline = 0
+    for topic, expected in TOPICS.items():
+        description = metadata.topics.get(topic)
+        present = description is not None and description.error is None
+        metrics.add("infra_kafka_topic_present", present, topic=topic)
+        if not present:
+            continue
+        metrics.add("infra_kafka_topic_partition_count", len(description.partitions), topic=topic)
+        if len(description.partitions) != expected:
+            LOG.warning("Unexpected partition count for %s", topic)
+        for partition_id, partition in description.partitions.items():
+            if partition.error is not None:
+                raise RuntimeError("partition metadata unavailable")
+            labels = {"topic": topic, "partition": partition_id}
+            leader_present = partition.leader >= 0
+            replica_count = len(partition.replicas)
+            isr_count = len(partition.isrs)
+            offline += not leader_present
+            under_replicated += isr_count < replica_count
+            metrics.add("infra_kafka_partition_leader_present", leader_present, **labels)
+            metrics.add("infra_kafka_partition_replica_count", replica_count, **labels)
+            metrics.add("infra_kafka_partition_isr_count", isr_count, **labels)
+            if topic in DATA_TOPICS:
+                partitions.append((topic, partition_id))
+    metrics.add("infra_kafka_under_replicated_partitions", under_replicated)
+    metrics.add("infra_kafka_offline_partitions", offline)
+    low = _offsets(admin, partitions, OffsetSpec.earliest)
+    high = _offsets(admin, partitions, OffsetSpec.latest)
+    for topic, partition in partitions:
+        labels = {"topic": topic, "partition": partition}
+        metrics.add("infra_kafka_partition_low_offset", low[topic, partition], **labels)
+        metrics.add("infra_kafka_partition_high_offset", high[topic, partition], **labels)
+        metrics.add("infra_kafka_partition_retained_records", max(high[topic, partition] - low[topic, partition], 0), **labels)
+
+    groups = (
+        (os.environ["SALES_GROUP"], "sales.order-commands.v1"),
+        (os.environ["BACKOFFICE_GROUP"], "backoffice.write-commands.v1"),
+        (os.environ["BACKOFFICE_FILE_GROUP"], "backoffice.file-commands.v1"),
+        (os.environ["CDC_GROUP"], os.environ["CDC_TOPIC"]),
+    )
+    topic_partitions = defaultdict(list)
+    for topic, partition in partitions:
+        topic_partitions[topic].append(partition)
+    for group, topic in groups:
+        if not topic_partitions[topic]:
+            continue
+        requested = [TopicPartition(topic, partition) for partition in topic_partitions[topic]]
+        future = admin.list_consumer_group_offsets(
+            [ConsumerGroupTopicPartitions(group, requested)], request_timeout=REQUEST_SECONDS
+        )[group]
+        result = future.result(timeout=REQUEST_SECONDS)
+        committed = {(item.topic, item.partition): item for item in (result.topic_partitions or [])}
+        for partition in topic_partitions[topic]:
+            item = committed.get((topic, partition))
+            if item is not None and item.error is not None:
+                raise RuntimeError("consumer group offset unavailable")
+            position = item.offset if item is not None else -1
+            present = position >= 0
+            labels = {"group": group, "topic": topic, "partition": partition}
+            metrics.add("infra_kafka_group_offset_present", present, **labels)
+            if present:
+                metrics.add("infra_kafka_group_committed_offset", position, **labels)
+            retained_floor = low[topic, partition]
+            metrics.add("infra_kafka_group_lag_records", max(high[topic, partition] -
+                        (position if present else retained_floor), 0), **labels)
+            metrics.add("infra_kafka_group_retention_gap_records",
+                        max(retained_floor - position, 0) if present else 0, **labels)
+    return metrics, low, high
+
+
+def postgres_query_metrics():
+    metrics = Samples()
+    with psycopg.connect(connect_timeout=3, autocommit=True, application_name="infra-metrics",
+                         options="-c statement_timeout=3000") as connection:
+        calls, execution_ms, rows = connection.execute("""
+            SELECT coalesce(sum(s.calls), 0), coalesce(sum(s.total_exec_time), 0),
+                   coalesce(sum(s.rows), 0)
+            FROM pg_stat_statements AS s
+            WHERE s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database())
+        """).fetchone()
+        reset_at = connection.execute(
+            "SELECT extract(epoch FROM stats_reset) FROM pg_stat_statements_info"
+        ).fetchone()[0]
+        replicas = connection.execute("""
+            SELECT application_name, pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn)
+            FROM pg_stat_replication
+            WHERE application_name IN ('db-replica-1', 'db-replica-2')
+        """).fetchall()
+        wal_bytes = connection.execute("SELECT wal_bytes FROM pg_stat_wal").fetchone()[0]
+        lock_waiters = connection.execute("""
+            SELECT count(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock'
+        """).fetchone()[0]
+    metrics.add("infra_postgres_query_calls_total", calls, database="banhang")
+    metrics.add("infra_postgres_query_exec_seconds_total", execution_ms / 1000, database="banhang")
+    metrics.add("infra_postgres_query_rows_total", rows, database="banhang")
+    if reset_at is not None:
+        metrics.add("infra_postgres_query_stats_reset_timestamp_seconds", reset_at, database="banhang")
+    replay_lag = {name: lag for name, lag in replicas}
+    for replica in ("db-replica-1", "db-replica-2"):
+        connected = replica in replay_lag
+        metrics.add("infra_postgres_replica_connected", connected, replica=replica)
+        if connected and replay_lag[replica] is not None:
+            metrics.add("infra_postgres_replica_wal_lag_bytes", max(replay_lag[replica], 0), replica=replica)
+    metrics.add("infra_postgres_wal_bytes_total", wal_bytes)
+    metrics.add("infra_postgres_lock_waiters", lock_waiters)
+    return metrics
+
+
+def cdc_metrics(low, high):
+    metrics = Samples()
+    with psycopg.connect(host=os.environ["WAREHOUSE_HOST"], dbname=os.environ["WAREHOUSE_DATABASE"],
+                         user=os.environ["WAREHOUSE_USER"], password=os.environ["WAREHOUSE_PASSWORD"],
+                         connect_timeout=3, autocommit=True, application_name="infra-metrics",
+                         options="-c statement_timeout=3000") as connection:
+        row = connection.execute("""
+            SELECT topic, next_offset, snapshot_completed, caught_up,
+                   last_error IS NOT NULL, extract(epoch FROM last_poll_at),
+                   extract(epoch FROM last_commit_at), extract(epoch FROM last_heartbeat_at)
+            FROM warehouse.cdc_state WHERE singleton
+        """).fetchone()
+    if row is None or row[0] != os.environ["CDC_TOPIC"]:
+        raise RuntimeError("warehouse checkpoint missing or topic mismatch")
+    topic, checkpoint, snapshot, caught_up, error, poll_at, commit_at, heartbeat_at = row
+    metrics.add("infra_cdc_checkpoint_next_offset", checkpoint)
+    metrics.add("infra_cdc_snapshot_completed", snapshot)
+    metrics.add("infra_cdc_caught_up", caught_up)
+    metrics.add("infra_cdc_error_present", error)
+    for name, value in (
+        ("infra_cdc_last_poll_timestamp_seconds", poll_at),
+        ("infra_cdc_last_commit_timestamp_seconds", commit_at),
+        ("infra_cdc_last_heartbeat_timestamp_seconds", heartbeat_at),
+    ):
+        if value is not None:
+            metrics.add(name, value)
+    partition = (topic, 0)
+    if partition in high:
+        metrics.add("infra_cdc_lag_records", max(high[partition] - checkpoint, 0))
+        metrics.add("infra_cdc_checkpoint_ahead_records", max(checkpoint - high[partition], 0))
+        metrics.add("infra_cdc_retention_gap_records", max(low[partition] - checkpoint, 0))
+    return metrics
+
+
+class Snapshot:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.data = {source: (False, None, Samples()) for source in ("kafka", "postgres_queries", "cdc")}
+
+    def update(self, source, success, metrics):
+        with self.lock:
+            previous_timestamp = self.data[source][1]
+            self.data[source] = (success, time.time() if success else previous_timestamp, metrics)
+
+    def render(self):
+        with self.lock:
+            data = self.data.copy()
+        result = Samples()
+        for source, (success, timestamp, _) in data.items():
+            result.add("infra_metrics_collect_success", success, source=source)
+            if timestamp is not None:
+                result.add("infra_metrics_collect_timestamp_seconds", timestamp, source=source)
+        for _, (_, _, samples) in data.items():
+            result.lines.extend(samples.lines)
+        return result.render().encode("utf-8")
+
+
+def poll(snapshot):
+    admin = AdminClient({"bootstrap.servers": os.environ["KAFKA_BOOTSTRAP_SERVERS"],
+                         "client.id": "infra-metrics", "socket.timeout.ms": 4000,
+                         "retries": 0, "allow.auto.create.topics": False})
+    while True:
+        started = time.monotonic()
+        low, high = {}, {}
+        for source, reader in (
+            ("kafka", lambda: kafka_metrics(admin)),
+            ("postgres_queries", postgres_query_metrics),
+            ("cdc", lambda: cdc_metrics(low, high)),
+        ):
+            try:
+                if source == "kafka":
+                    metrics, low, high = reader()
+                else:
+                    metrics = reader()
+                snapshot.update(source, True, metrics)
+            except Exception as failure:
+                # Exception messages from drivers can include connection details.
+                LOG.warning("%s collection failed: %s", source, type(failure).__name__)
+                snapshot.update(source, False, Samples())
+        time.sleep(max(0.5, POLL_SECONDS - (time.monotonic() - started)))
+
+
+class Handler(BaseHTTPRequestHandler):
+    snapshot = None
+
+    def do_GET(self):
+        if self.path != "/metrics":
+            self.send_error(404)
+            return
+        payload = self.snapshot.render()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, _format, *_args):
+        pass
+
+
+def main():
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    snapshot = Snapshot()
+    Handler.snapshot = snapshot
+    threading.Thread(target=poll, args=(snapshot,), daemon=True).start()
+    HTTPServer(("0.0.0.0", 9198), Handler).serve_forever()
+
+
+if __name__ == "__main__":
+    main()

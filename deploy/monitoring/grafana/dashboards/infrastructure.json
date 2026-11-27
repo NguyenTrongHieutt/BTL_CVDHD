@@ -1,0 +1,894 @@
+{
+  "uid": "banhang-infrastructure",
+  "title": "Hạ tầng và hàng đợi",
+  "description": "PostgreSQL, Kafka, CDC và tài nguyên container của bản demo.",
+  "schemaVersion": 40,
+  "version": 1,
+  "editable": false,
+  "timezone": "browser",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "tags": [
+    "banhang",
+    "infrastructure"
+  ],
+  "links": [
+    {
+      "type": "link",
+      "title": "Tìm trace đơn bán",
+      "url": "/explore?orgId=1&schemaVersion=1&panes=%7B%22order%22%3A%7B%22datasource%22%3A%22banhang-tempo%22%2C%22queries%22%3A%5B%7B%22refId%22%3A%22A%22%2C%22datasource%22%3A%7B%22type%22%3A%22tempo%22%2C%22uid%22%3A%22banhang-tempo%22%7D%2C%22queryType%22%3A%22traceql%22%2C%22query%22%3A%22%7B%20resource.service.name%20%3D%20%5C%22banhang-backend%5C%22%20%26%26%20span.http.route%20%3D%20%5C%22%2Fapi%2Fv1%2Fsales%2Forders%5C%22%20%7D%22%7D%5D%2C%22range%22%3A%7B%22from%22%3A%22now-1h%22%2C%22to%22%3A%22now%22%7D%7D%7D",
+      "tooltip": "Mở Grafana Explore với nguồn Tempo.",
+      "targetBlank": false
+    }
+  ],
+  "panels": [
+    {
+      "id": 1,
+      "title": "PostgreSQL đang thu",
+      "description": "Số node PostgreSQL mà exporter kết nối được. Cụm nghiệp vụ có 3 node và kho báo cáo có 1 node.",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(pg_up == 1)",
+          "legendFormat": "Node",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Broker Kafka",
+      "description": "Số broker trong metadata Kafka.",
+      "type": "stat",
+      "gridPos": {
+        "x": 6,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "infra_kafka_broker_count",
+          "legendFormat": "Broker",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Độ trễ CDC",
+      "description": "Khoảng cách từ checkpoint đã ghi trong kho báo cáo đến cuối log Kafka.",
+      "type": "stat",
+      "gridPos": {
+        "x": 12,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "infra_cdc_lag_records",
+          "legendFormat": "Offset",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Tuổi mẫu Docker",
+      "description": "Số giây từ lần bộ thu trên Windows hoàn tất đọc Docker stats.",
+      "type": "stat",
+      "gridPos": {
+        "x": 18,
+        "y": 0,
+        "w": 6,
+        "h": 4
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(time() - docker_container_collector_last_success_timestamp_seconds, 0)",
+          "legendFormat": "Tuổi mẫu",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Thời gian SQL trung bình",
+      "description": "Thời gian thực thi chia số lượt gọi từ pg_stat_statements trên primary. Không xuất câu SQL.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(infra_postgres_query_exec_seconds_total[$__rate_interval]) / (rate(infra_postgres_query_calls_total[$__rate_interval]) > 0)",
+          "legendFormat": "Primary",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Phiên đang chờ khóa",
+      "description": "Số phiên PostgreSQL primary có wait_event_type = Lock.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 4,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "infra_postgres_lock_waiters",
+          "legendFormat": "Primary",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "WAL tạo trên primary",
+      "description": "Số byte WAL tạo mỗi giây trên primary.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "rate(infra_postgres_wal_bytes_total[$__rate_interval])",
+          "legendFormat": "Primary",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Replica chậm bao nhiêu byte",
+      "description": "Chênh byte WAL giữa vị trí primary và vị trí đã phát lại của replica vật lý.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 12,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "infra_postgres_replica_wal_lag_bytes",
+          "legendFormat": "{{replica}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Lag của consumer group",
+      "description": "Tổng chênh offset theo group từ offset đã commit đến cuối log Kafka.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (group) (infra_kafka_group_lag_records)",
+          "legendFormat": "{{group}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Partition Kafka bất thường",
+      "description": "Hai chỉ số về partition thiếu leader hoặc thiếu replica đồng bộ.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "infra_kafka_offline_partitions",
+          "legendFormat": "Thiếu leader",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "infra_kafka_under_replicated_partitions",
+          "legendFormat": "Thiếu ISR",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "title": "CDC chờ áp dụng",
+      "description": "Khoảng cách giữa cuối log nguồn và checkpoint durable của kho báo cáo.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "infra_cdc_lag_records",
+          "legendFormat": "Offset chưa áp dụng",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "title": "Tuổi heartbeat CDC",
+      "description": "Thời gian kể từ heartbeat nguồn gần nhất đã được áp dụng vào kho báo cáo.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 28,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "clamp_min(time() - infra_cdc_last_heartbeat_timestamp_seconds, 0)",
+          "legendFormat": "Heartbeat",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "title": "CPU container",
+      "description": "Tối đa sáu dịch vụ sử dụng CPU cao nhất. 100% tương ứng một lõi.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(6, max by (service) (docker_container_cpu_percent))",
+          "legendFormat": "{{service}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "title": "RAM container",
+      "description": "Tối đa sáu dịch vụ có mức dùng RAM cao nhất, theo lần lấy mẫu Docker Stats.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 36,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(6, sum by (service) (docker_container_memory_usage_bytes))",
+          "legendFormat": "{{service}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "title": "Mạng container",
+      "description": "Tốc độ nhận hoặc gửi dữ liệu của các dịch vụ có lưu lượng cao nhất.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(4, sum by(service)(rate(docker_container_network_receive_bytes_total[$__rate_interval])))",
+          "legendFormat": "{{service}} nhận",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "topk(4, sum by(service)(rate(docker_container_network_transmit_bytes_total[$__rate_interval])))",
+          "legendFormat": "{{service}} gửi",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "title": "I/O đĩa container",
+      "description": "Tổng byte đọc và ghi mỗi giây, theo dịch vụ.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 44,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "Bps",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(6, sum by(service)(rate(docker_container_block_read_bytes_total[$__rate_interval]) + rate(docker_container_block_write_bytes_total[$__rate_interval])))",
+          "legendFormat": "{{service}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "title": "Container từng restart",
+      "description": "Số lần Docker restart container thuộc từng dịch vụ. Đếm lại khi tạo container mới.",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 52,
+        "w": 24,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "banhang-prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "noValue": "Chưa có mẫu"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "showLegend": true,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (service) (docker_container_restarts_total) > 0",
+          "legendFormat": "{{service}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "banhang-prometheus"
+          },
+          "editorMode": "code",
+          "instant": false,
+          "range": true
+        }
+      ]
+    }
+  ]
+}

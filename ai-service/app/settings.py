@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     sync_enabled: bool = False
     sync_interval_seconds: int = Field(default=60, ge=5, le=3600)
     preload_embedding_model: bool = True
+    metrics_enabled: bool = False
 
     log_level: str = "INFO"
 

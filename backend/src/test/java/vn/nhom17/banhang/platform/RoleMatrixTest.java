@@ -107,9 +107,12 @@ class RoleMatrixTest {
                 row("GET", "/actuator/health", A, A, A),
                 row("GET", "/actuator/health/liveness", A, A, A),
                 row("GET", "/actuator/health/readiness", A, A, A),
+                row("GET", "/livez", A, A, A),
+                row("GET", "/readyz", A, A, A),
                 // Actuator khác đã expose nhưng không mở ra ngoài
                 row("GET", "/actuator/info", U, F, F),
                 row("GET", "/actuator/modulith", U, F, F),
+                row("GET", "/actuator/prometheus", U, F, F),
                 // platform
                 row("GET", "/api/v1/platform/me", U, A, A),
                 row("GET", "/api/v1/platform/write-requests/{id}", U, A, A),
@@ -217,6 +220,10 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/reporting/dashboard", U, F, A),
                 row("GET", "/api/v1/reporting/warehouse/status", U, F, A),
                 row("GET", "/api/v1/reporting/q/{id}", U, F, A),
+                row("GET", "/api/v1/reporting/q/Q6", U, F, A),
+                row("GET", "/api/v1/reporting/q/Q7", U, F, A),
+                row("GET", "/api/v1/reporting/q/Q8", U, F, A),
+                row("GET", "/api/v1/reporting/q/Q9", U, F, A),
                 row("GET", "/api/v1/reporting/stock", U, F, A),
                 row("GET", "/api/v1/reporting/stock/export", U, F, A),
                 // Chỉ dịch vụ AI, bằng X-Service-Key: token người dùng không đủ (xem serviceKey…)

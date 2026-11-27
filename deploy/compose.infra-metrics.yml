@@ -1,0 +1,201 @@
+# Add after docker-compose.yml, compose.server.yml, compose.kafka.yml, and
+# compose.monitoring.yml. This overlay keeps all metrics endpoints on the
+# internal Compose network; Prometheus is the only scraper.
+x-infra-logging: &infra-logging
+  driver: local
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+x-pg-exporter: &pg-exporter
+  image: quay.io/prometheuscommunity/postgres-exporter:v0.21.1
+  environment:
+    DATA_SOURCE_USER: infra_monitor
+    DATA_SOURCE_PASS: ${DB_MONITOR_PASSWORD:?Thiếu DB_MONITOR_PASSWORD}
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  mem_limit: 128m
+  cpus: 0.25
+  logging: *infra-logging
+  restart: unless-stopped
+
+services:
+  db:
+    # Preserve every compose.kafka.yml primary setting when adding the one
+    # required preload library. A command list is replaced, not appended, by
+    # Compose overlays. PostgreSQL 18 computes query IDs automatically.
+    command:
+      - postgres
+      - -c
+      - hba_file=/etc/postgresql/async-pg_hba.conf
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=8
+      - -c
+      - max_replication_slots=8
+      - -c
+      - max_slot_wal_keep_size=512MB
+      - -c
+      - wal_keep_size=64MB
+      - -c
+      - max_wal_size=256MB
+      - -c
+      - min_wal_size=32MB
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=60
+      - -c
+      - temp_file_limit=128MB
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.max=1000
+
+  pg-metrics-primary-setup:
+    image: pgvector/pgvector:pg18
+    entrypoint: ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-f", "/infra/role.sql", "-f", "/infra/primary-extension.sql"]
+    environment:
+      PGHOST: db
+      PGDATABASE: banhang
+      PGUSER: postgres
+      PGPASSWORD: ${POSTGRES_PASSWORD:?}
+      DB_MONITOR_PASSWORD: ${DB_MONITOR_PASSWORD:?Thiếu DB_MONITOR_PASSWORD}
+    volumes:
+      - ./monitoring/infra/role.sql:/infra/role.sql:ro
+      - ./monitoring/infra/primary-extension.sql:/infra/primary-extension.sql:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    mem_limit: 96m
+    logging: *infra-logging
+
+  pg-metrics-warehouse-setup:
+    image: pgvector/pgvector:pg18
+    entrypoint: ["psql", "-X", "-v", "ON_ERROR_STOP=1", "-f", "/infra/role.sql", "-f", "/infra/warehouse-state-grant.sql"]
+    environment:
+      PGHOST: warehouse
+      PGDATABASE: banhang_warehouse
+      PGUSER: postgres
+      PGPASSWORD: ${DB_WAREHOUSE_ADMIN_PASSWORD:?}
+      DB_MONITOR_PASSWORD: ${DB_MONITOR_PASSWORD:?Thiếu DB_MONITOR_PASSWORD}
+    volumes:
+      - ./monitoring/infra/role.sql:/infra/role.sql:ro
+      - ./monitoring/infra/warehouse-state-grant.sql:/infra/warehouse-state-grant.sql:ro
+    depends_on:
+      warehouse:
+        condition: service_healthy
+    mem_limit: 96m
+    logging: *infra-logging
+
+  pg-exporter-primary:
+    <<: *pg-exporter
+    command:
+      - --datasource.uri=db:5432/banhang?sslmode=disable
+      - --collection-timeout=6s
+      - --web.max-requests=2
+      - --collector.long_running_transactions
+      - --collector.stat_checkpointer
+      - --no-collector.settings
+      - --no-collector.database
+      - --no-collector.stat_user_tables
+      - --no-collector.statio_user_tables
+      - --no-collector.stat_progress_vacuum
+    depends_on:
+      pg-metrics-primary-setup:
+        condition: service_completed_successfully
+
+  pg-exporter-replica-1:
+    <<: *pg-exporter
+    command:
+      - --datasource.uri=db-replica-1:5432/banhang?sslmode=disable
+      - --collection-timeout=6s
+      - --web.max-requests=2
+      - --collector.long_running_transactions
+      - --collector.stat_checkpointer
+      - --collector.stat_wal_receiver
+      - --no-collector.settings
+      - --no-collector.database
+      - --no-collector.stat_user_tables
+      - --no-collector.statio_user_tables
+      - --no-collector.stat_progress_vacuum
+    depends_on:
+      pg-metrics-primary-setup:
+        condition: service_completed_successfully
+      db-replica-1:
+        condition: service_healthy
+
+  pg-exporter-replica-2:
+    <<: *pg-exporter
+    command:
+      - --datasource.uri=db-replica-2:5432/banhang?sslmode=disable
+      - --collection-timeout=6s
+      - --web.max-requests=2
+      - --collector.long_running_transactions
+      - --collector.stat_checkpointer
+      - --collector.stat_wal_receiver
+      - --no-collector.settings
+      - --no-collector.database
+      - --no-collector.stat_user_tables
+      - --no-collector.statio_user_tables
+      - --no-collector.stat_progress_vacuum
+    depends_on:
+      pg-metrics-primary-setup:
+        condition: service_completed_successfully
+      db-replica-2:
+        condition: service_healthy
+
+  pg-exporter-warehouse:
+    <<: *pg-exporter
+    command:
+      - --datasource.uri=warehouse:5432/banhang_warehouse?sslmode=disable
+      - --collection-timeout=6s
+      - --web.max-requests=2
+      - --collector.long_running_transactions
+      - --collector.stat_checkpointer
+      - --no-collector.settings
+      - --no-collector.database
+      - --no-collector.stat_user_tables
+      - --no-collector.statio_user_tables
+      - --no-collector.stat_progress_vacuum
+    depends_on:
+      pg-metrics-warehouse-setup:
+        condition: service_completed_successfully
+
+  infra-metrics:
+    # Reuse the pinned confluent-kafka and psycopg dependencies in banhang-cdc.
+    image: banhang-cdc:latest
+    entrypoint: ["python", "/infra/exporter.py"]
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      PGHOST: db
+      PGDATABASE: banhang
+      PGUSER: infra_monitor
+      PGPASSWORD: ${DB_MONITOR_PASSWORD:?Thiếu DB_MONITOR_PASSWORD}
+      WAREHOUSE_HOST: warehouse
+      WAREHOUSE_DATABASE: banhang_warehouse
+      WAREHOUSE_USER: infra_monitor
+      WAREHOUSE_PASSWORD: ${DB_MONITOR_PASSWORD:?Thiếu DB_MONITOR_PASSWORD}
+      SALES_GROUP: ${APP_SALES_QUEUE_CONSUMER_GROUP:-sales-order-worker-v1}
+      BACKOFFICE_GROUP: ${APP_BACKOFFICE_QUEUE_CONSUMER_GROUP:-backoffice-write-worker-v1}
+      BACKOFFICE_FILE_GROUP: ${APP_BACKOFFICE_QUEUE_FILE_CONSUMER_GROUP:-backoffice-file-worker-v1}
+      CDC_GROUP: banhang-warehouse-cdc
+      CDC_TOPIC: banhang.reporting
+    volumes:
+      - ./monitoring/infra/exporter.py:/infra/exporter.py:ro
+    depends_on:
+      kafka:
+        condition: service_healthy
+      pg-metrics-primary-setup:
+        condition: service_completed_successfully
+      warehouse:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    cpus: 0.35
+    logging: *infra-logging
+    restart: unless-stopped

@@ -1,0 +1,120 @@
+# Scrapes and probes are internal to the Compose network. No store data is read.
+global:
+  scrape_interval: 30s
+  scrape_timeout: 8s
+  evaluation_interval: 30s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_config_files:
+  - /etc/prometheus/extended/*.yml
+
+scrape_configs:
+  - job_name: prometheus
+    scrape_interval: 60s
+    static_configs:
+      - targets: [localhost:9090]
+
+  - job_name: blackbox-exporter
+    scrape_interval: 60s
+    static_configs:
+      - targets: [blackbox-exporter:9115]
+
+  - job_name: nginx-exporter
+    static_configs:
+      - targets: [nginx-exporter:9113]
+
+  # DNS A records enumerate every running backend replica, unlike one static
+  # backend:9095 target, which would sample only one load-balanced container.
+  - job_name: backend
+    metrics_path: /actuator/prometheus
+    dns_sd_configs:
+      - names: [backend]
+        type: A
+        port: 9095
+        refresh_interval: 30s
+
+  - job_name: java-workers
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: [order-worker:9095, backoffice-worker:9095]
+
+  - job_name: ai-service
+    metrics_path: /metrics
+    static_configs:
+      - targets: [ai-service:8000]
+
+  - job_name: http-readiness
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://web:80/
+          - http://backend:9095/actuator/health/readiness
+          - http://order-worker:9095/actuator/health/readiness
+          - http://backoffice-worker:9095/actuator/health/readiness
+          - http://connect:8083/connectors
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # The object store exists only when compose.multipart.yml is present.
+  # DNS discovery yields zero targets when that optional service is absent.
+  - job_name: storage-readiness
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    dns_sd_configs:
+      - names: [import-storage]
+        type: A
+        port: 9000
+        refresh_interval: 30s
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+        replacement: http://$1/minio/health/live
+      - target_label: instance
+        replacement: import-storage:9000
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  - job_name: ai-readiness
+    metrics_path: /probe
+    params:
+      module: [ai_health]
+    static_configs:
+      - targets: [http://ai-service:8000/ai/health]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # These only prove that a TCP listener accepts connections. They do not
+  # prove SQL query success, replica replay, Kafka topic health, or CDC lag.
+  - job_name: tcp-availability
+    metrics_path: /probe
+    params:
+      module: [tcp_connect]
+    static_configs:
+      - targets: [db:5432, kafka:9092]
+        labels:
+          priority: critical
+      - targets: [db-replica-1:5432, db-replica-2:5432, warehouse:5432]
+        labels:
+          priority: warning
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

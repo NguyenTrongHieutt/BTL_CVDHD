@@ -1,0 +1,90 @@
+# Optional monitoring for the full async stack. Add this file last, after
+# docker-compose.yml, compose.server.yml and compose.kafka.yml.
+# No application database credentials or Docker socket are mounted here.
+x-monitoring-logging: &monitoring-logging
+  driver: local
+  options:
+    max-size: "5m"
+    max-file: "2"
+
+# Two API instances plus two workers use at most 20 primary DB connections.
+# Leave headroom under the async primary's max_connections=60.
+x-java-db-pool: &java-db-pool
+  SPRING_DATASOURCE_HIKARI_MAXIMUMPOOLSIZE: "5"
+  SPRING_DATASOURCE_HIKARI_MINIMUMIDLE: "1"
+
+services:
+  # Spring Boot's management listener stays inside the Compose network.
+  backend:
+    mem_limit: 1280m
+    environment:
+      <<: *java-db-pool
+      APP_SECURITY_ACCOUNTSTATUSCACHE: "0s"
+      MONITORING_HTTP_HISTOGRAM: "true"
+      MANAGEMENT_SERVER_PORT: "9095"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9095/actuator/health | grep -q UP"]
+
+  order-worker:
+    environment:
+      <<: *java-db-pool
+      MANAGEMENT_SERVER_PORT: "9095"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9095/actuator/health | grep -q UP"]
+
+  backoffice-worker:
+    environment:
+      <<: *java-db-pool
+      MANAGEMENT_SERVER_PORT: "9095"
+      MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: health,prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:9095/actuator/health | grep -q UP"]
+
+  ai-service:
+    environment:
+      METRICS_ENABLED: "true"
+
+  prometheus:
+    image: prom/prometheus:v3.16.0
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=512MB
+      - --web.listen-address=0.0.0.0:9090
+    ports:
+      - "127.0.0.1:19090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - prometheus-data:/prometheus
+    mem_limit: 512m
+    cpus: 0.5
+    logging: *monitoring-logging
+    restart: unless-stopped
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.28.0
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+      - --web.listen-address=:9115
+    volumes:
+      - ./monitoring/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    mem_limit: 64m
+    cpus: 0.25
+    logging: *monitoring-logging
+    restart: unless-stopped
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.5.3
+    command:
+      - --nginx.scrape-uri=http://web:8081/nginx_status
+    mem_limit: 64m
+    cpus: 0.25
+    logging: *monitoring-logging
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:

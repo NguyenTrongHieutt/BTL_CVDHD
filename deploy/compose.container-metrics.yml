@@ -1,0 +1,20 @@
+# Serve host-collected Docker metrics to Prometheus on the internal Compose network.
+# The Docker socket remains on the Windows host; this container only reads a text file.
+services:
+  container-metrics-exporter:
+    image: busybox:1.37.0
+    command: ["httpd", "-f", "-p", "0.0.0.0:9101", "-h", "/www"]
+    volumes:
+      - ./monitoring/containers/data:/www:ro
+    expose:
+      - "9101"
+    read_only: true
+    user: "65534:65534"
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 32m
+    cpus: 0.1
+    logging:
+      driver: local
+      options: { max-size: "5m", max-file: "2" }
+    restart: unless-stopped

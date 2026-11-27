@@ -1,0 +1,6 @@
+# Add after compose.monitoring.yml, alongside the exporter and tracing overlays.
+services:
+  prometheus:
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/extended-scrapes.yml:/etc/prometheus/extended/services.yml:ro

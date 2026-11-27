@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: Banhang Operations
+    type: file
+    orgId: 1
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 35
+    options:
+      path: /etc/grafana/dashboards

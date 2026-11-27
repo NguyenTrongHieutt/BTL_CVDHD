@@ -40,6 +40,33 @@ Metrics HTTP, JVM và Hikari từ backend và worker, thời gian các API AI v�
 
 Prometheus giữ các khối số liệu tối đa 7 ngày hoặc đến giới hạn 512 MB. Dung lượng sử dụng còn gồm WAL của Prometheus. Mỗi container theo dõi giữ tối đa hai phần log cỡ 5 MB.
 
+## Dashboard Grafana
+
+Thêm overlay `deploy/compose.grafana.yml` sau overlay Prometheus. Grafana lưu tài khoản và cấu hình trong volume `grafana-data`. Nguồn Prometheus và dashboard **Tổng quan vận hành** được nạp từ các tệp trong `deploy/monitoring/grafana/`.
+
+Tạo tệp mật khẩu cho lần khởi tạo và chỉ định đường dẫn tuyệt đối. Giữ tệp này trong thư mục cá nhân hoặc trong thư mục bí mật của máy chủ.
+
+```powershell
+$credentialDir = Join-Path $env:LOCALAPPDATA 'BanhangMonitoring'
+New-Item -ItemType Directory -Path $credentialDir -Force | Out-Null
+$env:GRAFANA_ADMIN_PASSWORD_FILE = Join-Path $credentialDir 'grafana-admin-password.txt'
+if (!(Test-Path -LiteralPath $env:GRAFANA_ADMIN_PASSWORD_FILE)) {
+  [IO.File]::WriteAllText($env:GRAFANA_ADMIN_PASSWORD_FILE,
+    [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)))
+}
+$files += @('-f', 'deploy/compose.grafana.yml')
+docker compose -p $project @environment @files config --quiet
+docker compose -p $project @environment @files up -d --no-deps --wait grafana
+```
+
+Đăng nhập tài khoản `admin` bằng mật khẩu trong tệp và mở [Tổng quan vận hành](http://127.0.0.1:13000/d/banhang-overview/). Cổng `13000` chỉ lắng nghe trên máy chủ. Chuỗi độ trễ AI sẽ xuất hiện sau khi có yêu cầu tìm theo mô tả, gợi ý hàng hoặc hỏi đáp. Đổi khoảng thời gian trên dashboard để xem số liệu đã có trong Prometheus.
+
+## Phạm vi đo và tracing
+
+Prometheus hiện thu thời gian phản hồi, lỗi và tải HTTP của API, tài nguyên JVM, kết nối trong pool Hikari, metrics Kafka client ở worker, thời gian các tác vụ AI và trạng thái Nginx. Probe của PostgreSQL, Kafka broker, Kafka Connect và kho tệp xác nhận khả năng kết nối hoặc endpoint sức khỏe. Theo dõi sâu còn cần metrics query/lock/WAL của PostgreSQL, tình trạng broker và lag toàn consumer group, độ trễ của CDC, dung lượng kho tệp và tài nguyên của từng container. Có thể xem lag các worker bằng `deploy/kafka/check-capacity.py`.
+
+Hiện log truyền `X-Request-Id` giữa các lời gọi HTTP. Hệ thống chưa thu span hoặc truyền ngữ cảnh tracing qua Kafka. Để xem từng chặng của một giao dịch trong Grafana, cần instrument backend, AI và worker bằng OpenTelemetry, truyền `traceparent` qua HTTP và Kafka, rồi gửi span qua OTLP tới kho trace như Tempo.
+
 ## Cân bằng tải API
 
 Nginx lấy danh sách IP của dịch vụ `backend` qua DNS nội bộ Docker và phân phối yêu cầu `/api/` theo vòng. Tăng chỉ API lên hai bản khi máy chủ còn RAM và PostgreSQL còn đủ kết nối. Giữ một bản mỗi worker theo cấu hình demo.

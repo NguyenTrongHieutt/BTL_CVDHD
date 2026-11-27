@@ -1,0 +1,43 @@
+# Add after compose.monitoring.yml. Prometheus remains the source of metrics.
+services:
+  grafana:
+    image: grafana/grafana:13.3.2
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-13000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      GF_SECURITY_DISABLE_GRAVATAR: "true"
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./monitoring/grafana/provisioning/datasources/prometheus.yml:/etc/grafana/provisioning/datasources/prometheus.yml:ro
+      - ./monitoring/grafana/provisioning/dashboards/operations.yml:/etc/grafana/provisioning/dashboards/operations.yml:ro
+      - ./monitoring/grafana/dashboards:/etc/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health >/dev/null"]
+      interval: 10s
+      timeout: 4s
+      start_period: 20s
+      retries: 12
+    mem_limit: 512m
+    cpus: 0.75
+    logging:
+      driver: local
+      options: { max-size: "5m", max-file: "2" }
+    restart: unless-stopped
+
+secrets:
+  grafana_admin_password:
+    file: ${GRAFANA_ADMIN_PASSWORD_FILE:-./grafana-password.local}
+
+volumes:
+  grafana-data:

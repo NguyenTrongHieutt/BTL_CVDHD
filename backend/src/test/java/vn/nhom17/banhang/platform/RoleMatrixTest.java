@@ -220,6 +220,10 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/reporting/dashboard", U, F, A),
                 row("GET", "/api/v1/reporting/warehouse/status", U, F, A),
                 row("GET", "/api/v1/reporting/q/{id}", U, F, A),
+                row("GET", "/api/v1/reporting/q/Q6", U, F, A),
+                row("GET", "/api/v1/reporting/q/Q7", U, F, A),
+                row("GET", "/api/v1/reporting/q/Q8", U, F, A),
+                row("GET", "/api/v1/reporting/q/Q9", U, F, A),
                 row("GET", "/api/v1/reporting/stock", U, F, A),
                 row("GET", "/api/v1/reporting/stock/export", U, F, A),
                 // Chỉ dịch vụ AI, bằng X-Service-Key: token người dùng không đủ (xem serviceKey…)

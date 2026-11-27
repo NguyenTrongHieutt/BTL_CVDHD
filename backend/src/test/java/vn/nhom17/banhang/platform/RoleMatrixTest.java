@@ -167,6 +167,7 @@ class RoleMatrixTest {
                 row("GET", "/api/v1/sales/sellable/exact", U, A, A),
                 row("POST", "/api/v1/sales/orders/quote", U, A, A),
                 row("POST", "/api/v1/sales/orders", U, A, A),
+                row("GET", "/api/v1/sales/order-requests/failures", U, A, A),
                 row("GET", "/api/v1/sales/orders", U, A, A),
                 row("GET", "/api/v1/sales/orders/sellers", U, A, A),
                 row("GET", "/api/v1/sales/orders/{id}/receipt", U, A, A),
@@ -193,6 +194,7 @@ class RoleMatrixTest {
                 row("PUT", "/api/v1/inventory/stock/{id}/min-quantity", U, F, A),
                 // reporting: chỉ Chủ cửa hàng
                 row("GET", "/api/v1/reporting/dashboard", U, F, A),
+                row("GET", "/api/v1/reporting/warehouse/status", U, F, A),
                 row("GET", "/api/v1/reporting/q/{id}", U, F, A),
                 row("GET", "/api/v1/reporting/stock", U, F, A),
                 row("GET", "/api/v1/reporting/stock/export", U, F, A),

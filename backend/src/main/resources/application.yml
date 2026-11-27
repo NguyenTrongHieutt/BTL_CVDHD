@@ -13,6 +13,7 @@ spring:
     hikari:
       maximum-pool-size: 10
   flyway:
+    url: ${spring.datasource.url}   # DDL vào primary, kể cả khi bật DataSource chọn replica.
     user: app_owner                  # chỉ Flyway được chạy DDL (AD-4)
     password: ${DB_OWNER_PASSWORD:}
     schemas: app,ai

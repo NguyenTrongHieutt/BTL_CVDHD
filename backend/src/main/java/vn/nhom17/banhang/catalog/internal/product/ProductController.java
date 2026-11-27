@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.platform.PageResponse;
+import vn.nhom17.banhang.platform.ReplicaRead;
 
 /**
  * Sản phẩm (FR-1, SP-01; FR-2, SP-02; FR-3, SP-03; FR-5, SP-05; tạo kèm nhiều Biến thể FR-7, SP-07). Xem chi tiết và
@@ -132,6 +133,7 @@ class ProductController {
      * {@link ProductService#list}, để giá trị sai trả {@code 400 /errors/common/validation} theo trường. Xem
      * {@link ProductService.ListQuery}.
      */
+    @ReplicaRead
     @GetMapping
     PageResponse<ProductView> list(@RequestParam(required = false) String q,
                                    @RequestParam(required = false) String categoryId,

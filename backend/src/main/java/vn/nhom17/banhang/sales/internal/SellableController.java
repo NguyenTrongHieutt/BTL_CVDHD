@@ -4,6 +4,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -14,6 +15,7 @@ import vn.nhom17.banhang.catalog.VariantLookup;
 import vn.nhom17.banhang.inventory.StockQuery;
 import vn.nhom17.banhang.inventory.StockQuery.StockView;
 import vn.nhom17.banhang.platform.PageResponse;
+import vn.nhom17.banhang.platform.ReplicaRead;
 
 @RestController
 @RequestMapping("/api/v1/sales")
@@ -27,7 +29,9 @@ public class SellableController {
         this.stockQuery = stockQuery;
     }
 
+    @ReplicaRead
     @GetMapping("/sellable")
+    @Transactional(readOnly = true)
     public PageResponse<SellableItem> search(
         @RequestParam(required = false) String q,
         @RequestParam(required = false) UUID categoryId,
@@ -42,7 +46,9 @@ public class SellableController {
         return withStock(result);
     }
 
+    @ReplicaRead
     @GetMapping("/sellable/exact")
+    @Transactional(readOnly = true)
     public PageResponse<SellableItem> exact(@RequestParam String code) {
         var variants = variantLookup.findForSaleByExactCode(code);
         return withStock(new PageResponse<>(variants, variants.size(), 0, PageResponse.DEFAULT_SIZE));

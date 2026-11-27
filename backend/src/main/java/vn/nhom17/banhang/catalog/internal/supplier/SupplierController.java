@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.platform.PageResponse;
+import vn.nhom17.banhang.platform.ReplicaRead;
 
 /**
  * Nhà cung cấp (FR-23, KHO-02). Xem: cả hai vai trò; thêm, sửa: chỉ Chủ cửa hàng. Quyền khai báo ở
@@ -46,6 +47,7 @@ class SupplierController {
      * Tìm theo tên (không dấu, không phân biệt hoa thường), mã (bắt đầu bằng) hoặc số điện thoại (khớp một phần).
      * {@code sort}: {@code name} (mặc định) hoặc {@code createdAt}, kèm {@code asc} hay {@code desc}.
      */
+    @ReplicaRead
     @GetMapping
     PageResponse<SupplierView> list(@RequestParam(required = false) String q,
                                     @RequestParam(required = false) Integer page,

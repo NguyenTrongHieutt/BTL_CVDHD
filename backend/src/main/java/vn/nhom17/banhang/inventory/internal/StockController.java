@@ -17,6 +17,7 @@ import vn.nhom17.banhang.catalog.SellableVariant;
 import vn.nhom17.banhang.inventory.internal.stock.JdbcStockQuery;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.PageResponse;
+import vn.nhom17.banhang.platform.ReplicaRead;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -52,6 +53,7 @@ public class StockController {
         this.stockThresholdService = stockThresholdService;
     }
 
+    @ReplicaRead
     @GetMapping("/stock")
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<StockItem> stock(
@@ -99,6 +101,7 @@ public class StockController {
         @JsonInclude(JsonInclude.Include.NON_NULL) Long avgUnitCost
     ) {}
 
+    @ReplicaRead
     @GetMapping("/low-stock")
     public List<LowStockResponse> lowStock() {
         List<StockView> stocks = stockQuery.lowStock();
@@ -123,6 +126,7 @@ public class StockController {
             .toList();
     }
 
+    @ReplicaRead
     @GetMapping("/low-stock/page")
     @Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
     public PageResponse<LowStockResponse> lowStockPage(

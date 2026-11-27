@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { skipToken, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ShoppingCartOutlined } from '@ant-design/icons';
-import { Alert, Button, Card, Descriptions, InputNumber, QRCode, Select, Space, Typography } from 'antd';
+import { Alert, Button, Card, Descriptions, Empty, InputNumber, Modal, QRCode, Select, Space, Spin, Typography } from 'antd';
 import type { InputRef } from 'antd';
 import { api, isApiError, newIdempotencyKey, shouldReuseIdempotencyKey } from '../../../shared/api/client';
 import { customersQueryKey, fetchCustomer } from '../../../shared/api/customers';
@@ -20,13 +20,29 @@ import { RecordTable } from '../../../shared/components/RecordTable';
 import { useDocumentTitle } from '../../../shared/components/useDocumentTitle';
 import type { CustomerSummary } from '../../../shared/types/catalog';
 import type { CreateOrderRequest, PaymentMethod, QuoteLineRequest, QuoteRequest, QuoteResponse, SellableItem } from '../../../shared/types/sales';
-import { emptyCart, loadCart, saveCart } from '../cart/cartStorage';
+import { clearCart, emptyCart, loadCart, saveCart } from '../cart/cartStorage';
 
 interface SaleResult {
   orderId: string;
   orderCode: string;
   pointsEarned?: number;
   pointsRedeemed?: number;
+}
+
+interface AcceptedSale {
+  operationId: string;
+  status: 'ACCEPTED';
+}
+
+interface OrderRequestFailure {
+  operationId: string;
+  reason: string;
+  createdAt: string;
+}
+
+interface OrderRequestFailures {
+  items: OrderRequestFailure[];
+  total: number;
 }
 
 function CartQuantityInput({ label, quantity, available, disabled, onCommit }: {
@@ -89,12 +105,14 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
   const [products, setProducts] = useState<Map<string, SellableItem>>(() => new Map());
   const [warning, setWarning] = useState('');
   const queryClient = useQueryClient();
-  const [method, setMethod] = useState<PaymentMethod>('CASH');
+  const [method, setMethod] = useState<PaymentMethod>(cart.pendingPayment?.paymentMethod ?? 'CASH');
   const [completedOrder, setCompletedOrder] = useState<SaleResult | null>(null);
+  const [acceptedSale, setAcceptedSale] = useState<AcceptedSale | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
-  const [pending, setPending] = useState<CreateOrderRequest | null>(null);
-  const [cashMode, setCashMode] = useState(false);
-  const [cashReceived, setCashReceived] = useState<number | null>(null);
+  const [showFailures, setShowFailures] = useState(false);
+  const pending = cart.pendingPayment ?? null;
+  const [cashMode, setCashMode] = useState(pending?.cashReceived !== undefined);
+  const [cashReceived, setCashReceived] = useState<number | null>(pending?.cashReceived ?? null);
   const hasLines = cart.lines.length > 0;
   const selectedCustomerId = cart.customerId;
   const itemCount = cart.lines.reduce((total, line) => total + line.quantity, 0);
@@ -105,6 +123,14 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
   });
   const loyalty = useCustomerLoyalty(selectedCustomerId);
   const customerReady = !cart.customerId || Boolean(selectedCustomer.data);
+  const failures = useQuery({
+    queryKey: ['sales', 'order-request-failures', storeId, userId],
+    queryFn: ({ signal }) => api.get<OrderRequestFailures>('/api/v1/sales/order-requests/failures', {
+      query: { size: 20 }, signal,
+    }),
+    enabled: showFailures,
+    retry: false,
+  });
 
   function changeCustomer(customer: CustomerSummary | null) {
     if (customer) {
@@ -117,19 +143,22 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
     }));
   }
   const payment = useMutation({
-    mutationFn: (order: CreateOrderRequest) => api.post<SaleResult>(
+    mutationFn: (order: CreateOrderRequest) => api.post<SaleResult | AcceptedSale>(
       '/api/v1/sales/orders', order, { idempotencyKey: cart.idempotencyKey },
     ),
     onSuccess: (order) => {
-      setCompletedOrder(order);
-      setCart(emptyCart());
-      setPending(null);
+      const accepted = 'operationId' in order;
+      setAcceptedSale(accepted ? order : null);
+      setCompletedOrder(accepted ? null : order);
+      setCart(clearCart(storeId, userId));
       setCashMode(false);
       setCashReceived(null);
       setMethod('CASH');
       setProducts(new Map());
+      setWarning('');
+      if (accepted) return;
       for (const key of [
-        ['sales', 'sellable'], ['sales', 'orders'], ['sales', 'order-sellers'],
+        ['sales', 'sellable'], ['sales', 'sellable-exact'], ['sales', 'orders'], ['sales', 'order-sellers'],
         ['inventory', 'stock'], ['inventory', 'low-stock'],
         customerLoyaltyKey,
       ]) {
@@ -138,11 +167,10 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
     },
     onError: (error) => {
       if (shouldReuseIdempotencyKey(error)) return;
-      setPending(null);
-      if (isApiError(error) && error.status === 409) {
-        setCart((previous) => ({ ...previous, idempotencyKey: newIdempotencyKey() }));
-        void queryClient.invalidateQueries({ queryKey: customerLoyaltyKey });
-      }
+      const conflict = isApiError(error) && error.status === 409;
+      setCart((previous) => ({ ...previous, pendingPayment: undefined,
+        idempotencyKey: conflict ? newIdempotencyKey() : previous.idempotencyKey }));
+      if (conflict) void queryClient.invalidateQueries({ queryKey: customerLoyaltyKey });
     },
   });
 
@@ -164,7 +192,7 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
 
   const quote = useQuery<QuoteResponse>({
     queryKey: ['sales', 'quote', storeId, userId, cart.idempotencyKey, debouncedQuote],
-    enabled: hasLines && debouncedQuote === quoteBody,
+    enabled: hasLines && pending === null && debouncedQuote === quoteBody,
     placeholderData: (previous, query) => query?.queryKey[4] === cart.idempotencyKey ? previous : undefined,
     queryFn: ({ signal }) => api.post<QuoteResponse>(
       '/api/v1/sales/orders/quote', JSON.parse(debouncedQuote),
@@ -191,8 +219,14 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
   const checkoutNotice = calculating ? 'Đang cập nhật tổng tiền…'
     : cashShort ? 'Tiền khách đưa chưa đủ.'
       : pricing?.warnings.length ? 'Có sản phẩm vượt số lượng tồn. Kiểm tra lại giỏ hàng.' : null;
+  const submitLabel = payment.isPending ? 'Đang gửi xác nhận'
+    : pending ? 'Thử lại xác nhận'
+      : displayPricing?.total === 0 ? 'Hoàn tất đơn' : 'Xác nhận đã nhận tiền';
 
   useEffect(() => saveCart(storeId, userId, cart), [storeId, userId, cart]);
+  useEffect(() => {
+    if (acceptedSale) search.current?.focus();
+  }, [acceptedSale]);
 
   function confirmPayment() {
     if (payment.isPending) return;
@@ -204,7 +238,9 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
     if (method === 'CASH' && (cashTendered === null || cashTendered < pricing.total)) return;
     const order = { ...request, cashReceived: method === 'CASH' ? cashTendered ?? undefined : undefined,
       quotedTotal: pricing.total };
-    setPending(order);
+    const submitted = { ...cart, pendingPayment: order };
+    saveCart(storeId, userId, submitted);
+    setCart(submitted);
     payment.mutate(order);
   }
 
@@ -217,7 +253,10 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
       return;
     }
     setWarning('');
-    if (!hasLines) setCompletedOrder(null);
+    if (!hasLines) {
+      setCompletedOrder(null);
+      setAcceptedSale(null);
+    }
     setCart({
       ...cart,
       lines: existing
@@ -272,7 +311,32 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
 
   return (
     <div className="pos-page">
-      <Typography.Title level={1} className="pos-heading" style={{ marginTop: 0 }}>Bán hàng</Typography.Title>
+      <div className="pos-title-row">
+        <Typography.Title level={1} className="pos-heading" style={{ marginTop: 0 }}>Bán hàng</Typography.Title>
+        <Button onClick={() => setShowFailures(true)}>Đơn cần xử lý</Button>
+      </div>
+      <Modal title="Đơn cần xử lý" open={showFailures} onCancel={() => setShowFailures(false)}
+        footer={<Space>
+          <Button onClick={() => void failures.refetch()} loading={failures.isFetching}>Tải lại</Button>
+          <Button type="primary" onClick={() => setShowFailures(false)}>Đóng</Button>
+        </Space>}>
+        {failures.isPending ? <Spin aria-label="Đang tải đơn cần xử lý" />
+          : failures.isError ? <ErrorAlert error={failures.error} />
+            : failures.data?.items.length ? (
+              <ul className="pos-failed-orders">
+                {failures.data.items.map((failure) => (
+                  <li key={failure.operationId}>
+                    <Typography.Text strong>{failure.reason}</Typography.Text>
+                    <Typography.Text type="secondary">{new Date(failure.createdAt).toLocaleString('vi-VN')}</Typography.Text>
+                    <Typography.Text copyable className="pos-operation-id">{failure.operationId}</Typography.Text>
+                  </li>
+                ))}
+              </ul>
+            ) : <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Chưa có đơn cần xử lý." />}
+        {failures.data && failures.data.total > failures.data.items.length && (
+          <Typography.Text type="secondary">Đang hiển thị {failures.data.items.length} đơn mới nhất.</Typography.Text>
+        )}
+      </Modal>
       <div className="pos-grid">
         <div className="pos-main">
       <Card title="Thêm hàng vào giỏ"><ProductPicker exactCodeLookup searchRef={search} onPick={add} disabled={pending !== null} /></Card>
@@ -298,6 +362,11 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
             ].filter(Boolean).join(' · ') || undefined}
             action={<Button onClick={() => setShowReceipt(true)}>Xem hóa đơn</Button>}
           />
+        )}
+        {acceptedSale && (
+          <Alert key={acceptedSale.operationId} className="pos-sale-success" type="success" showIcon
+            role="status" aria-atomic="true" title="Đã tiếp nhận đơn"
+            description={<Typography.Text copyable className="pos-operation-id">{acceptedSale.operationId}</Typography.Text>} />
         )}
         {warning && <Alert type="warning" showIcon title={warning} />}
         <Space orientation="vertical" className="pos-customer-section">
@@ -463,8 +532,8 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
             {quoteFailed && !pointError && !hasDiscountError && <ErrorAlert error={quote.error} retryLabel="Thử lại tính tiền"
               onRetry={() => void quote.refetch()} retrying={quote.isFetching} />}
             {payment.isError && <ErrorAlert error={payment.error} />}
-            {pending && payment.isError && <Typography.Text>
-              Thử lại cùng giao dịch sau khi kết nối ổn định để tránh ghi nhận đơn hai lần.
+            {pending && !payment.isPending && <Typography.Text>
+              Thử lại cùng giao dịch để nhận xác nhận và tránh ghi nhận đơn hai lần.
             </Typography.Text>}
             {method === 'BANK_TRANSFER' && displayPricing?.vietqrPayload && (
               <Space orientation="vertical" className="pos-transfer-details"
@@ -478,13 +547,13 @@ function PosCart({ storeId, userId, canConfigureVietQr }: {
               {checkoutNotice && <Typography.Text type={calculating ? 'secondary' : 'warning'}>{checkoutNotice}</Typography.Text>}
             </div>
             <Button className="pos-submit" type="primary" loading={payment.isPending} onClick={confirmPayment}
+              aria-label={submitLabel}
               disabled={payment.isPending || (!pending && (
                 !customerReady || !pricing || quote.isFetching || quote.isError || pricing.warnings.length > 0 ||
                 (method === 'CASH' && (cashTendered === null || cashTendered < pricing.total))
               ))}
             >
-              {pending && payment.isError ? 'Thử lại xác nhận'
-                : displayPricing?.total === 0 ? 'Hoàn tất đơn' : 'Xác nhận đã nhận tiền'}
+              {submitLabel}
             </Button>
           </Space>
         </Card>

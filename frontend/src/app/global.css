@@ -629,6 +629,32 @@ textarea {
   width: 100%;
 }
 
+.pos-title-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.pos-operation-id {
+  overflow-wrap: anywhere;
+}
+
+.pos-failed-orders {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0;
+  list-style: none;
+}
+
+.pos-failed-orders li {
+  display: grid;
+  gap: 0.25rem;
+  border-block-end: 1px solid var(--ant-color-border-secondary);
+  padding-block-end: 0.75rem;
+}
+
 .pos-heading {
   margin-bottom: 20px;
 }

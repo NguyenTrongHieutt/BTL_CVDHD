@@ -42,9 +42,11 @@ class ReportingQueryController {
     private final Clock clock;
     private final TransactionTemplate readOnly;
     private final ReportingQueryCache cache;
+    private final ReportingWarehouse warehouse;
 
     ReportingQueryController(NamedParameterJdbcTemplate jdbc, CurrentContext context, Clock clock,
-                             PlatformTransactionManager transactionManager, ReportingQueryCache cache) {
+                             PlatformTransactionManager transactionManager, ReportingQueryCache cache,
+                             ReportingWarehouse warehouse) {
         this.jdbc = jdbc;
         this.context = context;
         this.clock = clock;
@@ -52,6 +54,7 @@ class ReportingQueryController {
         this.readOnly.setReadOnly(true);
         this.readOnly.setIsolationLevel(TransactionDefinition.ISOLATION_REPEATABLE_READ);
         this.cache = cache;
+        this.warehouse = warehouse;
     }
 
     @GetMapping("/{queryId}")
@@ -67,7 +70,7 @@ class ReportingQueryController {
             @RequestParam(required = false) UUID categoryId) {
         LocalDate today = LocalDate.now(clock.withZone(TimeZones.VIETNAM));
         return switch (queryId) {
-            case "Q1" -> read(() -> revenue(requireRange(fromDate, toDate)));
+            case "Q1" -> revenueReport(requireRange(fromDate, toDate));
             case "Q2" -> read(() -> orders(requireRange(fromDate, toDate)));
             case "Q3" -> grossProfitReport(requireRange(fromDate, toDate));
             case "Q4" -> rankingReport(rankingRange(fromDate, toDate, today), parseDirection(direction),
@@ -78,8 +81,15 @@ class ReportingQueryController {
     }
 
     private QueryResponse grossProfitReport(DateRange range) {
+        var projected = warehouse.read(context.storeId(), source -> grossProfit(range, source));
+        if (projected.isPresent()) return projected.get();
         var key = new ReportingQueryCache.Key(context.storeId(), "Q3", range, null, null, 0, null);
-        return cache.get(key, () -> read(() -> grossProfit(range)));
+        return cache.get(key, () -> read(() -> grossProfit(range, jdbc)));
+    }
+
+    private QueryResponse revenueReport(DateRange range) {
+        return warehouse.read(context.storeId(), source -> revenue(range, source))
+                .orElseGet(() -> read(() -> revenue(range, jdbc)));
     }
 
     private QueryResponse rankingReport(DateRange range, Direction direction, RankBy rankBy,
@@ -94,12 +104,12 @@ class ReportingQueryController {
         return readOnly.execute(status -> query.get());
     }
 
-    private QueryResponse revenue(DateRange range) {
+    private QueryResponse revenue(DateRange range, NamedParameterJdbcTemplate source) {
         Map<String, Object> parameters = dateParameters(range);
         parameters.put("from", startOfDay(range.fromDate()));
         parameters.put("until", startOfDay(range.toDate().plusDays(1)));
         parameters.put("storeId", context.storeId());
-        List<RevenueDay> rows = jdbc.query("""
+        List<RevenueDay> rows = source.query("""
                 WITH calendar AS (
                     SELECT generate_series(CAST(:fromDate AS date), CAST(:toDate AS date), interval '1 day')::date AS date
                 ), events AS (
@@ -189,12 +199,12 @@ class ReportingQueryController {
                         "fullyReturnedCount", fullyReturnedCount, "returnCount", returnCount));
     }
 
-    private QueryResponse grossProfit(DateRange range) {
+    private QueryResponse grossProfit(DateRange range, NamedParameterJdbcTemplate source) {
         Map<String, Object> parameters = dateParameters(range);
         parameters.put("from", startOfDay(range.fromDate()));
         parameters.put("until", startOfDay(range.toDate().plusDays(1)));
         parameters.put("storeId", context.storeId());
-        List<GrossProfitDay> rows = jdbc.query("""
+        List<GrossProfitDay> rows = source.query("""
                 WITH calendar AS (
                     SELECT generate_series(CAST(:fromDate AS date), CAST(:toDate AS date), interval '1 day')::date AS date
                 ), sales AS (

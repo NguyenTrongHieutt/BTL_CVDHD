@@ -40,6 +40,7 @@ class ArchitectureRulesTest {
             Map.entry("stocktake", "inventory"), Map.entry("stocktake_line", "inventory"),
             Map.entry("sales_order", "sales"), Map.entry("sales_order_line", "sales"), Map.entry("payment", "sales"),
             Map.entry("sales_return", "sales"), Map.entry("sales_return_line", "sales"),
+            Map.entry("sales_order_request_failure", "sales"),
             Map.entry("loyalty_account", "sales"), Map.entry("loyalty_ledger", "sales"));
 
     private static final Pattern DML =

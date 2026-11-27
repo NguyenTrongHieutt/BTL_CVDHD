@@ -1,5 +1,6 @@
 package vn.nhom17.banhang.catalog.internal.product;
 
+import java.util.UUID;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -11,7 +12,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
-import vn.nhom17.banhang.catalog.internal.product.ProductImportService.ImportResult;
+import vn.nhom17.banhang.platform.BackofficeFileStore;
+import vn.nhom17.banhang.platform.BackofficeWriteQueue;
+import vn.nhom17.banhang.platform.ProblemException;
 
 /**
  * Nhập Sản phẩm từ XLSX/CSV (FR-6, SP-06), chỉ Chủ cửa hàng (cả tải file mẫu; quyền khai báo ở {@code SecurityConfig}
@@ -26,9 +29,13 @@ class ProductImportController {
     static final String PREVIEW_HEADER = "X-Import-Preview";
 
     private final ProductImportService imports;
+    private final BackofficeWriteQueue queue;
+    private final BackofficeFileStore files;
 
-    ProductImportController(ProductImportService imports) {
+    ProductImportController(ProductImportService imports, BackofficeWriteQueue queue, BackofficeFileStore files) {
         this.imports = imports;
+        this.queue = queue;
+        this.files = files;
     }
 
     /** File mẫu {@code .xlsx} ({@link ProductImportTemplate}), tải về với tên {@value ProductImportTemplate#FILENAME}. */
@@ -51,8 +58,16 @@ class ProductImportController {
 
     /** Chỉ đọc và kiểm tra; không tạo Danh mục, Sản phẩm, tồn kho hay chứng từ idempotency. */
     @PostMapping(path = "/import/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    ProductImportService.PreviewResult preview(@RequestParam(name = FILE_PART, required = false) MultipartFile file) {
-        return imports.preview(imports.read(file));
+    ResponseEntity<?> preview(
+            @RequestHeader(name = ProductController.IDEMPOTENCY_KEY_HEADER, required = false) String key,
+            @RequestParam(name = FILE_PART, required = false) MultipartFile file) {
+        if (queue.enabled()) {
+            UUID requestKey = BackofficeWriteQueue.parseKey(key);
+            if (requestKey == null) requestKey = UUID.randomUUID();
+            var reference = files.stage(ProductImportPreviewCommand.ACTION, requestKey, file);
+            return queue.submit(ProductImportPreviewCommand.ACTION, requestKey, reference).response();
+        }
+        return ResponseEntity.ok(imports.preview(imports.read(file)));
     }
 
     /**
@@ -61,10 +76,20 @@ class ProductImportController {
      * {@code Idempotent-Replay: true} với đúng kết quả lần đầu.
      */
     @PostMapping(path = "/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    ResponseEntity<ImportResult> importProducts(@RequestHeader(name = ProductController.IDEMPOTENCY_KEY_HEADER,
+    ResponseEntity<?> importProducts(@RequestHeader(name = ProductController.IDEMPOTENCY_KEY_HEADER,
                                                         required = false) String idempotencyKey,
                                                 @RequestHeader(name = PREVIEW_HEADER, required = false) String preview,
                                                 @RequestParam(name = FILE_PART, required = false) MultipartFile file) {
+        if (queue.enabled()) {
+            UUID key = ProductController.parseKey(idempotencyKey);
+            if (key == null) {
+                throw ProblemException.unprocessable("/errors/common/idempotency-key-missing", "Thiếu Idempotency-Key",
+                        "Yêu cầu phải có header Idempotency-Key là một UUID hợp lệ.");
+            }
+            var reference = files.stage(ProductImportConfirmCommand.ACTION, key, file);
+            return queue.submit(ProductImportConfirmCommand.ACTION, key,
+                    new ProductImportConfirmCommand.Payload(key, reference, preview)).response();
+        }
         ProductImportService.ImportFile read = imports.read(file);
         ProductImportService.Imported result = imports.importFile(ProductController.parseKey(idempotencyKey), read,
                 preview);

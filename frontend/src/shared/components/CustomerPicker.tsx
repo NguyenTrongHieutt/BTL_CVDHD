@@ -6,6 +6,7 @@ import type { InputRef } from 'antd';
 import {
   createCustomer, customersQueryKey, existingCustomerIdOf, fetchCustomer, fetchCustomers,
 } from '../api/customers';
+import { useStableIdempotencyKey } from '../api/useStableIdempotencyKey';
 import type { CustomerSummary } from '../types/catalog';
 import { ErrorAlert } from './ErrorAlert';
 
@@ -28,6 +29,7 @@ export function CustomerPicker({
   value, onChange, allowQuickCreate, disabled, placeholder = 'Tìm và chọn khách',
 }: CustomerPickerProps) {
   const queryClient = useQueryClient();
+  const createAttempt = useStableIdempotencyKey();
   const inputId = useId();
   const searchInput = useRef<InputRef>(null);
   const [search, setSearch] = useState('');
@@ -53,7 +55,7 @@ export function CustomerPicker({
   const quickCreate = useMutation({
     mutationFn: async (input: string) => {
       try {
-        return await createCustomer({ phone: input });
+        return await createCustomer({ phone: input }, createAttempt.keyFor({ phone: input }));
       } catch (error) {
         const existingId = existingCustomerIdOf(error);
         if (!existingId) throw error;
@@ -61,9 +63,11 @@ export function CustomerPicker({
       }
     },
     onSuccess: (customer) => {
+      createAttempt.succeeded();
       select(customer);
       setPhone(null);
     },
+    onError: createAttempt.failed,
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey: customersQueryKey });
     },

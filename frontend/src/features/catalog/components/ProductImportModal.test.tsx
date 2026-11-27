@@ -127,6 +127,12 @@ function importCalls() {
   );
 }
 
+function previewCalls() {
+  return fetchMock.mock.calls.filter(
+    ([input, init]) => init?.method === 'POST' && new URL(String(input), 'http://localhost').pathname === PREVIEW_PATH,
+  );
+}
+
 function keyOf(call: Parameters<typeof fetch>): string | null {
   return new Headers(call[1]?.headers).get('Idempotency-Key');
 }
@@ -302,6 +308,32 @@ describe('ProductImportModal', () => {
     fireEvent.click(await openPreview());
     await within(dialog()).findByText(/Đã nhập 3 Sản phẩm/);
     expect(importCalls()).toHaveLength(1);
+  });
+
+  it('giữ file và cùng khóa yêu cầu khi xem trước bị gián đoạn, đồng thời chỉ dẫn thử lại ngay tại file', async () => {
+    previewResponses = [
+      () => {
+        throw new TypeError('Failed to fetch');
+      },
+      () => json(PREVIEW),
+    ];
+    renderModal();
+    chooseFile(xlsxFile('can-kiem-tra.xlsx'));
+    await within(dialog()).findByText('can-kiem-tra.xlsx');
+    fireEvent.click(previewButton());
+
+    expect(await within(dialog()).findByText('Không kết nối được máy chủ.')).toBeTruthy();
+    expect(within(dialog()).getByText(/File đã chọn vẫn được giữ.*Xem trước.*thử lại cùng yêu cầu/)).toBeTruthy();
+    expect(within(dialog()).getByText('can-kiem-tra.xlsx')).toBeTruthy();
+    const first = previewCalls();
+    expect(first).toHaveLength(1);
+    expect(keyOf(first[0])).toMatch(UUID);
+
+    fireEvent.click(previewButton());
+    await within(dialog()).findByRole('button', { name: 'Lưu 3 sản phẩm' });
+    const calls = previewCalls();
+    expect(calls).toHaveLength(2);
+    expect(keyOf(calls[1])).toBe(keyOf(calls[0]));
   });
 
   it('trùng mã do người khác vừa tạo: báo dòng nào, không dòng nào được nhập', async () => {

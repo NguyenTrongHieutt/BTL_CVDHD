@@ -79,6 +79,10 @@ export interface ReceiptImportInput {
   edits: ReceiptImportEdit[];
 }
 
+export interface ReceiptImportPreviewInput extends ReceiptImportInput {
+  key: string;
+}
+
 export interface ReceiptImportCommit extends ReceiptImportInput {
   key: string;
   previewToken: string;
@@ -97,8 +101,10 @@ export function fetchReceiptImportTemplate(format: ReceiptImportFormat) {
   return api.get<Blob>(`${RECEIPTS_PATH}/import-template`, { query: { format }, responseType: 'blob' });
 }
 
-export function previewReceiptImport(input: ReceiptImportInput) {
-  return api.post<ReceiptImportPreview>(`${RECEIPTS_PATH}/import/preview`, importForm(input));
+export function previewReceiptImport(input: ReceiptImportPreviewInput) {
+  return api.post<ReceiptImportPreview>(`${RECEIPTS_PATH}/import/preview`, importForm(input), {
+    idempotencyKey: input.key,
+  });
 }
 
 export function saveReceiptImport(input: ReceiptImportCommit) {

@@ -6,7 +6,8 @@ import java.util.function.Supplier;
 
 /**
  * Chống tạo trùng chứng từ (AD-7). Gọi từ controller, KHÔNG gọi bên trong một transaction khác: dịch vụ này tự mở
- * transaction, giữ khóa và chạy {@code create} trong cùng transaction đó.
+ * transaction, giữ khóa và chạy {@code create} trong cùng transaction đó. Ngoại lệ nội bộ duy nhất là worker
+ * back-office đã khóa lệnh: dịch vụ tham gia transaction của worker để chứng từ và kết quả cuối commit cùng nhau.
  *
  * <ul>
  *   <li>Lần gửi đầu: chạy {@code create}, trả {@code replayed = false} (controller trả 201).</li>

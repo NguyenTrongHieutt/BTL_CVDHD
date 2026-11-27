@@ -62,6 +62,7 @@ class SecurityConfig {
                         .requestMatchers("/internal/**").access(new ServiceKeyAuthorization(props.internalServiceKey()))
                         // platform
                         .requestMatchers("/api/v1/platform/me", "/api/v1/platform/me/**").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/platform/write-requests/*").hasAnyRole(OWNER, STAFF)
                         .requestMatchers("/api/v1/platform/**").hasRole(OWNER)
                         // catalog: Khách hàng cả hai vai trò; xem Sản phẩm cả hai; thêm/sửa chỉ Chủ cửa hàng
                         .requestMatchers("/api/v1/catalog/customers", "/api/v1/catalog/customers/**").hasAnyRole(OWNER, STAFF)

@@ -10,6 +10,7 @@ import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -31,6 +33,7 @@ import vn.nhom17.banhang.catalog.VariantLookup;
 import vn.nhom17.banhang.inventory.StockQuery.StockView;
 import vn.nhom17.banhang.inventory.internal.stock.StockThresholdService;
 import vn.nhom17.banhang.platform.ProblemException;
+import vn.nhom17.banhang.platform.BackofficeWriteQueue;
 
 @RestController
 @RequestMapping("/api/v1/inventory")
@@ -40,17 +43,20 @@ public class StockController {
     private final CurrentContext context;
     private final VariantLookup variantLookup;
     private final StockThresholdService stockThresholdService;
+    private final BackofficeWriteQueue queue;
 
     public StockController(
         JdbcStockQuery stockQuery,
         CurrentContext context,
         VariantLookup variantLookup,
-        StockThresholdService stockThresholdService
+        StockThresholdService stockThresholdService,
+        BackofficeWriteQueue queue
     ) {
         this.stockQuery = stockQuery;
         this.context = context;
         this.variantLookup = variantLookup;
         this.stockThresholdService = stockThresholdService;
+        this.queue = queue;
     }
 
     @ReplicaRead
@@ -146,11 +152,18 @@ public class StockController {
     }
 
     @PutMapping("/stock/{variantId}/min-quantity")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateMinQuantity(
+    public ResponseEntity<?> updateMinQuantity(
         @PathVariable UUID variantId,
+        @RequestHeader(name = "Idempotency-Key", required = false) String key,
         @RequestBody UpdateMinQuantityRequest request
     ) {
+        if (queue.enabled()) return queue.submit("STOCK_MIN_QUANTITY_UPDATE", BackofficeWriteQueue.optionalKey(key),
+                new InventoryWriteCommands.MinQuantity(variantId, request)).response();
+        updateMinQuantityNow(variantId, request);
+        return ResponseEntity.noContent().build();
+    }
+
+    void updateMinQuantityNow(UUID variantId, UpdateMinQuantityRequest request) {
         BigDecimal value = request.minQuantity();
         if (value == null || value.signum() < 0) {
             throw invalidMinQuantity();

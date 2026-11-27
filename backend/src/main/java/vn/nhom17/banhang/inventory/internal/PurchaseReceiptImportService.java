@@ -75,6 +75,7 @@ class PurchaseReceiptImportService {
     record Imported(Receipt receipt, boolean replayed) {}
     private record Stock(UUID variantId, int quantity, long avgUnitCost, boolean active) {}
     private record RequestFingerprint(String fileHash, List<InputRow> rows, UUID supplierId, String note) {}
+    private record CommandFingerprint(String fileHash, String supplierId, String note, List<Edit> edits) {}
     private record PreviewFingerprint(UUID storeId, RequestFingerprint request, SupplierSummary supplier,
             String catalogFingerprint, List<Stock> stock, List<PreviewRow> rows, List<RowError> errors, Long total) {}
 
@@ -86,15 +87,19 @@ class PurchaseReceiptImportService {
             throw tooLarge();
         }
         byte[] content;
-        try {
-            content = file.getBytes();
+        try (var input = file.getInputStream()) {
+            content = input.readNBytes((int) MAX_BYTES + 1);
         } catch (IOException unreadable) {
             throw field("file", "Không đọc được tệp gửi lên. Hãy chọn lại file rồi thử lại.");
         }
+        return read(content, file.getOriginalFilename(), supplierId, note, edits);
+    }
+
+    ImportInput read(byte[] content, String filename, String supplierId, String note, String edits) {
         if (content.length > MAX_BYTES) {
             throw tooLarge();
         }
-        FileData parsed = catalog.read(content, file.getOriginalFilename(), readEdits(edits));
+        FileData parsed = catalog.read(content, filename, readEdits(edits));
         UUID supplier = null;
         if (supplierId != null && !supplierId.isBlank()) {
             try {
@@ -108,6 +113,14 @@ class PurchaseReceiptImportService {
         }
         return new ImportInput(sha256(content), parsed, supplier,
                 note == null || note.isBlank() ? null : note.strip());
+    }
+
+    /** Pure producer fingerprint: preserve the original preview-token-independent receipt idempotency. */
+    Object commandFingerprint(String fileHash, String supplierId, String note, String edits) {
+        String supplier = supplierId == null || supplierId.isBlank() ? null : supplierId.strip().toLowerCase(java.util.Locale.ROOT);
+        List<Edit> normalizedEdits = readEdits(edits).stream().sorted(Comparator.comparingInt(Edit::row)).toList();
+        return new CommandFingerprint(fileHash, supplier, note == null || note.isBlank() ? null : note.strip(),
+                normalizedEdits);
     }
 
     @Transactional(readOnly = true)

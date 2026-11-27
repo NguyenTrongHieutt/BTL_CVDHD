@@ -30,6 +30,7 @@ import vn.nhom17.banhang.platform.AuditLog;
 import vn.nhom17.banhang.platform.CurrentContext;
 import vn.nhom17.banhang.platform.IdempotencyService;
 import vn.nhom17.banhang.platform.ProblemException;
+import vn.nhom17.banhang.platform.BackofficeWriteQueue;
 
 @RestController
 @RequestMapping("/api/v1/inventory/stocktakes")
@@ -40,20 +41,28 @@ class StocktakeController {
     private final StockService stock;
     private final AuditLog audit;
     private final Clock clock;
+    private final BackofficeWriteQueue queue;
 
     StocktakeController(JdbcTemplate jdbc, CurrentContext context, IdempotencyService idempotency,
-                        StockService stock, AuditLog audit, Clock clock) {
+                        StockService stock, AuditLog audit, Clock clock, BackofficeWriteQueue queue) {
         this.jdbc = jdbc;
         this.context = context;
         this.idempotency = idempotency;
         this.stock = stock;
         this.audit = audit;
         this.clock = clock;
+        this.queue = queue;
     }
 
     @PostMapping
-    ResponseEntity<Stocktake> create(@RequestHeader(value = "Idempotency-Key", required = false) UUID key,
+    ResponseEntity<?> create(@RequestHeader(value = "Idempotency-Key", required = false) UUID key,
                                      @RequestBody CreateRequest request) {
+        if (queue.enabled()) return queue.submit("STOCKTAKE_CREATE", key,
+                new InventoryWriteCommands.Stocktake(key, request)).response();
+        return createNow(key, request);
+    }
+
+    ResponseEntity<Stocktake> createNow(UUID key, CreateRequest request) {
         var input = validate(request);
         String hash = idempotency.hash(Map.of("actorId", context.userId(), "request", input));
         var result = idempotency.execute(StockDocumentType.STOCKTAKE.name(), key, hash,

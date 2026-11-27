@@ -3,6 +3,7 @@ import { Alert, Button, Card, Form, InputNumber, Space, Typography } from 'antd'
 import { api } from '../../../shared/api/client';
 import type { PageResponse } from '../../../shared/api/client';
 import { useCurrentUser } from '../../../shared/api/session';
+import { useStableIdempotencyKey } from '../../../shared/api/useStableIdempotencyKey';
 import { ErrorAlert } from '../../../shared/components/ErrorAlert';
 import { LowStockPanel } from '../../../shared/components/LowStockPanel';
 import { RemoteFilterSelect } from '../../../shared/components/RemoteFilterSelect';
@@ -26,10 +27,14 @@ interface ThresholdForm {
 function StockThresholdForm() {
   const [form] = Form.useForm<ThresholdForm>();
   const queryClient = useQueryClient();
+  const idempotency = useStableIdempotencyKey();
   const update = useMutation({
     mutationFn: ({ variant, minQuantity }: ThresholdForm) =>
-      api.put<void>(`/api/v1/inventory/stock/${encodeURIComponent(variant.value)}/min-quantity`, { minQuantity }),
+      api.put<void>(`/api/v1/inventory/stock/${encodeURIComponent(variant.value)}/min-quantity`, { minQuantity }, {
+        idempotencyKey: idempotency.keyFor({ variantId: variant.value, minQuantity }),
+      }),
     onSuccess: async () => {
+      idempotency.succeeded();
       form.resetFields();
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: lowStockQueryKey }),
@@ -38,6 +43,7 @@ function StockThresholdForm() {
         queryClient.invalidateQueries({ queryKey: ['sales', 'sellable'] }),
       ]);
     },
+    onError: idempotency.failed,
   });
 
   return (

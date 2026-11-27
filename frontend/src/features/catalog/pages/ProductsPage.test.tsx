@@ -850,7 +850,7 @@ describe('ProductsPage', () => {
     const [call] = deactivations();
     expect(new URL(String(call[0]), 'http://localhost').pathname).toBe(`${PRODUCTS_PATH}/p-1/deactivate`);
     expect(call[1]?.body).toBeUndefined();
-    expect(keyOf(call)).toBeNull();
+    expect(keyOf(call)).toMatch(UUID);
     // Tồn kho và hàng bán được cũng tải lại: Sản phẩm ẩn khỏi màn bán hàng
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['catalog', 'products'] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['inventory', 'stock'] });
@@ -1345,8 +1345,7 @@ describe('ProductsPage — sửa Sản phẩm (FR-2, SP-02)', () => {
       sku: 'SP-00000002',
       barcode: '8935001800026',
     });
-    // Không phải chứng từ: không có Idempotency-Key
-    expect(keyOf(put)).toBeNull();
+    expect(keyOf(put)).toMatch(UUID);
     expect(await screen.findByText('Đã lưu Sản phẩm "Sản phẩm 02"')).toBeTruthy();
     // Bảng tải lại tại chỗ, hiện giá mới ngay; thứ tự không đổi
     await waitFor(() => expect(within(rowOf('Sản phẩm 02')).getByText(/2\.500/)).toBeTruthy());

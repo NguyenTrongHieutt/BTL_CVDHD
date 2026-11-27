@@ -49,6 +49,7 @@ beforeEach(() => {
 
 afterEach(() => {
   configureApiClient({ onUnauthorized: null });
+  vi.useRealTimers();
 });
 
 describe('headers và body', () => {
@@ -278,6 +279,140 @@ describe('quy tắc thử lại và Idempotency-Key (AD-7)', () => {
     expect(isRetryableError(make(503))).toBe(false);
     expect(isRetryableError(make(401))).toBe(false);
     expect(isRetryableError(make(404))).toBe(false);
+  });
+});
+
+describe('phản hồi ghi bất đồng bộ của back-office', () => {
+  const operationId = '123e4567-e89b-42d3-a456-426614174000';
+  const statusUrl = `/api/v1/platform/write-requests/${operationId}`;
+  const accepted = { operationId, status: 'ACCEPTED', statusUrl };
+
+  it('chờ PENDING đến SUCCEEDED, trả body/status gốc và đọc dữ liệu kế tiếp từ primary', async () => {
+    vi.useFakeTimers();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(accepted, { status: 202, headers: { Location: statusUrl } }))
+      .mockResolvedValueOnce(jsonResponse({ operationId, status: 'PENDING' }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          operationId,
+          status: 'SUCCEEDED',
+          result: { id: 'product-1', name: 'Trà nhài' },
+          responseStatus: 201,
+          responseHeaders: { Location: '/api/v1/catalog/products/product-1' },
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse({ items: [] }));
+
+    const write = apiRequest<{ id: string; name: string }>('/api/v1/catalog/products', {
+      method: 'POST',
+      body: { name: 'Trà nhài' },
+      idempotencyKey: 'key-product-1',
+    });
+    await vi.runAllTimersAsync();
+    const response = await write;
+
+    expect(response.data).toEqual({ id: 'product-1', name: 'Trà nhài' });
+    expect(response.status).toBe(201);
+    expect(response.headers.get('Location')).toBe('/api/v1/catalog/products/product-1');
+    expect(fetchMock.mock.calls.slice(1, 3).map(([input]) => String(input))).toEqual([statusUrl, statusUrl]);
+
+    await api.get('/api/v1/catalog/products');
+    expect(lastCall().headers.get('X-Read-Primary')).toBe('true');
+  });
+
+  it('ánh xạ FAILED về Problem Details và status gốc để giao diện lỗi cũ tiếp tục hoạt động', async () => {
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(accepted, { status: 202 }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          operationId,
+          status: 'FAILED',
+          responseStatus: 409,
+          problem: {
+            type: '/errors/catalog/customer-phone-taken',
+            title: 'Số điện thoại đã được sử dụng',
+            status: 409,
+            detail: 'Khách hàng này đã tồn tại.',
+            errors: [{ field: 'phone', message: 'Số điện thoại đã được sử dụng' }],
+            existingCustomerId: 'customer-1',
+          },
+        }),
+      );
+
+    const error = (await api
+      .post('/api/v1/catalog/customers', { phone: '0912345678' }, { idempotencyKey: 'key-customer-1' })
+      .catch((caught: unknown) => caught)) as ApiError;
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({
+      type: '/errors/catalog/customer-phone-taken',
+      status: 409,
+      detail: 'Khách hàng này đã tồn tại.',
+      errors: [{ field: 'phone', message: 'Số điện thoại đã được sử dụng' }],
+    });
+    expect(error.extensions.existingCustomerId).toBe('customer-1');
+  });
+
+  it('giới hạn thời gian chờ khi worker tạm dừng và cho gửi lại cùng Idempotency-Key', async () => {
+    vi.useFakeTimers();
+    fetchMock.mockImplementation(async (input) => {
+      const path = String(input);
+      if (path === statusUrl) return jsonResponse({ operationId, status: 'PENDING' });
+      return jsonResponse(accepted, { status: 202 });
+    });
+    const options = { idempotencyKey: 'stable-key', body: { minQuantity: 5 } } as const;
+
+    const first = api.put('/api/v1/inventory/stock/variant-1/min-quantity', options.body, {
+      idempotencyKey: options.idempotencyKey,
+    }).catch((caught: unknown) => caught);
+    await vi.advanceTimersByTimeAsync(60_000);
+    const error = (await first) as ApiError;
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error.type).toBe('/errors/client/write-status-pending');
+    expect(shouldReuseIdempotencyKey(error)).toBe(true);
+    expect(fetchMock.mock.calls.length).toBeLessThan(100);
+
+    fetchMock.mockReset();
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse(accepted, { status: 202 }))
+      .mockResolvedValueOnce(
+        jsonResponse({ operationId, status: 'SUCCEEDED', responseStatus: 204 }),
+      );
+    await api.put('/api/v1/inventory/stock/variant-1/min-quantity', options.body, {
+      idempotencyKey: options.idempotencyKey,
+    });
+    const writeHeaders = new Headers(fetchMock.mock.calls[0]?.[1]?.headers);
+    expect(writeHeaders.get(IDEMPOTENCY_KEY_HEADER)).toBe('stable-key');
+  });
+
+  it('không theo dõi 202 của POS khi không có statusUrl hàng đợi', async () => {
+    const order = { orderCode: 'DH-000123', status: 'PAID' };
+    fetchMock.mockResolvedValueOnce(jsonResponse(order, { status: 202 }));
+
+    const response = await apiRequest<typeof order>('/api/v1/sales/orders', {
+      method: 'POST',
+      body: { lines: [] },
+      idempotencyKey: 'pos-key',
+    });
+
+    expect(response.data).toEqual(order);
+    expect(response.status).toBe(202);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('không gọi statusUrl tuyệt đối hoặc không khớp operationId', async () => {
+    const unsafe = { ...accepted, statusUrl: 'https://evil.example/write-requests/' + operationId };
+    fetchMock.mockResolvedValueOnce(jsonResponse(unsafe, { status: 202 }));
+
+    const response = await apiRequest<typeof unsafe>('/api/v1/catalog/products', {
+      method: 'POST',
+      body: {},
+      idempotencyKey: 'safe-path-key',
+    });
+
+    expect(response.data).toEqual(unsafe);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

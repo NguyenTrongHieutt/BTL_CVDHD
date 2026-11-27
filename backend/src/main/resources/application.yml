@@ -63,6 +63,20 @@ springdoc:
     path: /swagger-ui.html
 
 app:
+  backoffice:
+    queue:
+      publish-enabled: ${APP_BACKOFFICE_QUEUE_PUBLISH_ENABLED:false}
+      consume-enabled: ${APP_BACKOFFICE_QUEUE_CONSUME_ENABLED:false}
+      file-consume-enabled: ${APP_BACKOFFICE_QUEUE_FILE_CONSUME_ENABLED:false}
+      topic: ${APP_BACKOFFICE_QUEUE_TOPIC:backoffice.write-commands.v1}
+      file-topic: ${APP_BACKOFFICE_QUEUE_FILE_TOPIC:backoffice.file-commands.v1}
+      consumer-group: ${APP_BACKOFFICE_QUEUE_CONSUMER_GROUP:backoffice-write-worker-v1}
+      file-consumer-group: ${APP_BACKOFFICE_QUEUE_FILE_CONSUMER_GROUP:backoffice-file-worker-v1}
+      publish-timeout-ms: ${APP_BACKOFFICE_QUEUE_PUBLISH_TIMEOUT_MS:10000}
+    files:
+      directory: ${APP_BACKOFFICE_FILES_DIRECTORY:./var/import-files}
+      max-total-bytes: ${APP_BACKOFFICE_FILES_MAX_TOTAL_BYTES:268435456}
+      ttl: ${APP_BACKOFFICE_FILES_TTL:P7D}
   security:
     jwt-secret: ${JWT_SECRET:}
     token-ttl: 8h                    # AD-9: exp = lúc cấp + 8 giờ

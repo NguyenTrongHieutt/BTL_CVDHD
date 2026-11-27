@@ -11,6 +11,8 @@ create_topic() {
     --config segment.bytes=16777216 --config segment.ms=3600000
 }
 create_topic sales.order-commands.v1 3
+create_topic backoffice.write-commands.v1 3
+create_topic backoffice.file-commands.v1 1
 # Dữ liệu, BEGIN/END, heartbeat và thông báo snapshot dùng cùng partition.
 create_topic banhang.reporting 1
 
@@ -23,7 +25,8 @@ for topic in banhang.connect.config banhang.connect.offsets banhang.connect.stat
 done
 
 # Không sửa topic có dữ liệu tự động; cấu hình cũ sai phải được xem xét cùng backlog.
-for spec in 'sales.order-commands.v1 3 delete' 'banhang.reporting 1 delete' \
+for spec in 'sales.order-commands.v1 3 delete' 'backoffice.write-commands.v1 3 delete' \
+  'backoffice.file-commands.v1 1 delete' 'banhang.reporting 1 delete' \
   'banhang.connect.config 1 compact' 'banhang.connect.offsets 1 compact' 'banhang.connect.status 1 compact'; do
   read -r topic expected policy <<< "$spec"
   description=$("$admin/kafka-topics.sh" --bootstrap-server "$broker" --describe --topic "$topic")

@@ -3,11 +3,12 @@
  *
  * Bảng dùng khóa `['catalog', 'customers', { q, page, size, sort }]`. Thêm, sửa xong (thành công hay lỗi) thì
  * invalidate `['catalog', 'customers']`: lỗi trùng số (`409`), không tìm thấy (`404`) cho thấy bảng đang cũ, mất phản
- * hồi có thể là máy chủ đã ghi rồi. Khách hàng không phải chứng từ nên không có `Idempotency-Key`: gửi lại cùng số bị
- * backend chặn bằng `409 customer-phone-taken` kèm `existingCustomerId`.
+ * hồi có thể là máy chủ đã ghi rồi. Mọi thao tác ghi mang `Idempotency-Key` để lần gửi lại tiếp tục đúng yêu cầu nền;
+ * trùng số vẫn trả `409 customer-phone-taken` kèm `existingCustomerId`.
  */
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '../../../shared/api/client';
+import { useStableIdempotencyKey } from '../../../shared/api/useStableIdempotencyKey';
 import { createCustomer, customerPath, customersQueryKey } from '../../../shared/api/customers';
 import type { Customer, CustomerRequest } from '../../../shared/types/catalog';
 import type { Uuid } from '../../../shared/types/common';
@@ -56,17 +57,28 @@ export function customerBody(request: CustomerRequest): CustomerRequest {
 
 export function useCreateCustomer() {
   const queryClient = useQueryClient();
+  const idempotency = useStableIdempotencyKey();
   return useMutation({
-    mutationFn: (request: CustomerRequest) => createCustomer(customerBody(request)),
+    mutationFn: (request: CustomerRequest) => {
+      const body = customerBody(request);
+      return createCustomer(body, idempotency.keyFor(body));
+    },
+    onSuccess: idempotency.succeeded,
+    onError: idempotency.failed,
     onSettled: () => queryClient.invalidateQueries({ queryKey: customersQueryKey }),
   });
 }
 
 export function useUpdateCustomer() {
   const queryClient = useQueryClient();
+  const idempotency = useStableIdempotencyKey();
   return useMutation({
-    mutationFn: ({ id, request }: { id: Uuid; request: CustomerRequest }) =>
-      api.put<Customer>(customerPath(id), customerBody(request)),
+    mutationFn: ({ id, request }: { id: Uuid; request: CustomerRequest }) => {
+      const body = customerBody(request);
+      return api.put<Customer>(customerPath(id), body, { idempotencyKey: idempotency.keyFor({ id, body }) });
+    },
+    onSuccess: idempotency.succeeded,
+    onError: idempotency.failed,
     onSettled: () => queryClient.invalidateQueries({ queryKey: customersQueryKey }),
   });
 }

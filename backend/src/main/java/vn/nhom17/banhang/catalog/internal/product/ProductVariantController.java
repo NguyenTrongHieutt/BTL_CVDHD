@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import vn.nhom17.banhang.catalog.internal.product.ProductController.VariantInput;
+import vn.nhom17.banhang.platform.BackofficeWriteQueue;
 
 /**
  * Biến thể của một Sản phẩm (FR-7, SP-07): thêm, sửa, ngừng kinh doanh từng Biến thể. Chỉ Chủ cửa hàng
@@ -24,9 +25,11 @@ import vn.nhom17.banhang.catalog.internal.product.ProductController.VariantInput
 class ProductVariantController {
 
     private final ProductVariantService variants;
+    private final BackofficeWriteQueue queue;
 
-    ProductVariantController(ProductVariantService variants) {
+    ProductVariantController(ProductVariantService variants, BackofficeWriteQueue queue) {
         this.variants = variants;
+        this.queue = queue;
     }
 
     /**
@@ -57,11 +60,17 @@ class ProductVariantController {
      * nội dung {@code 200} + {@code Idempotent-Replay: true}.
      */
     @PostMapping
-    ResponseEntity<ProductView> add(@PathVariable UUID id,
+    ResponseEntity<?> add(@PathVariable UUID id,
                                     @RequestHeader(name = ProductController.IDEMPOTENCY_KEY_HEADER, required = false)
                                     String idempotencyKey,
                                     @RequestBody AddVariantRequest request) {
-        ProductService.Created result = variants.add(id, ProductController.parseKey(idempotencyKey), request);
+        UUID key = ProductController.parseKey(idempotencyKey);
+        if (queue.enabled()) return queue.submit("PRODUCT_VARIANT_ADD", key,
+                new ProductWriteCommands.AddVariant(id, key, request)).response();
+        return addedResponse(variants.add(id, key, request));
+    }
+
+    static ResponseEntity<ProductView> addedResponse(ProductService.Created result) {
         if (result.replayed()) {
             return ResponseEntity.ok().header(ProductController.IDEMPOTENT_REPLAY_HEADER, "true")
                     .body(result.product());
@@ -70,14 +79,20 @@ class ProductVariantController {
     }
 
     @PutMapping("/{variantId}")
-    ProductView update(@PathVariable UUID id, @PathVariable UUID variantId,
+    Object update(@PathVariable UUID id, @PathVariable UUID variantId,
+                       @RequestHeader(name = ProductController.IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey,
                        @RequestBody UpdateVariantRequest request) {
+        if (queue.enabled()) return queue.submit("PRODUCT_VARIANT_UPDATE", BackofficeWriteQueue.optionalKey(idempotencyKey),
+                new ProductWriteCommands.UpdateVariant(id, variantId, request)).response();
         return variants.update(id, variantId, request);
     }
 
     /** Ngừng kinh doanh một Biến thể: không có body; một chiều, gọi lại với Biến thể đã ngừng vẫn {@code 200}. */
     @PostMapping("/{variantId}/deactivate")
-    ProductView deactivate(@PathVariable UUID id, @PathVariable UUID variantId) {
+    Object deactivate(@PathVariable UUID id, @PathVariable UUID variantId,
+                       @RequestHeader(name = ProductController.IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey) {
+        if (queue.enabled()) return queue.submit("PRODUCT_VARIANT_DEACTIVATE", BackofficeWriteQueue.optionalKey(idempotencyKey),
+                new ProductWriteCommands.DeactivateVariant(id, variantId)).response();
         return variants.deactivate(id, variantId);
     }
 }

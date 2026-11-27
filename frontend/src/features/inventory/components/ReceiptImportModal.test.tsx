@@ -8,6 +8,7 @@ import { ReceiptImportModal } from './ReceiptImportModal';
 
 const fetchMock = vi.fn<typeof fetch>();
 const supplierId = '01234567-1234-4000-8000-0123456789ab';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const receipt = { receiptId: 'receipt', code: 'PN00001', receivedAt: '2026-11-26T07:00:00Z', totalAmount: 71_000 };
 const preview: ReceiptImportPreview = {
   previewToken: 'checked', existingRows: 1, newProducts: 0, newVariants: 1, totalAmount: 71_000,
@@ -38,14 +39,15 @@ function json(data: unknown, status = 200) {
 
 type ReceiptTestOptions = {
   previews?: ReceiptImportPreview[];
+  inspect?: () => Response;
   save?: () => Response;
 };
 
-function mockBackend({ previews = [preview], save = () => json(receipt, 201) }: ReceiptTestOptions = {}) {
+function mockBackend({ previews = [preview], inspect, save = () => json(receipt, 201) }: ReceiptTestOptions = {}) {
   fetchMock.mockImplementation(async (input, options) => {
     const { pathname } = new URL(String(input), 'http://localhost');
     if (pathname === `${RECEIPTS_PATH}/import/preview` && options?.method === 'POST') {
-      return json(previews.shift() ?? preview);
+      return inspect ? inspect() : json(previews.shift() ?? preview);
     }
     if (pathname === `${RECEIPTS_PATH}/import` && options?.method === 'POST') return save();
     if (pathname === '/api/v1/catalog/suppliers') return json({ items: [], page: 0, size: 30, total: 0 });
@@ -179,5 +181,32 @@ describe('ReceiptImportModal', () => {
     expect(calls[0].get('Idempotency-Key')).toBeTruthy();
     expect(calls[1].get('Idempotency-Key')).toBe(calls[0].get('Idempotency-Key'));
     expect(calls[1].get('X-Import-Preview')).toBe(calls[0].get('X-Import-Preview'));
+  });
+
+  it('giữ file và cùng khóa khi xem trước phiếu bị gián đoạn, kèm chỉ dẫn thử lại tại vùng tải file', async () => {
+    let attempts = 0;
+    mockBackend({ inspect: () => {
+      if (attempts++ === 0) throw new TypeError('mất kết nối');
+      return json(preview);
+    } });
+    renderModal();
+    const input = screen.getByRole('dialog').querySelector('input[type=file]');
+    if (!input) throw new Error('Thiếu ô chọn file');
+    fireEvent.change(input, { target: { files: [new File(['mẫu'], 'phieu-can-kiem-tra.csv')] } });
+    fireEvent.click(modal().getByRole('button', { name: 'Xem trước' }));
+
+    expect(await modal().findByText('Không kết nối được máy chủ.')).toBeTruthy();
+    expect(modal().getByText(/File đã chọn vẫn được giữ.*Xem trước.*thử lại cùng yêu cầu/)).toBeTruthy();
+    expect(modal().getByText('phieu-can-kiem-tra.csv')).toBeTruthy();
+    const first = requests('/preview');
+    expect(first).toHaveLength(1);
+    const firstKey = new Headers(first[0][1]?.headers).get('Idempotency-Key');
+    expect(firstKey).toMatch(UUID);
+
+    fireEvent.click(modal().getByRole('button', { name: 'Xem trước' }));
+    await modal().findByRole('button', { name: 'Xác nhận nhập kho' });
+    const calls = requests('/preview');
+    expect(calls).toHaveLength(2);
+    expect(new Headers(calls[1][1]?.headers).get('Idempotency-Key')).toBe(firstKey);
   });
 });
